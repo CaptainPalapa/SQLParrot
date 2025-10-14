@@ -1,0 +1,14 @@
+{
+  "connection": {
+    "server": "localhost",
+    "port": 1433,
+    "username": "",
+    "password": "",
+    "trustServerCertificate": true
+  },
+  "preferences": {
+    "defaultGroup": "",
+    "autoRefresh": true,
+    "refreshInterval": 5000
+  }
+}
