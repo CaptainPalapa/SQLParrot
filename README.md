@@ -53,10 +53,10 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
    .\setup-env.ps1
    
    # Or manually create .env file
-   cp env.example .env
+   cp backend/env.example backend/.env
    ```
    
-   **Edit `.env` file and add your SQL Server credentials:**
+   **Edit `backend/.env` file and add your SQL Server credentials:**
    ```env
    SQL_SERVER=your_server_address
    SQL_USERNAME=your_username

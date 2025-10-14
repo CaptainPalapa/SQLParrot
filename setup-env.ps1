@@ -20,10 +20,10 @@ NODE_ENV=development
 PORT=3001
 "@
 
-$envContent | Out-File -FilePath ".env" -Encoding UTF8
+$envContent | Out-File -FilePath "backend/.env" -Encoding UTF8
 
-Write-Host "✅ Created .env file" -ForegroundColor Green
-Write-Host "📝 Please edit .env file and add your SQL Server credentials:" -ForegroundColor Yellow
+Write-Host "✅ Created backend/.env file" -ForegroundColor Green
+Write-Host "📝 Please edit backend/.env file and add your SQL Server credentials:" -ForegroundColor Yellow
 Write-Host "   - SQL_USERNAME=your_username" -ForegroundColor Cyan
 Write-Host "   - SQL_PASSWORD=your_password" -ForegroundColor Cyan
 Write-Host "   - SQL_SERVER=your_server_address" -ForegroundColor Cyan
