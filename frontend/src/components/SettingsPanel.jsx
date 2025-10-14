@@ -1,15 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Save, TestTube, CheckCircle, XCircle } from 'lucide-react';
+import { Save, TestTube, CheckCircle, XCircle, Shield, Database } from 'lucide-react';
 
 const SettingsPanel = () => {
   const [settings, setSettings] = useState({
-    connection: {
-      server: 'localhost',
-      port: 1433,
-      username: '',
-      password: '',
-      trustServerCertificate: true
-    },
     preferences: {
       defaultGroup: '',
       autoRefresh: true,
@@ -42,7 +35,7 @@ const SettingsPanel = () => {
       });
       
       if (response.ok) {
-        alert('Settings saved successfully!\n\nNote: Username and password are stored securely in environment variables, not in the settings file.');
+        alert('Settings saved successfully!');
       }
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -53,14 +46,14 @@ const SettingsPanel = () => {
   const handleTestConnection = async () => {
     setIsTestingConnection(true);
     setConnectionStatus(null);
-
+    
     try {
       const response = await fetch('/api/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings.connection)
+        body: JSON.stringify({})
       });
-
+      
       const result = await response.json();
       setConnectionStatus(result.success ? 'success' : 'error');
     } catch (error) {
@@ -68,16 +61,6 @@ const SettingsPanel = () => {
     } finally {
       setIsTestingConnection(false);
     }
-  };
-
-  const updateConnection = (field, value) => {
-    setSettings(prev => ({
-      ...prev,
-      connection: {
-        ...prev.connection,
-        [field]: value
-      }
-    }));
   };
 
   const updatePreferences = (field, value) => {
@@ -101,90 +84,38 @@ const SettingsPanel = () => {
         </p>
       </div>
 
-      {/* Connection Settings */}
+      {/* Connection Status */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
-          SQL Server Connection
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
-              Server
-            </label>
-            <input
-              type="text"
-              value={settings.connection.server}
-              onChange={(e) => updateConnection('server', e.target.value)}
-              className="input"
-              placeholder="localhost"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
-              Port
-            </label>
-            <input
-              type="number"
-              value={settings.connection.port}
-              onChange={(e) => updateConnection('port', parseInt(e.target.value))}
-              className="input"
-              placeholder="1433"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
-              Username
-            </label>
-            <input
-              type="text"
-              value={settings.connection.username}
-              onChange={(e) => updateConnection('username', e.target.value)}
-              className="input"
-              placeholder="sa"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              value={settings.connection.password}
-              onChange={(e) => updateConnection('password', e.target.value)}
-              className="input"
-              placeholder="••••••••"
-            />
-          </div>
+        <div className="flex items-center space-x-3 mb-4">
+          <Shield className="w-6 h-6 text-green-600" />
+          <h3 className="text-lg font-semibold text-secondary-900 dark:text-white">
+            SQL Server Connection
+          </h3>
         </div>
-
-        <div className="mt-4">
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={settings.connection.trustServerCertificate}
-              onChange={(e) => updateConnection('trustServerCertificate', e.target.checked)}
-              className="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
-            />
-            <span className="text-sm text-secondary-700 dark:text-secondary-300">
-              Trust Server Certificate
+        
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-4">
+          <div className="flex items-center space-x-2 mb-2">
+            <Database className="w-5 h-5 text-green-600" />
+            <span className="text-sm font-medium text-green-800 dark:text-green-200">
+              Secure Configuration
             </span>
-          </label>
+          </div>
+          <p className="text-sm text-green-700 dark:text-green-300">
+            Connection credentials are securely stored in environment variables (backend/.env file) 
+            and are never committed to version control.
+          </p>
         </div>
 
-        <div className="mt-6 flex space-x-3">
+        <div className="flex space-x-3">
           <button
             onClick={handleTestConnection}
             disabled={isTestingConnection}
-            className="btn-secondary flex items-center space-x-2"
+            className="btn-primary flex items-center space-x-2"
           >
             <TestTube className="w-4 h-4" />
             <span>{isTestingConnection ? 'Testing...' : 'Test Connection'}</span>
           </button>
-
+          
           {connectionStatus && (
             <div className="flex items-center space-x-2">
               {connectionStatus === 'success' ? (
@@ -208,7 +139,7 @@ const SettingsPanel = () => {
         <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
           Preferences
         </h3>
-
+        
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
@@ -222,7 +153,7 @@ const SettingsPanel = () => {
               placeholder="Leave empty for no default"
             />
           </div>
-
+          
           <div className="flex items-center space-x-2">
             <input
               type="checkbox"
@@ -234,7 +165,7 @@ const SettingsPanel = () => {
               Auto-refresh snapshots
             </span>
           </div>
-
+          
           <div>
             <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
               Refresh Interval (milliseconds)
