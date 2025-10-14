@@ -47,12 +47,29 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
    npm run install:all
    ```
 
-3. **Start the application**
+3. **Set up secure environment variables**
+   ```bash
+   # Windows PowerShell
+   .\setup-env.ps1
+   
+   # Or manually create .env file
+   cp env.example .env
+   ```
+   
+   **Edit `.env` file and add your SQL Server credentials:**
+   ```env
+   SQL_SERVER=your_server_address
+   SQL_USERNAME=your_username
+   SQL_PASSWORD=your_password
+   SQL_TRUST_CERTIFICATE=true
+   ```
+
+4. **Start the application**
    ```bash
    npm run dev
    ```
 
-4. **Open your browser**
+5. **Open your browser**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:3001
 
@@ -182,12 +199,32 @@ npm run dev:backend
 - Appropriate permissions for snapshot operations
 - Network access from the application server
 
-### Environment Variables
-Create a `.env` file in the backend directory:
+### 🔒 Security & Environment Variables
+
+**SQL Parrot uses secure environment variables for sensitive data:**
+
+- **Credentials are stored in `.env` file** (never committed to git)
+- **Settings file only stores non-sensitive preferences**
+- **Passwords are masked in the UI** (`***masked***`)
+
+**Required Environment Variables:**
 ```env
-PORT=3001
+# SQL Server Connection (sensitive - stored in .env)
+SQL_SERVER=your_server_address
+SQL_USERNAME=your_username
+SQL_PASSWORD=your_password
+SQL_TRUST_CERTIFICATE=true
+
+# Application Settings
 NODE_ENV=development
+PORT=3001
 ```
+
+**Security Features:**
+- ✅ Credentials never stored in version control
+- ✅ Settings API masks sensitive data
+- ✅ Environment variables take precedence over settings file
+- ✅ `.env` file is gitignored
 
 ## 🤝 Contributing
 

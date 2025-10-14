@@ -59,20 +59,21 @@ let sqlConfig = null;
 
 async function getSqlConfig() {
   if (!sqlConfig) {
+    // Use environment variables for sensitive data, fallback to settings file for non-sensitive
     const settings = await readJsonFile(SETTINGS_FILE);
-    if (settings && settings.connection) {
-      sqlConfig = {
-        server: settings.connection.server,
-        port: settings.connection.port,
-        user: settings.connection.username,
-        password: settings.connection.password,
-        database: 'master',
-        options: {
-          encrypt: false,
-          trustServerCertificate: settings.connection.trustServerCertificate || true
-        }
-      };
-    }
+    
+    sqlConfig = {
+      server: process.env.SQL_SERVER || settings?.connection?.server || 'localhost',
+      port: parseInt(process.env.SQL_PORT) || settings?.connection?.port || 1433,
+      user: process.env.SQL_USERNAME || settings?.connection?.username || '',
+      password: process.env.SQL_PASSWORD || settings?.connection?.password || '',
+      database: 'master',
+      options: {
+        encrypt: false,
+        trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || 
+                                settings?.connection?.trustServerCertificate || true
+      }
+    };
   }
   return sqlConfig;
 }
@@ -169,23 +170,41 @@ app.delete('/api/groups/:id', async (req, res) => {
   }
 });
 
-// Get settings
+// Get settings (without sensitive data)
 app.get('/api/settings', async (req, res) => {
   try {
     const data = await readJsonFile(SETTINGS_FILE);
-    res.json(data || {});
+    // Return settings but mask sensitive data
+    const safeSettings = {
+      ...data,
+      connection: {
+        ...data?.connection,
+        username: data?.connection?.username ? '***masked***' : '',
+        password: data?.connection?.password ? '***masked***' : ''
+      }
+    };
+    res.json(safeSettings);
   } catch (error) {
     res.status(500).json({ error: 'Failed to read settings' });
   }
 });
 
-// Update settings
+// Update settings (only non-sensitive data)
 app.put('/api/settings', async (req, res) => {
   try {
     const settings = req.body;
-    await writeJsonFile(SETTINGS_FILE, settings);
+    // Don't store sensitive data in settings file
+    const safeSettings = {
+      ...settings,
+      connection: {
+        ...settings.connection,
+        username: '', // Don't store username in file
+        password: ''  // Don't store password in file
+      }
+    };
+    await writeJsonFile(SETTINGS_FILE, safeSettings);
     sqlConfig = null; // Reset SQL config to reload
-    res.json(settings);
+    res.json(safeSettings);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update settings' });
   }

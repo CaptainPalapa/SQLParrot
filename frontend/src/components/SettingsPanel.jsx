@@ -40,9 +40,9 @@ const SettingsPanel = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });
-
+      
       if (response.ok) {
-        alert('Settings saved successfully!');
+        alert('Settings saved successfully!\n\nNote: Username and password are stored securely in environment variables, not in the settings file.');
       }
     } catch (error) {
       console.error('Error saving settings:', error);
