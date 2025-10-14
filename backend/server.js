@@ -61,7 +61,7 @@ async function getSqlConfig() {
   if (!sqlConfig) {
     // Use environment variables for sensitive data, fallback to settings file for non-sensitive
     const settings = await readJsonFile(SETTINGS_FILE);
-    
+
     sqlConfig = {
       server: process.env.SQL_SERVER || settings?.connection?.server || 'localhost',
       port: parseInt(process.env.SQL_PORT) || settings?.connection?.port || 1433,
@@ -70,7 +70,7 @@ async function getSqlConfig() {
       database: 'master',
       options: {
         encrypt: false,
-        trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || 
+        trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' ||
                                 settings?.connection?.trustServerCertificate || true
       }
     };
@@ -95,22 +95,22 @@ app.post('/api/groups', async (req, res) => {
   try {
     const { name, databases } = req.body;
     const data = await readJsonFile(GROUPS_FILE) || { groups: [] };
-    
+
     const newGroup = {
       id: `group-${Date.now()}`,
       name,
       databases: databases || []
     };
-    
+
     data.groups.push(newGroup);
     await writeJsonFile(GROUPS_FILE, data);
-    
+
     await addToHistory({
       type: 'create_group',
       groupName: name,
       databaseCount: databases?.length || 0
     });
-    
+
     res.json(newGroup);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create group' });
@@ -123,21 +123,21 @@ app.put('/api/groups/:id', async (req, res) => {
     const { id } = req.params;
     const { name, databases } = req.body;
     const data = await readJsonFile(GROUPS_FILE) || { groups: [] };
-    
+
     const groupIndex = data.groups.findIndex(g => g.id === id);
     if (groupIndex === -1) {
       return res.status(404).json({ error: 'Group not found' });
     }
-    
+
     data.groups[groupIndex] = { ...data.groups[groupIndex], name, databases };
     await writeJsonFile(GROUPS_FILE, data);
-    
+
     await addToHistory({
       type: 'update_group',
       groupName: name,
       databaseCount: databases?.length || 0
     });
-    
+
     res.json(data.groups[groupIndex]);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update group' });
@@ -149,21 +149,21 @@ app.delete('/api/groups/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const data = await readJsonFile(GROUPS_FILE) || { groups: [] };
-    
+
     const groupIndex = data.groups.findIndex(g => g.id === id);
     if (groupIndex === -1) {
       return res.status(404).json({ error: 'Group not found' });
     }
-    
+
     const deletedGroup = data.groups[groupIndex];
     data.groups.splice(groupIndex, 1);
     await writeJsonFile(GROUPS_FILE, data);
-    
+
     await addToHistory({
       type: 'delete_group',
       groupName: deletedGroup.name
     });
-    
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete group' });
@@ -217,26 +217,34 @@ app.post('/api/test-connection', async (req, res) => {
     if (!config) {
       return res.status(400).json({ error: 'No SQL Server configuration found' });
     }
-    
+
     const pool = await sql.connect(config);
-    
+
     // Test basic connection
     await pool.request().query('SELECT 1 as test');
-    
-    // Get database count
-    const dbResult = await pool.request().query(`
-      SELECT COUNT(*) as database_count 
-      FROM sys.databases 
-      WHERE database_id > 4  -- Exclude system databases
-    `);
-    
-    const databaseCount = dbResult.recordset[0].database_count;
-    
+
+    // Get database count (user databases only)
+    let databaseCount = 0;
+    try {
+      const dbResult = await pool.request().query(`
+        SELECT COUNT(*) as database_count
+        FROM sys.databases
+        WHERE database_id > 4
+        AND state = 0  -- Only online databases
+      `);
+      databaseCount = dbResult.recordset[0].database_count;
+    } catch (dbError) {
+      console.log('Could not get database count:', dbError.message);
+      // Continue without database count
+    }
+
     await pool.close();
-    
-    res.json({ 
-      success: true, 
-      message: `Connection successful - ${databaseCount} databases found`,
+
+    res.json({
+      success: true,
+      message: databaseCount > 0 ?
+        `Connection successful - ${databaseCount} databases found` :
+        'Connection successful',
       databaseCount: databaseCount
     });
   } catch (error) {
@@ -250,19 +258,19 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
     const { id } = req.params;
     const data = await readJsonFile(GROUPS_FILE) || { groups: [] };
     const group = data.groups.find(g => g.id === id);
-    
+
     if (!group) {
       return res.status(404).json({ error: 'Group not found' });
     }
-    
+
     const config = await getSqlConfig();
     if (!config) {
       return res.status(400).json({ error: 'No SQL Server configuration found' });
     }
-    
+
     const pool = await sql.connect(config);
     const snapshots = [];
-    
+
     for (const database of group.databases) {
       try {
         const result = await pool.request().query(`
@@ -278,7 +286,7 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
           WHERE d.source_database_id IS NOT NULL
           AND d.name LIKE '${database}_snapshot_%'
         `);
-        
+
         snapshots.push(...result.recordset.map(row => ({
           ...row,
           sourceDatabase: database
@@ -287,7 +295,7 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
         console.error(`Error querying snapshots for ${database}:`, dbError);
       }
     }
-    
+
     await pool.close();
     res.json(snapshots);
   } catch (error) {
@@ -302,58 +310,58 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
     const { snapshotName } = req.body;
     const data = await readJsonFile(GROUPS_FILE) || { groups: [] };
     const group = data.groups.find(g => g.id === id);
-    
+
     if (!group) {
       return res.status(404).json({ error: 'Group not found' });
     }
-    
+
     const config = await getSqlConfig();
     if (!config) {
       return res.status(400).json({ error: 'No SQL Server configuration found' });
     }
-    
+
     const pool = await sql.connect(config);
     const results = [];
-    
+
     for (const database of group.databases) {
       try {
         const fullSnapshotName = `${database}_snapshot_${snapshotName}`;
         const snapshotPath = `C:\\Snapshots\\${fullSnapshotName}.ss`;
-        
+
         // Get database files
         const dbFiles = await pool.request().query(`
-          SELECT name, physical_name 
-          FROM sys.master_files 
+          SELECT name, physical_name
+          FROM sys.master_files
           WHERE database_id = DB_ID('${database}')
         `);
-        
+
         let fileList = '';
         for (const file of dbFiles.recordset) {
           fileList += `(NAME = '${file.name}', FILENAME = '${snapshotPath.replace('.ss', `_${file.name}.ss`)}'),`;
         }
         fileList = fileList.slice(0, -1); // Remove trailing comma
-        
+
         await pool.request().query(`
           CREATE DATABASE [${fullSnapshotName}]
           ON ${fileList}
           AS SNAPSHOT OF [${database}]
         `);
-        
+
         results.push({ database, snapshotName: fullSnapshotName, success: true });
       } catch (dbError) {
         results.push({ database, error: dbError.message, success: false });
       }
     }
-    
+
     await pool.close();
-    
+
     await addToHistory({
       type: 'create_snapshots',
       groupName: group.name,
       snapshotName,
       results
     });
-    
+
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
