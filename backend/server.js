@@ -219,10 +219,26 @@ app.post('/api/test-connection', async (req, res) => {
     }
     
     const pool = await sql.connect(config);
+    
+    // Test basic connection
     await pool.request().query('SELECT 1 as test');
+    
+    // Get database count
+    const dbResult = await pool.request().query(`
+      SELECT COUNT(*) as database_count 
+      FROM sys.databases 
+      WHERE database_id > 4  -- Exclude system databases
+    `);
+    
+    const databaseCount = dbResult.recordset[0].database_count;
+    
     await pool.close();
     
-    res.json({ success: true, message: 'Connection successful' });
+    res.json({ 
+      success: true, 
+      message: `Connection successful - ${databaseCount} databases found`,
+      databaseCount: databaseCount
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

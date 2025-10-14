@@ -30,7 +30,7 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - SQL Server instance
 - Git
 
@@ -51,11 +51,11 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
    ```bash
    # Windows PowerShell
    .\setup-env.ps1
-   
+
    # Or manually create .env file
    cp backend/env.example backend/.env
    ```
-   
+
    **Edit `backend/.env` file and add your SQL Server credentials:**
    ```env
    SQL_SERVER=your_server_address

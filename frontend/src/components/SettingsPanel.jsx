@@ -33,7 +33,7 @@ const SettingsPanel = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });
-      
+
       if (response.ok) {
         alert('Settings saved successfully!');
       }
@@ -55,9 +55,23 @@ const SettingsPanel = () => {
       });
       
       const result = await response.json();
-      setConnectionStatus(result.success ? 'success' : 'error');
+      if (result.success) {
+        setConnectionStatus({
+          type: 'success',
+          message: result.message,
+          databaseCount: result.databaseCount
+        });
+      } else {
+        setConnectionStatus({
+          type: 'error',
+          message: result.error
+        });
+      }
     } catch (error) {
-      setConnectionStatus('error');
+      setConnectionStatus({
+        type: 'error',
+        message: 'Connection failed'
+      });
     } finally {
       setIsTestingConnection(false);
     }
@@ -92,7 +106,7 @@ const SettingsPanel = () => {
             SQL Server Connection
           </h3>
         </div>
-        
+
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-4">
           <div className="flex items-center space-x-2 mb-2">
             <Database className="w-5 h-5 text-green-600" />
@@ -101,7 +115,7 @@ const SettingsPanel = () => {
             </span>
           </div>
           <p className="text-sm text-green-700 dark:text-green-300">
-            Connection credentials are securely stored in environment variables (backend/.env file) 
+            Connection credentials are securely stored in environment variables (backend/.env file)
             and are never committed to version control.
           </p>
         </div>
@@ -115,18 +129,27 @@ const SettingsPanel = () => {
             <TestTube className="w-4 h-4" />
             <span>{isTestingConnection ? 'Testing...' : 'Test Connection'}</span>
           </button>
-          
+
           {connectionStatus && (
             <div className="flex items-center space-x-2">
-              {connectionStatus === 'success' ? (
+              {connectionStatus.type === 'success' ? (
                 <>
                   <CheckCircle className="w-5 h-5 text-green-600" />
-                  <span className="text-sm text-green-600">Connection successful</span>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-green-600 font-medium">
+                      {connectionStatus.message}
+                    </span>
+                    {connectionStatus.databaseCount && (
+                      <span className="text-xs text-green-500">
+                        Ready to manage snapshots for {connectionStatus.databaseCount} databases
+                      </span>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
                   <XCircle className="w-5 h-5 text-red-600" />
-                  <span className="text-sm text-red-600">Connection failed</span>
+                  <span className="text-sm text-red-600">{connectionStatus.message}</span>
                 </>
               )}
             </div>
@@ -139,7 +162,7 @@ const SettingsPanel = () => {
         <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
           Preferences
         </h3>
-        
+
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
@@ -153,7 +176,7 @@ const SettingsPanel = () => {
               placeholder="Leave empty for no default"
             />
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <input
               type="checkbox"
@@ -165,7 +188,7 @@ const SettingsPanel = () => {
               Auto-refresh snapshots
             </span>
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
               Refresh Interval (milliseconds)
