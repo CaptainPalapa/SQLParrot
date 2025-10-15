@@ -1,0 +1,44 @@
+# SQL Parrot Docker Compose Example
+# Copy this file to docker-compose.yml and customize for your environment
+
+version: '3.8'
+
+services:
+  sql-parrot:
+    build: .
+    ports:
+      - "3001:3001"
+      - "5173:5173"  # Frontend dev server
+    volumes:
+      - ./data-snapshots:/var/opt/mssql/snapshots
+      - ./data:/app/data  # For persistent data storage
+    environment:
+      # SQL Server Connection
+      - SQL_SERVER=your_sql_server_host
+      - SQL_USERNAME=your_username
+      - SQL_PASSWORD=your_password
+      - SQL_TRUST_CERTIFICATE=true
+
+      # Application Settings
+      - NODE_ENV=production
+      - PORT=3001
+
+      # Snapshot Storage Path
+      - SNAPSHOT_PATH=/var/opt/mssql/snapshots
+    depends_on:
+      - sql-server  # If using SQL Server in Docker
+
+  # Optional: SQL Server in Docker (for development)
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong@Passw0rd
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql-server-data:/var/opt/mssql
+
+volumes:
+  sql-server-data:
+    driver: local

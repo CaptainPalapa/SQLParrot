@@ -7,7 +7,6 @@
     "trustServerCertificate": true
   },
   "preferences": {
-    "defaultGroup": "",
     "autoRefresh": true,
     "refreshInterval": 5000
   }

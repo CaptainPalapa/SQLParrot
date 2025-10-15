@@ -1,25 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Database, Camera, Trash2, RotateCcw } from 'lucide-react';
+import { Toast } from './ui/Modal';
+import { useNotification } from '../hooks/useNotification';
 
 const HistoryView = () => {
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Custom hook for notifications
+  const { notification, showError, hideNotification } = useNotification();
+
   useEffect(() => {
     fetchHistory();
   }, []);
 
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
+    setIsLoading(true);
     try {
       const response = await fetch('/api/history');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
       setHistory(data.operations || []);
     } catch (error) {
       console.error('Error fetching history:', error);
+      showError('Failed to load operation history. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [showError]);
 
   const getOperationIcon = (type) => {
     switch (type) {
@@ -63,10 +73,11 @@ const HistoryView = () => {
         return `Updated group "${operation.groupName}" with ${operation.databaseCount} databases`;
       case 'delete_group':
         return `Deleted group "${operation.groupName}"`;
-      case 'create_snapshots':
+      case 'create_snapshots': {
         const successCount = operation.results?.filter(r => r.success).length || 0;
         const totalCount = operation.results?.length || 0;
         return `Created snapshots for group "${operation.groupName}" (${successCount}/${totalCount} successful)`;
+      }
       case 'restore_snapshot':
         return `Restored snapshot "${operation.snapshotName}" for group "${operation.groupName}"`;
       default:
@@ -140,6 +151,14 @@ const HistoryView = () => {
           })}
         </div>
       )}
+
+      {/* Toast Notification */}
+      <Toast
+        message={notification.message}
+        type={notification.type}
+        isVisible={notification.isVisible}
+        onClose={hideNotification}
+      />
     </div>
   );
 };

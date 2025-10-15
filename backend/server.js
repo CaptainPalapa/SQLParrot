@@ -252,6 +252,64 @@ app.post('/api/test-connection', async (req, res) => {
   }
 });
 
+// Get databases list
+app.get('/api/databases', async (req, res) => {
+  try {
+    const config = await getSqlConfig();
+    if (!config) {
+      return res.status(400).json({ error: 'No SQL Server configuration found' });
+    }
+
+    const pool = await sql.connect(config);
+
+    // Get user databases (exclude system databases)
+    const result = await pool.request().query(`
+      SELECT
+        name,
+        database_id,
+        create_date,
+        collation_name
+      FROM sys.databases
+      WHERE database_id > 4  -- Exclude system databases (master, tempdb, model, msdb)
+      AND state = 0  -- Only online databases
+      ORDER BY name
+    `);
+
+    await pool.close();
+
+    // Categorize databases
+    const databases = result.recordset.map(db => {
+      let category = 'User';
+      if (db.name.toLowerCase().includes('global')) {
+        category = 'Global';
+      } else if (db.name.toLowerCase().includes('dw') || db.name.toLowerCase().includes('datawarehouse')) {
+        category = 'Data Warehouse';
+      }
+
+      return {
+        name: db.name,
+        category,
+        databaseId: db.database_id,
+        createDate: db.create_date,
+        collation: db.collation_name
+      };
+    });
+
+    // Sort by category priority, then by name within category
+    const categoryOrder = { 'Global': 0, 'User': 1, 'Data Warehouse': 2 };
+    databases.sort((a, b) => {
+      if (categoryOrder[a.category] !== categoryOrder[b.category]) {
+        return categoryOrder[a.category] - categoryOrder[b.category];
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({ databases });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get snapshots for a group
 app.get('/api/groups/:id/snapshots', async (req, res) => {
   try {
@@ -278,7 +336,6 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
             d.name,
             d.source_database_id,
             d.create_date,
-            d.database_snapshot_lsn,
             mf.physical_name,
             mf.size * 8 / 1024 AS size_mb
           FROM sys.databases d
@@ -326,14 +383,22 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
     for (const database of group.databases) {
       try {
         const fullSnapshotName = `${database}_snapshot_${snapshotName}`;
-        const snapshotPath = `C:\\Snapshots\\${fullSnapshotName}.ss`;
+        // Use configurable snapshot path (Windows/Linux compatible)
+        const snapshotBasePath = process.env.SNAPSHOT_PATH || 'C:\\Snapshots';
+        const snapshotPath = `${snapshotBasePath}/${fullSnapshotName}.ss`;
 
-        // Get database files
+        // Get database files (exclude log files - only data files allowed in snapshots)
         const dbFiles = await pool.request().query(`
           SELECT name, physical_name
           FROM sys.master_files
           WHERE database_id = DB_ID('${database}')
+          AND type = 0  -- Only data files (type 0), exclude log files (type 1)
         `);
+
+        // Check if we have any data files
+        if (dbFiles.recordset.length === 0) {
+          throw new Error(`No data files found for database '${database}'. Cannot create snapshot.`);
+        }
 
         let fileList = '';
         for (const file of dbFiles.recordset) {
@@ -363,6 +428,23 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
     });
 
     res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test snapshot path configuration (shows configured path only)
+app.get('/api/test-snapshot-path', async (req, res) => {
+  try {
+    const snapshotBasePath = process.env.SNAPSHOT_PATH || 'C:\\Snapshots';
+
+    res.json({
+      success: true,
+      snapshotPath: snapshotBasePath,
+      message: 'Snapshot path configured for SQL Server queries',
+      note: 'This path will be used in CREATE DATABASE statements for SQL Server snapshots'
+    });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "react-analyzer-mcp": {
+      "command": "node",
+      "args": [
+        "D:\\Development\\projects\\SQLParrot\\react-analyzer-mcp\\build\\index.js"
+      ]
+    }
+  }
+}

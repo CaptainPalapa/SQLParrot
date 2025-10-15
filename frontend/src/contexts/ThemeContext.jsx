@@ -1,16 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
+import { themes } from '../constants/themes';
 
-const ThemeContext = createContext();
-
-export const themes = [
-  { id: 'blue', name: 'Ocean Blue', colors: { primary: '#3b82f6', secondary: '#64748b' } },
-  { id: 'emerald', name: 'Forest Emerald', colors: { primary: '#10b981', secondary: '#64748b' } },
-  { id: 'purple', name: 'Royal Purple', colors: { primary: '#a855f7', secondary: '#64748b' } },
-  { id: 'rose', name: 'Sunset Rose', colors: { primary: '#f43f5e', secondary: '#64748b' } },
-  { id: 'orange', name: 'Autumn Orange', colors: { primary: '#f97316', secondary: '#64748b' } },
-  { id: 'teal', name: 'Ocean Teal', colors: { primary: '#14b8a6', secondary: '#64748b' } },
-  { id: 'dark', name: 'Midnight Dark', colors: { primary: '#d1d5db', secondary: '#1f2937' } },
-];
+// eslint-disable-next-line react-refresh/only-export-components
+export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const [currentTheme, setCurrentTheme] = useState(() => {
@@ -42,10 +35,6 @@ export const ThemeProvider = ({ children }) => {
   );
 };
 
-export const useTheme = () => {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
-  }
-  return context;
+ThemeProvider.propTypes = {
+  children: PropTypes.node.isRequired,
 };

@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
+import PropTypes from 'prop-types';
 import { Palette, Check, X } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../hooks/useTheme';
 
 const ThemeSelector = ({ isOpen, onClose }) => {
   const { currentTheme, changeTheme, themes } = useTheme();
-  const [previewTheme, setPreviewTheme] = useState(null);
 
   const handleThemeSelect = (themeId) => {
     changeTheme(themeId);
@@ -12,32 +12,36 @@ const ThemeSelector = ({ isOpen, onClose }) => {
   };
 
   const handlePreview = (themeId) => {
-    setPreviewTheme(themeId);
     document.documentElement.setAttribute('data-theme', themeId);
   };
 
   const handlePreviewEnd = () => {
-    setPreviewTheme(null);
     document.documentElement.setAttribute('data-theme', currentTheme);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="theme-selector-title"
+    >
       <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden">
         <div className="flex items-center justify-between p-6 border-b border-secondary-200 dark:border-secondary-700">
           <div className="flex items-center space-x-2">
             <Palette className="w-6 h-6 text-primary-600" />
-            <h2 className="text-xl font-semibold text-secondary-900 dark:text-white">
+            <h2 id="theme-selector-title" className="text-xl font-semibold text-secondary-900 dark:text-white">
               Choose Your Theme
             </h2>
           </div>
           <button
             onClick={onClose}
             className="p-2 hover:bg-secondary-100 dark:hover:bg-secondary-700 rounded-lg transition-colors"
+            aria-label="Close theme selector"
           >
-            <X className="w-5 h-5 text-secondary-600 dark:text-secondary-400" />
+            <X className="w-5 h-5 text-secondary-600 dark:text-secondary-400" aria-hidden="true" />
           </button>
         </div>
 
@@ -54,6 +58,15 @@ const ThemeSelector = ({ isOpen, onClose }) => {
                 onClick={() => handleThemeSelect(theme.id)}
                 onMouseEnter={() => handlePreview(theme.id)}
                 onMouseLeave={handlePreviewEnd}
+                role="button"
+                tabIndex={0}
+                aria-label={`Select ${theme.name} theme`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleThemeSelect(theme.id);
+                  }
+                }}
               >
                 {currentTheme === theme.id && (
                   <div className="absolute top-2 right-2">
@@ -107,6 +120,11 @@ const ThemeSelector = ({ isOpen, onClose }) => {
       </div>
     </div>
   );
+};
+
+ThemeSelector.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
 };
 
 export default ThemeSelector;

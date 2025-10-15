@@ -1,3 +1,15 @@
 {
-  "groups": []
+  "groups": [
+    {
+      "id": "group-1760496946041",
+      "name": "SF",
+      "databases": [
+        "vsrwest_dev_global",
+        "vsrwest_dev_usr_sf",
+        "vsrwest_dev_DW_Dreamwear",
+        "vsrwest_dev_DW_Eastman",
+        "vsrwest_dev_DW_EastmanCW"
+      ]
+    }
+  ]
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, Settings, History, Palette, Plus } from 'lucide-react';
+import { Database, Settings, History, Palette } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import ThemeSelector from './components/ThemeSelector';
 import GroupsManager from './components/GroupsManager';

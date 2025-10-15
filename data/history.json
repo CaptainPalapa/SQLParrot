@@ -1,3 +1,76 @@
 {
-  "operations": []
+  "operations": [
+    {
+      "type": "create_snapshots",
+      "groupName": "SF",
+      "snapshotName": "test_02",
+      "results": [
+        {
+          "database": "vsrwest_dev_global",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_usr_sf",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_Dreamwear",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_Eastman",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_EastmanCW",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        }
+      ],
+      "timestamp": "2025-10-15T03:31:11.744Z"
+    },
+    {
+      "type": "create_snapshots",
+      "groupName": "SF",
+      "snapshotName": "test_001",
+      "results": [
+        {
+          "database": "vsrwest_dev_global",
+          "error": "Log files, offline files, restoring files, and defunct files for database snapshots should not be specified. \"vsrwest_log\" is not an eligible file for a database snapshot.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_usr_sf",
+          "error": "Log files, offline files, restoring files, and defunct files for database snapshots should not be specified. \"vsrwest_log\" is not an eligible file for a database snapshot.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_Dreamwear",
+          "error": "Log files, offline files, restoring files, and defunct files for database snapshots should not be specified. \"vsrwest_test_DW_Dreamwear_Log\" is not an eligible file for a database snapshot.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_Eastman",
+          "error": "Log files, offline files, restoring files, and defunct files for database snapshots should not be specified. \"vsrwest_test_DW_Eastman_Log\" is not an eligible file for a database snapshot.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_EastmanCW",
+          "error": "Log files, offline files, restoring files, and defunct files for database snapshots should not be specified. \"vsrwest_test_DW_EastmanCW_Log\" is not an eligible file for a database snapshot.",
+          "success": false
+        }
+      ],
+      "timestamp": "2025-10-15T03:28:59.637Z"
+    },
+    {
+      "type": "create_group",
+      "groupName": "SF",
+      "databaseCount": 5,
+      "timestamp": "2025-10-15T02:55:46.045Z"
+    }
+  ]
 }

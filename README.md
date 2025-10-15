@@ -192,6 +192,51 @@ npm run dev:backend
 | POST | `/api/test-connection` | Test SQL Server connection |
 | GET | `/api/history` | Get operation history |
 
+## 🐳 Docker Support
+
+SQL Parrot is Docker-ready! Here's how to configure it:
+
+### Docker Environment Variables
+
+```env
+# SQL Server Connection
+SQL_SERVER=your_sql_server_host
+SQL_USERNAME=your_username
+SQL_PASSWORD=your_password
+SQL_TRUST_CERTIFICATE=true
+
+# Application Settings
+NODE_ENV=production
+PORT=3001
+
+# Snapshot Storage Path (Docker)
+SNAPSHOT_PATH=/var/opt/mssql/snapshots
+```
+
+### Docker Volume Configuration
+
+Create a volume for snapshot storage:
+
+```yaml
+# docker-compose.yml example
+services:
+  sql-parrot:
+    image: your-sql-parrot-image
+    volumes:
+      - ./data-snapshots:/var/opt/mssql/snapshots
+    environment:
+      - SNAPSHOT_PATH=/var/opt/mssql/snapshots
+      - SQL_SERVER=your_sql_server
+      - SQL_USERNAME=your_username
+      - SQL_PASSWORD=your_password
+```
+
+### Snapshot Path Options
+
+- **Docker**: `/var/opt/mssql/snapshots` (recommended for SQL Server containers)
+- **Windows**: `C:\Snapshots`
+- **Linux**: `/var/snapshots` or `/opt/snapshots`
+
 ## 🛠️ Configuration
 
 ### SQL Server Requirements
@@ -218,6 +263,10 @@ SQL_TRUST_CERTIFICATE=true
 # Application Settings
 NODE_ENV=development
 PORT=3001
+
+# Snapshot Storage Path
+SNAPSHOT_PATH=/var/opt/mssql/snapshots  # Docker/Linux
+# SNAPSHOT_PATH=C:\Snapshots  # Windows
 ```
 
 **Security Features:**
