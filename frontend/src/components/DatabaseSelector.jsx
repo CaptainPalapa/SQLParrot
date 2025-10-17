@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Check, X } from 'lucide-react';
+import { Search, Check, X, AlertCircle } from 'lucide-react';
 import { useNotification } from '../hooks/useNotification';
 
-const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className = '' }) => {
+const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className = '', existingGroups = [], currentGroupId = null }) => {
   const [databases, setDatabases] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter1, setFilter1] = useState(() => {
@@ -72,6 +72,21 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     });
   }, [databases, filter1, filter2]);
 
+  // Determine which databases are already in use by other groups
+  const databasesInUse = useMemo(() => {
+    const inUse = new Set();
+    existingGroups.forEach(group => {
+      // Skip the current group if we're editing it
+      if (currentGroupId && group.id === currentGroupId) {
+        return;
+      }
+      group.databases.forEach(dbName => {
+        inUse.add(dbName);
+      });
+    });
+    return inUse;
+  }, [existingGroups, currentGroupId]);
+
   // Group filtered databases by category
   const groupedDatabases = useMemo(() => {
     const groups = { 'Global': [], 'User': [], 'Data Warehouse': [] };
@@ -84,6 +99,11 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
   }, [filteredDatabases]);
 
   const handleToggleDatabase = (dbName) => {
+    // Don't allow selecting databases that are already in use by other groups
+    if (databasesInUse.has(dbName)) {
+      return;
+    }
+
     const newSelected = new Set(selected);
     if (newSelected.has(dbName)) {
       newSelected.delete(dbName);
@@ -94,9 +114,11 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
   };
 
   const handleSelectAll = () => {
-    const allFilteredNames = filteredDatabases.map(db => db.name);
+    const availableFilteredNames = filteredDatabases
+      .map(db => db.name)
+      .filter(name => !databasesInUse.has(name));
     const newSelected = new Set(selected);
-    allFilteredNames.forEach(name => newSelected.add(name));
+    availableFilteredNames.forEach(name => newSelected.add(name));
     setSelected(newSelected);
   };
 
@@ -109,11 +131,13 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
 
   // Calculate summary stats
   const totalDatabases = databases.length;
+  const availableDatabases = filteredDatabases.filter(db => !databasesInUse.has(db.name));
   const visibleSelected = filteredDatabases.filter(db => selected.has(db.name)).length;
   const hiddenSelected = Array.from(selected).filter(name =>
     !filteredDatabases.some(db => db.name === name)
   ).length;
   const totalSelected = selected.size;
+  const unavailableCount = filteredDatabases.filter(db => databasesInUse.has(db.name)).length;
 
   if (isLoading) {
     return (
@@ -168,20 +192,24 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
           <div className="text-sm text-secondary-600 dark:text-secondary-400">
             {totalSelected > 0 ? (
               <span>
-                {visibleSelected} of {filteredDatabases.length} Selected
+                {visibleSelected} of {availableDatabases.length} Selected
                 {hiddenSelected > 0 && ` (${hiddenSelected} Hidden)`}
+                {unavailableCount > 0 && ` • ${unavailableCount} in use`}
               </span>
             ) : (
-              <span>{filteredDatabases.length} databases available</span>
+              <span>
+                {availableDatabases.length} databases available
+                {unavailableCount > 0 && ` • ${unavailableCount} already in use`}
+              </span>
             )}
           </div>
           <div className="flex space-x-2">
             <button
               onClick={handleSelectAll}
               className="text-xs px-2 py-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-              disabled={filteredDatabases.length === 0}
+              disabled={availableDatabases.length === 0}
             >
-              Select All Visible
+              Select All Available
             </button>
             <button
               onClick={handleDeselectAll}
@@ -200,6 +228,7 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
           <div key={category}>
             {categoryDatabases.map((db, dbIndex) => {
               const isSelected = selected.has(db.name);
+              const isInUse = databasesInUse.has(db.name);
               const isFirstInCategory = dbIndex === 0;
               const isFirstCategory = categoryIndex === 0;
 
@@ -211,31 +240,47 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
                   )}
 
                   <div
-                    className={`flex items-center justify-between p-3 hover:bg-secondary-50 dark:hover:bg-secondary-800 cursor-pointer transition-colors ${
+                    className={`flex items-center justify-between p-3 transition-colors ${
+                      isInUse
+                        ? 'bg-gray-50 dark:bg-gray-800 cursor-not-allowed opacity-60'
+                        : 'hover:bg-secondary-50 dark:hover:bg-secondary-800 cursor-pointer'
+                    } ${
                       isSelected ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : ''
                     }`}
-                    onClick={() => handleToggleDatabase(db.name)}
+                    onClick={() => !isInUse && handleToggleDatabase(db.name)}
                   >
                     <div className="flex items-center space-x-3">
                       <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        isSelected
-                          ? 'bg-blue-600 border-blue-600 text-white'
-                          : 'border-secondary-300 dark:border-secondary-600 hover:border-primary-500'
+                        isInUse
+                          ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700'
+                          : isSelected
+                            ? 'bg-blue-600 border-blue-600 text-white'
+                            : 'border-secondary-300 dark:border-secondary-600 hover:border-primary-500'
                       }`}>
                         {isSelected && <Check className="w-3 h-3" />}
+                        {isInUse && <AlertCircle className="w-3 h-3 text-gray-400" />}
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <div className={`font-medium ${
-                          isSelected
-                            ? 'text-gray-900 dark:text-white'
-                            : 'text-secondary-900 dark:text-white'
+                          isInUse
+                            ? 'text-gray-500 dark:text-gray-400'
+                            : isSelected
+                              ? 'text-gray-900 dark:text-white'
+                              : 'text-secondary-900 dark:text-white'
                         }`}>
                           {db.name}
+                          {isInUse && (
+                            <span className="ml-2 text-xs text-orange-600 dark:text-orange-400">
+                              (Already in use)
+                            </span>
+                          )}
                         </div>
                         <div className={`text-xs ${
-                          isSelected
-                            ? 'text-gray-700 dark:text-gray-300'
-                            : 'text-secondary-500 dark:text-secondary-400'
+                          isInUse
+                            ? 'text-gray-400 dark:text-gray-500'
+                            : isSelected
+                              ? 'text-gray-700 dark:text-gray-300'
+                              : 'text-secondary-500 dark:text-secondary-400'
                         }`}>
                           {category} • Created {new Date(db.createDate).toLocaleDateString()}
                         </div>
@@ -254,6 +299,16 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
             <p>No databases match your filters</p>
             <p className="text-sm mt-1">
               Try adjusting your filter criteria
+            </p>
+          </div>
+        )}
+
+        {filteredDatabases.length > 0 && availableDatabases.length === 0 && (
+          <div className="p-6 text-center text-orange-600 dark:text-orange-400">
+            <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p>All filtered databases are already in use</p>
+            <p className="text-sm mt-1">
+              Try adjusting your filter criteria or select different databases
             </p>
           </div>
         )}

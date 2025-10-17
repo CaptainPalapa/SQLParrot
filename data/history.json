@@ -3,6 +3,154 @@
     {
       "type": "create_snapshots",
       "groupName": "SF",
+      "snapshotName": "bobby",
+      "snapshotId": "sf_02",
+      "sequence": 2,
+      "results": [
+        {
+          "database": "vsrwest_dev_global",
+          "snapshotName": "sf_02_vsrwest_dev_global",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_usr_sf",
+          "snapshotName": "sf_02_vsrwest_dev_usr_sf",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_Dreamwear",
+          "snapshotName": "sf_02_vsrwest_dev_DW_Dreamwear",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_Eastman",
+          "snapshotName": "sf_02_vsrwest_dev_DW_Eastman",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_EastmanCW",
+          "snapshotName": "sf_02_vsrwest_dev_DW_EastmanCW",
+          "success": true
+        }
+      ],
+      "timestamp": "2025-10-16T23:42:57.160Z"
+    },
+    {
+      "type": "create_snapshots",
+      "groupName": "SF",
+      "snapshotName": "adam",
+      "snapshotId": "sf_01",
+      "sequence": 1,
+      "results": [
+        {
+          "database": "vsrwest_dev_global",
+          "snapshotName": "sf_01_vsrwest_dev_global",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_usr_sf",
+          "snapshotName": "sf_01_vsrwest_dev_usr_sf",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_Dreamwear",
+          "snapshotName": "sf_01_vsrwest_dev_DW_Dreamwear",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_Eastman",
+          "snapshotName": "sf_01_vsrwest_dev_DW_Eastman",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_EastmanCW",
+          "snapshotName": "sf_01_vsrwest_dev_DW_EastmanCW",
+          "success": true
+        }
+      ],
+      "timestamp": "2025-10-16T23:42:33.435Z"
+    },
+    {
+      "type": "cleanup_orphaned_snapshots",
+      "deletedCount": 5,
+      "deletedSnapshots": [
+        "vsrwest_dev_global_snapshot_test 1",
+        "vsrwest_dev_usr_sf_snapshot_test 1",
+        "vsrwest_dev_DW_Dreamwear_snapshot_test 1",
+        "vsrwest_dev_DW_Eastman_snapshot_test 1",
+        "vsrwest_dev_DW_EastmanCW_snapshot_test 1"
+      ],
+      "timestamp": "2025-10-16T23:42:11.318Z"
+    },
+    {
+      "type": "create_snapshots",
+      "groupName": "SF",
+      "snapshotName": "test 1",
+      "results": [
+        {
+          "database": "vsrwest_dev_global",
+          "snapshotName": "vsrwest_dev_global_snapshot_test 1",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_usr_sf",
+          "snapshotName": "vsrwest_dev_usr_sf_snapshot_test 1",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_Dreamwear",
+          "snapshotName": "vsrwest_dev_DW_Dreamwear_snapshot_test 1",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_Eastman",
+          "snapshotName": "vsrwest_dev_DW_Eastman_snapshot_test 1",
+          "success": true
+        },
+        {
+          "database": "vsrwest_dev_DW_EastmanCW",
+          "snapshotName": "vsrwest_dev_DW_EastmanCW_snapshot_test 1",
+          "success": true
+        }
+      ],
+      "timestamp": "2025-10-16T22:00:36.677Z"
+    },
+    {
+      "type": "create_snapshots",
+      "groupName": "SF",
+      "snapshotName": "Test 01",
+      "results": [
+        {
+          "database": "vsrwest_dev_global",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_usr_sf",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_Dreamwear",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_Eastman",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        },
+        {
+          "database": "vsrwest_dev_DW_EastmanCW",
+          "error": "A database snapshot cannot be created because it failed to start.",
+          "success": false
+        }
+      ],
+      "timestamp": "2025-10-16T20:46:21.188Z"
+    },
+    {
+      "type": "create_snapshots",
+      "groupName": "SF",
       "snapshotName": "test_02",
       "results": [
         {
