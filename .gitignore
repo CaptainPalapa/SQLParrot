@@ -168,6 +168,9 @@ data/backups/
 *.ss
 *.snapshot
 
+# Playwright MCP
+.playwright-mcp/
+
 # OS generated files
 Thumbs.db
 .DS_Store
@@ -178,3 +181,5 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 data/snapshots.json
+data/groups.json
+data/history.json
