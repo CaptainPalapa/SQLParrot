@@ -19,11 +19,14 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 - **Group Organization**: Create and manage database groups
 - **Snapshot Operations**: Create, restore, and delete snapshots
 - **Real-time Monitoring**: See snapshot sizes, creation dates, and status
-- **Overlapping Groups**: Support for databases across multiple groups
+- **Unique Database Ownership**: Each database can only belong to one group
 
 ### 🔧 **Advanced Features**
 - **Connection Testing**: Test SQL Server connections before operations
-- **Operation History**: Track all snapshot and group management operations
+- **File Verification**: Verify snapshot files exist and show status
+- **Orphaned Snapshot Cleanup**: Clean up orphaned snapshot databases and files
+- **External File Management**: Integration with external APIs for file management
+- **Health Monitoring**: Health check endpoint with orphaned snapshot detection
 - **Local Storage**: No SQL Server pollution - all metadata stored locally
 - **Responsive Design**: Beautiful UI that works on all devices
 
@@ -66,12 +69,16 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 
 4. **Start the application**
    ```bash
+   # Option 1: Use the startup script (Windows)
+   .\start-dev.bat
+
+   # Option 2: Manual start
    npm run dev
    ```
 
 5. **Open your browser**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:3001
+   - **Frontend**: http://localhost:3000 (React/Vite)
+   - **Backend API**: http://localhost:3001 (Node.js/Express)
 
 ## 🎨 Theme Browser
 
@@ -190,7 +197,10 @@ npm run dev:backend
 | GET | `/api/settings` | Get settings |
 | PUT | `/api/settings` | Update settings |
 | POST | `/api/test-connection` | Test SQL Server connection |
-| GET | `/api/history` | Get operation history |
+| GET | `/api/databases` | Get available databases |
+| GET | `/api/snapshots/unmanaged` | Get unmanaged snapshots count |
+| POST | `/api/snapshots/cleanup` | Clean up orphaned snapshots |
+| GET | `/api/health` | Health check with orphaned snapshots |
 
 ## 🐳 Docker Support
 
@@ -256,6 +266,7 @@ services:
 ```env
 # SQL Server Connection (sensitive - stored in .env)
 SQL_SERVER=your_server_address
+SQL_PORT=1433
 SQL_USERNAME=your_username
 SQL_PASSWORD=your_password
 SQL_TRUST_CERTIFICATE=true
@@ -265,8 +276,14 @@ NODE_ENV=development
 PORT=3001
 
 # Snapshot Storage Path
-SNAPSHOT_PATH=/var/opt/mssql/snapshots  # Docker/Linux
-# SNAPSHOT_PATH=C:\Snapshots  # Windows
+SNAPSHOT_PATH=C:\Snapshots  # Windows
+# SNAPSHOT_PATH=/var/opt/mssql/snapshots  # Docker/Linux
+
+# External File Management API (Optional)
+FILES_API_USERNAME=your_files_api_username
+FILES_API_PASSWORD=your_files_api_password
+FILES_API_LIST=https://your-api.com/webhook/snapshots/
+FILES_API_DELETE=https://your-api.com/webhook/snapshots/delete/{{filename}}
 ```
 
 **Security Features:**

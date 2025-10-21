@@ -134,7 +134,7 @@ And I'll take over from there, building out the frontend and backend with all th
 - **Real-time Updates**: See snapshot sizes, creation dates
 - **Beautiful UI**: Modern, responsive design
 - **Local Storage**: Save your groups and preferences
-- **Overlapping Groups**: Support for overlapping database selections across groups
+- **Unique Database Ownership**: Each database can only belong to one group
 
 ## Example JSON Structure
 ```json

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Edit, Trash2, Camera, RotateCcw, Database } from 'lucide-react';
 import { Toast, ConfirmationModal, InputModal } from './ui/Modal';
 import FormInput from './ui/FormInput';
@@ -7,6 +7,7 @@ import { LoadingButton, LoadingPage } from './ui/Loading';
 import { useNotification } from '../hooks/useNotification';
 import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
+import { useApiStatus } from '../contexts/ApiStatusContext';
 
 const GroupsManager = () => {
   const [groups, setGroups] = useState([]);
@@ -18,6 +19,16 @@ const GroupsManager = () => {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [selectedDatabases, setSelectedDatabases] = useState([]);
   const [unmanagedSnapshotCount, setUnmanagedSnapshotCount] = useState(0);
+  const [refreshingGroups, setRefreshingGroups] = useState(new Set());
+  const [expandedSnapshots, setExpandedSnapshots] = useState(new Set());
+
+  // Separate loading states for different operations
+  const [operationLoading, setOperationLoading] = useState({
+    delete: false,
+    cleanup: false,
+    rollback: false,
+    createSnapshot: false
+  });
 
   // Form validation
   const groupForm = useFormValidation(
@@ -31,11 +42,21 @@ const GroupsManager = () => {
   const { notification, showSuccess, showError, hideNotification } = useNotification();
   const { modalState: confirmModal, showConfirmation, hideConfirmation, handleConfirm } = useConfirmationModal();
   const { modalState: inputModal, showInputModal, hideInputModal, handleSubmit } = useInputModal();
+  const { n8nStatus } = useApiStatus();
 
   useEffect(() => {
     fetchGroups();
     fetchUnmanagedSnapshots();
   }, []);
+
+  // Refresh snapshots when groups change (new group created)
+  useEffect(() => {
+    if (groups.length > 0) {
+      groups.forEach(group => {
+        fetchSnapshots(group.id, true);
+      });
+    }
+  }, [groups]);
 
   const fetchGroups = useCallback(async () => {
     setIsLoading(true);
@@ -71,18 +92,177 @@ const GroupsManager = () => {
     }
   }, []);
 
-  const fetchSnapshots = async (groupId) => {
+
+  const fetchSnapshots = async (groupId, showLoading = false, collapseExpanded = false) => {
+    if (showLoading) {
+      setRefreshingGroups(prev => new Set(prev).add(groupId));
+      // Clear existing snapshots for this group while refreshing
+      setSnapshots(prev => ({ ...prev, [groupId]: [] }));
+    }
+
     try {
       const response = await fetch(`/api/groups/${groupId}/snapshots`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      setSnapshots(prev => ({ ...prev, [groupId]: data }));
+
+      // Add file verification status to each snapshot
+      const snapshotsWithVerification = await Promise.all(
+        data.map(async (snapshot) => {
+          const verificationStatus = await verifySnapshotFiles(snapshot);
+          return { ...snapshot, verificationStatus };
+        })
+      );
+
+      setSnapshots(prev => ({ ...prev, [groupId]: snapshotsWithVerification }));
+
+      // Collapse expanded snapshots if requested (after operations)
+      if (collapseExpanded) {
+        setExpandedSnapshots(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(groupId);
+          return newSet;
+        });
+      }
     } catch (error) {
       console.error('Error fetching snapshots:', error);
       showError('Failed to load snapshots. Please try again.');
+    } finally {
+      if (showLoading) {
+        setRefreshingGroups(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(groupId);
+          return newSet;
+        });
+      }
     }
+  };
+
+  // Cache for verification data to prevent multiple simultaneous API calls
+  const verificationCache = useRef({ data: null, timestamp: 0, promise: null });
+  const CACHE_DURATION = 5000; // 5 seconds
+
+  const verifySnapshotFiles = async (snapshot) => {
+    try {
+      const now = Date.now();
+
+      // Check if we have valid cached data
+      if (verificationCache.current.data &&
+          (now - verificationCache.current.timestamp) < CACHE_DURATION) {
+        console.log('Using cached verification data');
+        return processVerificationData(verificationCache.current.data, snapshot);
+      }
+
+      // If there's already a request in progress, wait for it
+      if (verificationCache.current.promise) {
+        console.log('Waiting for existing verification request');
+        const data = await verificationCache.current.promise;
+        return processVerificationData(data, snapshot);
+      }
+
+      // Make new request and cache it
+      console.log('Making new verification request');
+      verificationCache.current.promise = fetch('/api/snapshots/files-to-cleanup')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        });
+
+      const data = await verificationCache.current.promise;
+
+      // Cache the result
+      verificationCache.current.data = data;
+      verificationCache.current.timestamp = now;
+      verificationCache.current.promise = null;
+
+      return processVerificationData(data, snapshot);
+    } catch (error) {
+      // Clear promise on error
+      verificationCache.current.promise = null;
+      // Suppress noisy console spam across many snapshots; surface as unknown
+      return {
+        totalExpected: 0,
+        verified: 0,
+        missing: 0,
+        verifiedFiles: [],
+        missingFiles: [],
+        verifiedDatabases: [],
+        missingDatabases: [],
+        totalExpectedDatabases: 0,
+        status: 'unknown'
+      };
+    }
+  };
+
+  const processVerificationData = (data, snapshot) => {
+    // If Files API isn't configured or available, skip verification gracefully
+    if (data && data.filesApiConfigured === false) {
+      return {
+        totalExpected: 0,
+        verified: 0,
+        missing: 0,
+        verifiedFiles: [],
+        missingFiles: [],
+        verifiedDatabases: [],
+        missingDatabases: [],
+        totalExpectedDatabases: 0,
+        status: 'unknown'
+      };
+    }
+
+    // Get all expected file names for this snapshot
+    const expectedFiles = [];
+    snapshot.databaseSnapshots.forEach(dbSnapshot => {
+      if (dbSnapshot.success && dbSnapshot.physicalFileNames) {
+        dbSnapshot.physicalFileNames.forEach(fileName => {
+          // Extract just the filename from the full path
+          const fileNameOnly = fileName.split('/').pop() || fileName.split('\\').pop();
+          expectedFiles.push(fileNameOnly);
+        });
+      }
+    });
+
+    // Check which files actually exist (use managedFiles, not filesToCleanup)
+    const existingFileNames = data.managedFiles || [];
+    const existingDatabases = data.existingDatabases || [];
+
+    // Get expected database names for this snapshot
+    const expectedDatabases = snapshot.databaseSnapshots
+      .filter(dbSnapshot => dbSnapshot.success)
+      .map(dbSnapshot => dbSnapshot.snapshotName);
+
+    // Verify files exist on disk
+    const verifiedFiles = expectedFiles.filter(fileName =>
+      existingFileNames.includes(fileName)
+    );
+
+    // Verify databases exist in SQL Server
+    const verifiedDatabases = expectedDatabases.filter(dbName =>
+      existingDatabases.includes(dbName)
+    );
+
+    const missingFiles = expectedFiles.filter(fileName =>
+      !existingFileNames.includes(fileName)
+    );
+
+    const missingDatabases = expectedDatabases.filter(dbName =>
+      !existingDatabases.includes(dbName)
+    );
+
+    return {
+      totalExpected: expectedFiles.length,
+      verified: verifiedFiles.length, // Use file verification as primary indicator
+      missing: missingFiles.length,
+      verifiedFiles,
+      missingFiles,
+      verifiedDatabases,
+      missingDatabases,
+      totalExpectedDatabases: expectedDatabases.length,
+      status: missingFiles.length > 0 ? 'missing_files' : 'verified'
+    };
   };
 
   const handleCreateGroup = async (e) => {
@@ -290,7 +470,7 @@ const GroupsManager = () => {
   };
 
   const handleCreateSnapshot = async (groupId, snapshotName) => {
-    setIsLoading(true);
+    setOperationLoading(prev => ({ ...prev, createSnapshot: true }));
     try {
       const response = await fetch(`/api/groups/${groupId}/snapshots`, {
         method: 'POST',
@@ -310,7 +490,7 @@ const GroupsManager = () => {
       const data = await response.json();
 
       if (data.success) {
-        await fetchSnapshots(groupId);
+        await fetchSnapshots(groupId, false, true);
         showSuccess(`Snapshot "${data.snapshot.displayName}" created successfully!`);
       } else {
         showError('Failed to create snapshot. Please try again.');
@@ -319,7 +499,7 @@ const GroupsManager = () => {
       console.error('Error creating snapshot:', error);
       showError('Failed to create snapshot. Please try again.');
     } finally {
-      setIsLoading(false);
+      setOperationLoading(prev => ({ ...prev, createSnapshot: false }));
     }
   };
 
@@ -331,7 +511,7 @@ const GroupsManager = () => {
       cancelText: 'Cancel',
       type: 'danger',
       onConfirm: async () => {
-        setIsLoading(true);
+        setOperationLoading(prev => ({ ...prev, cleanup: true }));
         try {
           const response = await fetch('/api/snapshots/cleanup-orphaned', {
             method: 'POST'
@@ -347,6 +527,169 @@ const GroupsManager = () => {
         } catch (error) {
           console.error('Error cleaning up snapshots:', error);
           showError('Failed to clean up snapshots. Please try again.');
+        } finally {
+          setOperationLoading(prev => ({ ...prev, cleanup: false }));
+        }
+      }
+    });
+  };
+
+  // Individual snapshot action handlers
+  const handleDeleteSnapshot = async (snapshot) => {
+    showConfirmation({
+      title: 'Delete Snapshot',
+      message: (
+        <div>
+          <p>Are you sure you want to delete snapshot</p>
+          <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
+          <p>This will permanently remove this snapshot and associated database entries and files. This action cannot be undone.</p>
+        </div>
+      ),
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger',
+      onConfirm: async () => {
+        setOperationLoading(prev => ({ ...prev, delete: true }));
+        try {
+          const response = await fetch(`/api/snapshots/${snapshot.id}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (data.success) {
+            showSuccess(`Snapshot "${snapshot.displayName}" deleted successfully!`);
+            await fetchSnapshots(snapshot.groupId, false, true);
+          } else {
+            showError('Failed to delete snapshot. Please try again.');
+          }
+        } catch (error) {
+          console.error('Error deleting snapshot:', error);
+          showError('Failed to delete snapshot. Please try again.');
+        } finally {
+          setOperationLoading(prev => ({ ...prev, delete: false }));
+        }
+      }
+    });
+  };
+
+  // Helper function to format time ago
+  const getTimeAgo = (date) => {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+  };
+
+  const handleRollbackSnapshot = async (snapshot) => {
+    const group = groups.find(g => g.id === snapshot.groupId);
+    const createdDate = new Date(snapshot.createdAt);
+    const timeAgo = getTimeAgo(createdDate);
+
+    showConfirmation({
+      title: 'Rollback to Snapshot',
+      message: (
+        <div>
+          <p>Are you sure you want to rollback all databases in group "{group?.name || 'Unknown'}" to snapshot</p>
+          <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            This snapshot was created {timeAgo} ({createdDate.toLocaleDateString()} at {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}).
+          </p>
+          <p className="mb-3">This will restore all databases to their state at the time this snapshot was created. This action cannot be undone.</p>
+          <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">
+            Restoring this snapshot will immediately invalidate all remaining snapshots in this group, and their associated files will need to be cleaned up.
+          </p>
+        </div>
+      ),
+      confirmText: 'Rollback',
+      cancelText: 'Cancel',
+      type: 'success',
+      onConfirm: async () => {
+        setOperationLoading(prev => ({ ...prev, rollback: true }));
+        try {
+          const response = await fetch(`/api/snapshots/${snapshot.id}/rollback`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (data.success) {
+            const cleanupMessage = data.cleanedUpSnapshots > 0
+              ? ` and cleaned up ${data.cleanedUpSnapshots} remaining snapshots`
+              : '';
+            showSuccess(`Successfully rolled back to snapshot "${snapshot.displayName}"${cleanupMessage}!`);
+            await fetchSnapshots(snapshot.groupId, false, true);
+          } else {
+            showError('Failed to rollback snapshot. Please try again.');
+          }
+        } catch (error) {
+          console.error('Error rolling back snapshot:', error);
+          showError('Failed to rollback snapshot. Please try again.');
+        } finally {
+          setOperationLoading(prev => ({ ...prev, rollback: false }));
+        }
+      }
+    });
+  };
+
+  const handleCleanupSnapshot = async (snapshot) => {
+    showConfirmation({
+      title: 'Cleanup Invalid Snapshot',
+      message: (
+        <div>
+          <p>Are you sure you want to cleanup snapshot</p>
+          <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
+          <p>This will remove the valid and invalid snapshot databases and related files from SQL Server. This action cannot be undone.</p>
+        </div>
+      ),
+      confirmText: 'Cleanup',
+      cancelText: 'Cancel',
+      type: 'warning',
+      onConfirm: async () => {
+        setIsLoading(true);
+        try {
+          const response = await fetch(`/api/snapshots/${snapshot.id}/cleanup`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+
+          if (data.success) {
+            showSuccess(`Snapshot "${snapshot.displayName}" cleaned up successfully!`);
+            await fetchSnapshots(snapshot.groupId, false, true);
+          } else {
+            showError('Failed to cleanup snapshot. Please try again.');
+          }
+        } catch (error) {
+          console.error('Error cleaning up snapshot:', error);
+          showError('Failed to cleanup snapshot. Please try again.');
         } finally {
           setIsLoading(false);
         }
@@ -368,6 +711,11 @@ const GroupsManager = () => {
               </h2>
               <p className="text-secondary-600 dark:text-secondary-400">
                 Organize your databases and manage snapshots
+                {n8nStatus.configured && n8nStatus.status !== 'healthy' && (
+                  <span className="text-orange-600 dark:text-orange-400 ml-2">
+                    • File verification unavailable
+                  </span>
+                )}
               </p>
             </div>
             <div className="flex items-center space-x-3">
@@ -376,8 +724,8 @@ const GroupsManager = () => {
                   onClick={handleCleanupSnapshots}
                   className="btn-warning flex items-center space-x-2"
                   aria-label="Clean up existing snapshots"
-                  loading={isLoading}
-                  loadingText="Cleaning..."
+                  loading={operationLoading.cleanup}
+                  loadingText="Cleaning up..."
                 >
                   <Trash2 className="w-4 h-4" aria-hidden="true" />
                   <span>Clean Up ({unmanagedSnapshotCount})</span>
@@ -569,37 +917,59 @@ const GroupsManager = () => {
             </div>
 
             <div className="space-y-3">
-              <LoadingButton
-                onClick={() => {
-                  showInputModal({
-                    title: 'Create Snapshot',
-                    label: 'Snapshot Name',
-                    placeholder: 'Enter snapshot name',
-                    submitText: 'Create',
-                    cancelText: 'Cancel',
-                    required: true,
-                    onSubmit: (snapshotName) => {
-                      handleCreateSnapshot(group.id, snapshotName);
-                    }
-                  });
-                }}
-                className="w-full btn-primary flex items-center justify-center space-x-2"
-                loading={isLoading}
-                loadingText="Creating..."
-              >
-                <Camera className="w-4 h-4" />
-                <span>Create Snapshot</span>
-              </LoadingButton>
+              {/* Show operation status text when any operation is running */}
+              {(operationLoading.delete || operationLoading.rollback || operationLoading.cleanup || operationLoading.createSnapshot) ? (
+                <div className="w-full h-20 flex items-center justify-center bg-secondary-100 dark:bg-secondary-800 rounded-lg border border-secondary-200 dark:border-secondary-700">
+                  <div className="text-center">
+                    <div className="flex items-center justify-center space-x-2 mb-1">
+                      <div className="animate-spin rounded-full border-2 border-secondary-300 border-t-primary-600 w-4 h-4"></div>
+                      <span className="text-sm font-medium text-secondary-700 dark:text-secondary-300">
+                        {operationLoading.delete ? "Deleting snapshot..." :
+                         operationLoading.rollback ? "Rolling back to snapshot..." :
+                         operationLoading.cleanup ? "Cleaning up snapshots..." :
+                         operationLoading.createSnapshot ? "Creating snapshot..." :
+                         "Please wait..."}
+                      </span>
+                    </div>
+                    <p className="text-xs text-secondary-500 dark:text-secondary-400">
+                      This may take a few moments
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <LoadingButton
+                    onClick={() => {
+                      showInputModal({
+                        title: 'Create Snapshot',
+                        label: 'Snapshot Name',
+                        placeholder: 'Enter snapshot name',
+                        submitText: 'Create',
+                        cancelText: 'Cancel',
+                        required: true,
+                        onSubmit: (snapshotName) => {
+                          handleCreateSnapshot(group.id, snapshotName);
+                        }
+                      });
+                    }}
+                    className="w-full btn-primary flex items-center justify-center space-x-2"
+                    loading={false}
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Create Snapshot</span>
+                  </LoadingButton>
 
-              <LoadingButton
-                onClick={() => fetchSnapshots(group.id)}
-                className="w-full btn-secondary flex items-center justify-center space-x-2"
-                loading={isLoading}
-                loadingText="Refreshing..."
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Refresh Snapshots</span>
-              </LoadingButton>
+                  <LoadingButton
+                    onClick={() => fetchSnapshots(group.id, true)}
+                    className="w-full btn-secondary flex items-center justify-center space-x-2"
+                    loading={refreshingGroups.has(group.id)}
+                    loadingText="Refreshing..."
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Refresh Snapshots</span>
+                  </LoadingButton>
+                </>
+              )}
             </div>
 
             {/* Snapshots List */}
@@ -608,8 +978,8 @@ const GroupsManager = () => {
                 <h4 className="text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
                   Snapshots ({snapshots[group.id].length})
                 </h4>
-                <div className="space-y-2 max-h-32 overflow-y-auto">
-                  {snapshots[group.id].map((snapshot, index) => {
+                <div className="space-y-2">
+                  {(expandedSnapshots.has(group.id) ? snapshots[group.id] : snapshots[group.id].slice(0, 2)).map((snapshot, index) => {
                     const createdDate = new Date(snapshot.createdAt);
                     const now = new Date();
                     const diffMs = now - createdDate;
@@ -648,6 +1018,32 @@ const GroupsManager = () => {
                             <span className="text-xs text-secondary-500 dark:text-secondary-400">
                               [{snapshot.databaseCount}]
                             </span>
+                            {/* File verification status */}
+                            {snapshot.verificationStatus && (
+                              <div className="flex items-center space-x-1">
+                                {snapshot.verificationStatus.status === 'unknown' ? (
+                                  <span className="text-xs text-gray-500" title="File verification unavailable (N8N API offline)">
+                                    ?
+                                  </span>
+                                ) : snapshot.verificationStatus.error ? (
+                                  <span className="text-xs text-red-500" title="Error verifying files">
+                                    ⚠️
+                                  </span>
+                                ) : snapshot.verificationStatus.missing > 0 ? (
+                                  <span className="text-xs text-orange-500" title={`${snapshot.verificationStatus.missing} files missing`}>
+                                    ⚠️ {snapshot.verificationStatus.verified}/{snapshot.verificationStatus.totalExpected}
+                                  </span>
+                                ) : snapshot.verificationStatus.verified === snapshot.verificationStatus.totalExpected ? (
+                                  <span className="text-xs text-green-500" title={`${snapshot.verificationStatus.verified} files verified`}>
+                                    ✓ {snapshot.verificationStatus.verified}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-yellow-500" title={`${snapshot.verificationStatus.verified}/${snapshot.verificationStatus.totalExpected} files verified`}>
+                                    ⚠️ {snapshot.verificationStatus.verified}/{snapshot.verificationStatus.totalExpected}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center space-x-2 text-xs text-secondary-500 dark:text-secondary-400">
                             <span className="font-mono">
@@ -657,9 +1053,66 @@ const GroupsManager = () => {
                             <span>{timeAgo}</span>
                           </div>
                         </div>
+
+                        {/* Action buttons based on validation status */}
+                        <div className="flex items-center space-x-2">
+                          {snapshot.verificationStatus && snapshot.verificationStatus.verified === snapshot.verificationStatus.totalExpected ? (
+                            // 100% valid snapshot - Delete and Rollback buttons
+                            <>
+                              <button
+                                onClick={() => handleDeleteSnapshot(snapshot)}
+                                className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors"
+                              >
+                                Delete
+                              </button>
+                              <button
+                                onClick={() => handleRollbackSnapshot(snapshot)}
+                                className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition-colors"
+                              >
+                                Rollback
+                              </button>
+                            </>
+                          ) : snapshot.verificationStatus && snapshot.verificationStatus.missing > 0 ? (
+                            // Invalid snapshot - Cleanup button
+                            <button
+                              onClick={() => handleCleanupSnapshot(snapshot)}
+                              className="px-3 py-1 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded transition-colors"
+                            >
+                              Cleanup
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}
+
+                  {/* Show All link when there are more than 2 snapshots */}
+                  {snapshots[group.id].length > 2 && !expandedSnapshots.has(group.id) && (
+                    <div className="text-center pt-2">
+                      <button
+                        onClick={() => setExpandedSnapshots(prev => new Set(prev).add(group.id))}
+                        className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 underline"
+                      >
+                        Show All ({snapshots[group.id].length} snapshots)
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Show Less link when expanded */}
+                  {snapshots[group.id].length > 2 && expandedSnapshots.has(group.id) && (
+                    <div className="text-center pt-2">
+                      <button
+                        onClick={() => setExpandedSnapshots(prev => {
+                          const newSet = new Set(prev);
+                          newSet.delete(group.id);
+                          return newSet;
+                        })}
+                        className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 underline"
+                      >
+                        Show Less
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

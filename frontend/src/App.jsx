@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Database, Settings, History, Palette } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { ApiStatusProvider } from './contexts/ApiStatusContext';
 import ThemeSelector from './components/ThemeSelector';
+import ApiStatusBanner from './components/ApiStatusBanner';
 import GroupsManager from './components/GroupsManager';
 import SettingsPanel from './components/SettingsPanel';
 import HistoryView from './components/HistoryView';
@@ -18,35 +20,39 @@ function App() {
 
   return (
     <ThemeProvider>
-      <div className="min-h-screen bg-secondary-50 dark:bg-secondary-900">
-        {/* Header */}
-        <header className="bg-white dark:bg-secondary-800 shadow-sm border-b border-secondary-200 dark:border-secondary-700">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                  <Database className="w-5 h-5 text-white" />
+      <ApiStatusProvider>
+        <div className="min-h-screen bg-secondary-50 dark:bg-secondary-900">
+          {/* Header */}
+          <header className="bg-white dark:bg-secondary-800 shadow-sm border-b border-secondary-200 dark:border-secondary-700">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between h-16">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
+                    <Database className="w-5 h-5 text-white" />
+                  </div>
+                  <h1 className="text-xl font-bold text-secondary-900 dark:text-white">
+                    SQL Parrot
+                  </h1>
+                  <span className="text-sm text-secondary-500 dark:text-secondary-400">
+                    Snapshot Management
+                  </span>
                 </div>
-                <h1 className="text-xl font-bold text-secondary-900 dark:text-white">
-                  SQL Parrot
-                </h1>
-                <span className="text-sm text-secondary-500 dark:text-secondary-400">
-                  Snapshot Management
-                </span>
-              </div>
 
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setIsThemeSelectorOpen(true)}
-                  className="p-2 hover:bg-secondary-100 dark:hover:bg-secondary-700 rounded-lg transition-colors"
-                  title="Change Theme"
-                >
-                  <Palette className="w-5 h-5 text-secondary-600 dark:text-secondary-400" />
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setIsThemeSelectorOpen(true)}
+                    className="p-2 hover:bg-secondary-100 dark:hover:bg-secondary-700 rounded-lg transition-colors"
+                    title="Change Theme"
+                  >
+                    <Palette className="w-5 h-5 text-secondary-600 dark:text-secondary-400" />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        </header>
+          </header>
+
+          {/* API Status Banner */}
+          <ApiStatusBanner />
 
         {/* Navigation */}
         <nav className="bg-white dark:bg-secondary-800 border-b border-secondary-200 dark:border-secondary-700">
@@ -80,12 +86,13 @@ function App() {
           {activeTab === 'history' && <HistoryView />}
         </main>
 
-        {/* Theme Selector Modal */}
-        <ThemeSelector
-          isOpen={isThemeSelectorOpen}
-          onClose={() => setIsThemeSelectorOpen(false)}
-        />
-      </div>
+          {/* Theme Selector Modal */}
+          <ThemeSelector
+            isOpen={isThemeSelectorOpen}
+            onClose={() => setIsThemeSelectorOpen(false)}
+          />
+        </div>
+      </ApiStatusProvider>
     </ThemeProvider>
   );
 }

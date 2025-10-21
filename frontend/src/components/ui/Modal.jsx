@@ -107,9 +107,9 @@ export const ConfirmationModal = ({
           </h3>
         </div>
 
-        <p className="text-secondary-600 dark:text-secondary-400 mb-6">
-          {message}
-        </p>
+        <div className="text-secondary-600 dark:text-secondary-400 mb-6">
+          {typeof message === 'string' ? message : message}
+        </div>
 
         <div className="flex space-x-3">
           <button

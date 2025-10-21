@@ -9,9 +9,7 @@ import { useFormValidation, validators } from '../utils/validation';
 const SettingsPanel = () => {
   const [settings, setSettings] = useState({
     preferences: {
-      defaultGroup: '',
-      autoRefresh: true,
-      refreshInterval: 5000
+      defaultGroup: ''
     }
   });
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -21,10 +19,8 @@ const SettingsPanel = () => {
 
   // Form validation for settings
   const settingsForm = useFormValidation(
-    { refreshInterval: 5000 },
-    {
-      refreshInterval: [validators.required, validators.number, validators.min(1000), validators.max(60000)],
-    }
+    {},
+    {}
   );
 
   // Custom hook for notifications
@@ -67,17 +63,10 @@ const SettingsPanel = () => {
   }, [showError]);
 
   const handleSaveSettings = async () => {
-    if (!settingsForm.validate()) {
-      return;
-    }
-
     setIsLoading(true);
     try {
       const updatedSettings = {
-        preferences: {
-          autoRefresh: settings.preferences.autoRefresh,
-          refreshInterval: Number(settingsForm.values.refreshInterval)
-        }
+        preferences: {}
       };
 
       const response = await fetch('/api/settings', {
@@ -219,27 +208,9 @@ const SettingsPanel = () => {
         </h3>
 
         <div className="space-y-4">
-          <FormCheckbox
-            label="Auto-refresh snapshots"
-            checked={settings.preferences.autoRefresh}
-            onChange={(checked) => setSettings(prev => ({
-              ...prev,
-              preferences: { ...prev.preferences, autoRefresh: checked }
-            }))}
-          />
-
-          <FormInput
-            label="Refresh Interval (milliseconds)"
-            type="number"
-            value={settingsForm.values.refreshInterval?.toString() || ''}
-            onChange={(value) => settingsForm.setValue('refreshInterval', value)}
-            onBlur={() => settingsForm.setFieldTouched('refreshInterval')}
-            error={settingsForm.errors.refreshInterval}
-            touched={settingsForm.touched.refreshInterval}
-            min="1000"
-            step="1000"
-            required
-          />
+          <p className="text-sm text-secondary-600 dark:text-secondary-400">
+            Settings will be added here as needed.
+          </p>
         </div>
       </div>
 
@@ -264,6 +235,9 @@ const SettingsPanel = () => {
               <p className="mt-2 text-xs">
                 This path is used in SQL Server CREATE DATABASE commands for snapshot storage.
                 Configured via SNAPSHOT_PATH environment variable.
+                <br />
+                <span className="font-medium">Note:</span> For Docker containers (especially Linux containers on Windows),
+                this must be a Docker volume, not a bind mount, to ensure proper file permissions and access.
               </p>
             </div>
           </div>
