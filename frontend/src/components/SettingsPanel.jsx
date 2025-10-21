@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, TestTube, CheckCircle, XCircle, Shield, Database } from 'lucide-react';
+import { Save, Database } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import FormCheckbox from './ui/FormCheckbox';
@@ -9,11 +9,10 @@ import { useFormValidation, validators } from '../utils/validation';
 const SettingsPanel = () => {
   const [settings, setSettings] = useState({
     preferences: {
-      defaultGroup: ''
+      defaultGroup: '',
+      maxHistoryEntries: 100
     }
   });
-  const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [snapshotPath, setSnapshotPath] = useState('');
 
@@ -66,7 +65,10 @@ const SettingsPanel = () => {
     setIsLoading(true);
     try {
       const updatedSettings = {
-        preferences: {}
+        preferences: {
+          defaultGroup: settings.preferences.defaultGroup,
+          maxHistoryEntries: settings.preferences.maxHistoryEntries
+        }
       };
 
       const response = await fetch('/api/settings', {
@@ -89,47 +91,6 @@ const SettingsPanel = () => {
     }
   };
 
-  const handleTestConnection = async () => {
-    setIsTestingConnection(true);
-    setConnectionStatus(null);
-
-    try {
-      const response = await fetch('/api/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        setConnectionStatus({
-          type: 'success',
-          message: result.message,
-          databaseCount: result.databaseCount
-        });
-        showSuccess('Connection test successful!');
-      } else {
-        setConnectionStatus({
-          type: 'error',
-          message: result.error
-        });
-        showError('Connection test failed');
-      }
-    } catch (error) {
-      setConnectionStatus({
-        type: 'error',
-        message: 'Connection failed'
-      });
-      showError('Connection test failed. Please check your settings.');
-    } finally {
-      setIsTestingConnection(false);
-    }
-  };
-
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
@@ -137,69 +98,10 @@ const SettingsPanel = () => {
           Settings
         </h2>
         <p className="text-secondary-600 dark:text-secondary-400">
-          Configure your SQL Server connection and preferences
+          Configure your application preferences
         </p>
       </div>
 
-      {/* Connection Status */}
-      <div className="card p-6">
-        <div className="flex items-center space-x-3 mb-4">
-          <Shield className="w-6 h-6 text-green-600" />
-          <h3 className="text-lg font-semibold text-secondary-900 dark:text-white">
-            SQL Server Connection
-          </h3>
-        </div>
-
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-4">
-          <div className="flex items-center space-x-2 mb-2">
-            <Database className="w-5 h-5 text-green-600" />
-            <span className="text-sm font-medium text-green-800 dark:text-green-200">
-              Secure Configuration
-            </span>
-          </div>
-          <p className="text-sm text-green-700 dark:text-green-300">
-            Connection credentials are securely stored in environment variables (backend/.env file)
-            and are never committed to version control.
-          </p>
-        </div>
-
-        <div className="flex space-x-3">
-          <button
-            onClick={handleTestConnection}
-            disabled={isTestingConnection}
-            className="btn-primary flex items-center space-x-2"
-            aria-label="Test database connection"
-          >
-            <TestTube className="w-4 h-4" aria-hidden="true" />
-            <span>{isTestingConnection ? 'Testing...' : 'Test Connection'}</span>
-          </button>
-
-          {connectionStatus && (
-            <div className="flex items-center space-x-2">
-              {connectionStatus.type === 'success' ? (
-                <>
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <div className="flex flex-col">
-                    <span className="text-sm text-green-600 font-medium">
-                      {connectionStatus.message}
-                    </span>
-                    {connectionStatus.databaseCount && (
-                      <span className="text-xs text-green-500">
-                        Ready to manage snapshots for {connectionStatus.databaseCount} databases
-                      </span>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <XCircle className="w-5 h-5 text-red-600" />
-                  <span className="text-sm text-red-600">{connectionStatus.message}</span>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Preferences */}
       <div className="card p-6">
@@ -208,9 +110,30 @@ const SettingsPanel = () => {
         </h3>
 
         <div className="space-y-4">
-          <p className="text-sm text-secondary-600 dark:text-secondary-400">
-            Settings will be added here as needed.
-          </p>
+          <div>
+            <label htmlFor="maxHistoryEntries" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+              Maximum History Entries
+            </label>
+            <FormInput
+              id="maxHistoryEntries"
+              type="number"
+              min="1"
+              max="1000"
+              value={settings.preferences.maxHistoryEntries?.toString() || '100'}
+              onChange={(value) => setSettings(prev => ({
+                ...prev,
+                preferences: {
+                  ...prev.preferences,
+                  maxHistoryEntries: parseInt(value) || 100
+                }
+              }))}
+              placeholder="100"
+              className="w-full"
+            />
+            <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+              Maximum number of history entries to keep. Older entries will be automatically removed when this limit is exceeded.
+            </p>
+          </div>
         </div>
       </div>
 

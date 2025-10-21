@@ -1,3 +1,9 @@
 {
-  "preferences": {}
+  "preferences": {
+    "maxHistoryEntries": 70
+  },
+  "connection": {
+    "username": "",
+    "password": ""
+  }
 }

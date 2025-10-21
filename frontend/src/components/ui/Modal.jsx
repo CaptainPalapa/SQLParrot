@@ -204,3 +204,52 @@ export const InputModal = ({
     </div>
   );
 };
+
+// Generic Modal Component (default export)
+const Modal = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  size = 'md'
+}) => {
+  if (!isOpen) return null;
+
+  const getSizeClass = () => {
+    switch (size) {
+      case 'sm':
+        return 'max-w-sm';
+      case 'lg':
+        return 'max-w-lg';
+      case 'xl':
+        return 'max-w-xl';
+      case '2xl':
+        return 'max-w-2xl';
+      default:
+        return 'max-w-md';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className={`bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full ${getSizeClass()} mx-4`}>
+        {title && (
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-secondary-900 dark:text-white">
+              {title}
+            </h3>
+            <button
+              onClick={onClose}
+              className="text-secondary-400 hover:text-secondary-600 dark:hover:text-secondary-300"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+        {children}
+      </div>
+    </div>
+  );
+};
+
+export default Modal;

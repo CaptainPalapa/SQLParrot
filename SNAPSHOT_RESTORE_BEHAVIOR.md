@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document explains how SQL Server database snapshots work and how our application handles snapshot restoration, including the automatic cleanup and checkpoint creation process.
+This document explains how SQL Server database snapshots work and how our application handles snapshot restoration, including the automatic cleanup and checkpoint creation process. This is essential reading for understanding the rollback workflow and troubleshooting snapshot issues.
 
 ## How SQL Server Database Snapshots Work
 
@@ -12,6 +12,7 @@ This document explains how SQL Server database snapshots work and how our applic
 2. **When you restore from a snapshot, SQL Server automatically removes that snapshot** during the restore process
 3. **Other snapshots are NOT automatically removed** - they must be manually dropped
 4. **Once you restore to a snapshot, you cannot restore to earlier snapshots** - they become unusable
+5. **Snapshots can only be created from databases with data files** (log files are excluded)
 
 ### SQL Server Restore Command
 
@@ -145,6 +146,8 @@ If something goes wrong during rollback:
 2. Verify database states in SQL Server Management Studio
 3. Use the "Refresh Snapshots" button to sync the UI with actual state
 4. If needed, manually clean up orphaned snapshots using the cleanup endpoint
+5. Use the health check endpoint (`GET /api/health`) to identify orphaned snapshots
+6. Consider resetting the application state by deleting `data/snapshots.json`
 
 ## Best Practices
 
@@ -196,3 +199,9 @@ If you see snapshots in SQL Server that aren't in the UI:
 This rollback process ensures a clean, predictable state after every restore operation. By automatically cleaning up old snapshots and creating a single "Automatic Checkpoint Snapshot", we prevent the confusion and issues that can arise from orphaned snapshots and sequence number conflicts.
 
 The key insight is that **SQL Server doesn't automatically clean up other snapshots** - our application must manage this cleanup to provide a smooth user experience. The single checkpoint rule ensures you always have a clear reference point for the current state of your databases.
+
+### Related Documentation
+
+- [Main README](../README.md) - Complete feature overview and setup instructions
+- [Troubleshooting Guide](../README.md#-troubleshooting) - Common issues and solutions
+- [API Documentation](../README.md#api-endpoints) - Complete endpoint reference

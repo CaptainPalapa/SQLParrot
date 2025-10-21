@@ -27,6 +27,9 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 - **Orphaned Snapshot Cleanup**: Clean up orphaned snapshot databases and files
 - **External File Management**: Integration with external APIs for file management
 - **Health Monitoring**: Health check endpoint with orphaned snapshot detection
+- **Automatic Checkpoint System**: Creates checkpoints after rollbacks with sequence management
+- **Database Categorization**: Automatically categorizes databases (Global, User, Data Warehouse)
+- **Multi-file Snapshot Support**: Handles databases with multiple data files
 - **Local Storage**: No SQL Server pollution - all metadata stored locally
 - **Responsive Design**: Beautiful UI that works on all devices
 
@@ -123,6 +126,12 @@ Access the theme browser by clicking the palette icon (🎨) in the header:
    - See all operations with timestamps
    - Monitor success/failure status
 
+### 5. **Automatic Checkpoint System**
+   - After every rollback, an "Automatic Checkpoint Snapshot" is created
+   - Only one checkpoint exists at any time (single checkpoint rule)
+   - Sequence numbering resets after rollbacks (1, 2, 3...)
+   - Checkpoints preserve the restored state as a new starting point
+
 ## 🏗️ Architecture
 
 ### **Frontend Stack**
@@ -140,8 +149,9 @@ Access the theme browser by clicking the palette icon (🎨) in the header:
 ### **Data Storage**
 - **Local JSON Files** - No database required
   - `data/groups.json` - Database groups
-  - `data/settings.json` - Connection settings
+  - `data/settings.json` - User preferences (non-sensitive)
   - `data/history.json` - Operation history
+  - `data/snapshots.json` - Snapshot metadata
 
 ## 📁 Project Structure
 
@@ -150,19 +160,36 @@ SQLParrot/
 ├── frontend/                 # React frontend
 │   ├── src/
 │   │   ├── components/      # React components
+│   │   │   ├── ui/         # Reusable UI components
+│   │   │   ├── __tests__/  # Component tests
+│   │   │   └── *.jsx       # Main components
 │   │   ├── contexts/        # React contexts
-│   │   ├── App.jsx         # Main app component
-│   │   └── main.jsx        # Entry point
+│   │   ├── hooks/          # Custom React hooks
+│   │   ├── utils/          # Utility functions
+│   │   ├── constants/     # Theme definitions
+│   │   ├── App.jsx        # Main app component
+│   │   └── main.jsx       # Entry point
+│   ├── dist/              # Built frontend
 │   ├── package.json
-│   └── vite.config.js
+│   ├── vite.config.js
+│   └── tailwind.config.js
 ├── backend/                 # Node.js backend
-│   ├── server.js           # Express server
+│   ├── server.js          # Express server
+│   ├── env.example        # Environment template
 │   └── package.json
 ├── data/                   # Local data storage
-│   ├── groups.json
-│   ├── settings.json
-│   └── history.json
+│   ├── groups.json        # Database groups
+│   ├── settings.json      # User preferences
+│   ├── history.json       # Operation history
+│   └── snapshots.json     # Snapshot metadata
+├── react-analyzer-mcp/     # MCP server for React analysis
+│   ├── src/
+│   ├── build/
+│   └── package.json
 ├── package.json            # Root package.json
+├── setup-env.ps1          # PowerShell setup script
+├── start-dev.bat          # Windows startup script
+├── docker-compose.example.yml
 └── README.md
 ```
 
@@ -201,6 +228,10 @@ npm run dev:backend
 | GET | `/api/snapshots/unmanaged` | Get unmanaged snapshots count |
 | POST | `/api/snapshots/cleanup` | Clean up orphaned snapshots |
 | GET | `/api/health` | Health check with orphaned snapshots |
+| GET | `/api/n8n-health` | N8N API health check |
+| POST | `/api/snapshots/:snapshotId/rollback` | Rollback to specific snapshot |
+| POST | `/api/snapshots/:snapshotId/cleanup` | Cleanup invalid snapshot |
+| DELETE | `/api/snapshots/:snapshotId` | Delete specific snapshot |
 
 ## 🐳 Docker Support
 
@@ -310,6 +341,65 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Icons by [Lucide](https://lucide.dev/)
 - Inspired by the need for better SQL Server snapshot management
 
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### **Connection Problems**
+- **"No SQL Server configuration found"**: Ensure your `.env` file exists and contains valid credentials
+- **"Connection timeout"**: Check network connectivity and SQL Server firewall settings
+- **"Login failed"**: Verify username/password and SQL Server authentication mode
+
+#### **Snapshot Creation Failures**
+- **"No data files found"**: Database must have at least one data file (not just log files)
+- **"Access denied"**: Ensure SQL Server service account has write permissions to snapshot path
+- **"Insufficient disk space"**: Check available space in snapshot directory
+
+#### **Snapshot Rollback Issues**
+- **"Multiple snapshots exist"**: Use cleanup endpoint to remove orphaned snapshots first
+- **"Snapshot not found"**: Refresh snapshots or check if snapshot was manually deleted
+- **"Database in use"**: Ensure no active connections to the database
+
+#### **File Management Problems**
+- **"File verification failed"**: Check N8N API configuration and network connectivity
+- **"Orphaned snapshots detected"**: Use cleanup endpoint to remove orphaned snapshots
+- **"Physical files missing"**: Verify snapshot files exist in the configured path
+
+### Health Check Endpoints
+
+Use these endpoints to diagnose issues:
+
+- `GET /api/health` - Check SQL Server connection and orphaned snapshots
+- `GET /api/n8n-health` - Verify external file management API connectivity
+- `GET /api/snapshots/unmanaged` - Count unmanaged snapshots
+
+### Recovery Procedures
+
+#### **Clean Up Orphaned Snapshots**
+```bash
+# Via API
+curl -X POST http://localhost:3001/api/snapshots/cleanup
+
+# Or use the cleanup endpoint for specific snapshots
+curl -X POST http://localhost:3001/api/snapshots/{snapshotId}/cleanup
+```
+
+#### **Reset Application State**
+1. Stop the application
+2. Backup your `data/` folder
+3. Delete `data/snapshots.json` to reset snapshot metadata
+4. Restart the application
+
+#### **Manual Database Cleanup**
+If automatic cleanup fails, manually drop orphaned snapshots:
+```sql
+-- List all snapshots
+SELECT name, source_database_id FROM sys.databases WHERE source_database_id IS NOT NULL;
+
+-- Drop specific snapshot
+DROP DATABASE [snapshot_name];
+```
+
 ## 📞 Support
 
 If you encounter any issues or have questions:
@@ -317,6 +407,7 @@ If you encounter any issues or have questions:
 1. Check the [Issues](https://github.com/CaptainPalapa/SQLParrot/issues) page
 2. Create a new issue with detailed information
 3. Include your SQL Server version and error messages
+4. Run health check endpoints and include their output
 
 ---
 

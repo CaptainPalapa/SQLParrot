@@ -6,9 +6,10 @@ import { themes } from '../constants/themes';
 export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  const [currentTheme, setCurrentTheme] = useState(() => {
+  const getInitialTheme = () => {
     return localStorage.getItem('sql-parrot-theme') || 'blue';
-  });
+  };
+  const [currentTheme, setCurrentTheme] = useState(getInitialTheme);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', currentTheme);
@@ -23,13 +24,15 @@ export const ThemeProvider = ({ children }) => {
     return themes.find(theme => theme.id === currentTheme) || themes[0];
   };
 
+  const contextValue = {
+    currentTheme,
+    changeTheme,
+    getCurrentThemeData,
+    themes
+  };
+
   return (
-    <ThemeContext.Provider value={{
-      currentTheme,
-      changeTheme,
-      getCurrentThemeData,
-      themes
-    }}>
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );

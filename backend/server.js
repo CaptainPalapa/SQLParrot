@@ -43,15 +43,45 @@ async function writeJsonFile(filePath, data) {
 async function addToHistory(operation) {
   try {
     const history = await readJsonFile(HISTORY_FILE) || { operations: [] };
+    const settings = await readJsonFile(SETTINGS_FILE) || { preferences: { maxHistoryEntries: 100 } };
+    const maxHistoryEntries = settings.preferences?.maxHistoryEntries || 100;
+
     history.operations.unshift({
       ...operation,
       timestamp: new Date().toISOString()
     });
-    // Keep only last 100 operations
-    history.operations = history.operations.slice(0, 100);
+    // Keep only the configured number of operations
+    history.operations = history.operations.slice(0, maxHistoryEntries);
     await writeJsonFile(HISTORY_FILE, history);
   } catch (error) {
     console.error('Error adding to history:', error);
+  }
+}
+
+async function trimHistoryToMaxEntries(maxHistoryEntries) {
+  try {
+    const history = await readJsonFile(HISTORY_FILE) || { operations: [] };
+    const currentCount = history.operations.length;
+
+    if (currentCount > maxHistoryEntries) {
+      const removedCount = currentCount - maxHistoryEntries;
+      history.operations = history.operations.slice(0, maxHistoryEntries);
+      await writeJsonFile(HISTORY_FILE, history);
+
+      // Add a history entry for the trimming action
+      await addToHistory({
+        type: 'trim_history',
+        removedCount: removedCount,
+        newMaxEntries: maxHistoryEntries,
+        previousCount: currentCount
+      });
+
+      return removedCount;
+    }
+    return 0;
+  } catch (error) {
+    console.error('Error trimming history:', error);
+    return 0;
   }
 }
 
@@ -171,10 +201,10 @@ async function deleteGroupSnapshots(groupId) {
 
 async function cleanupOrphanedSnapshots() {
   try {
-    console.log('Checking for orphaned snapshots on startup...');
+    // Checking for orphaned snapshots on startup
     const config = await getFreshSqlConfig();
     if (!config) {
-      console.log('No SQL Server configuration found, skipping orphan cleanup');
+      // No SQL Server configuration found, skipping orphan cleanup
       return { cleaned: 0, orphans: [] };
     }
 
@@ -197,17 +227,17 @@ async function cleanupOrphanedSnapshots() {
         await pool.request().query(`SELECT 1 FROM [${db.name}].sys.tables`);
 
         // If we get here, the database is accessible
-        console.log(`Snapshot ${db.name} is accessible`);
+        // Snapshot is accessible
       } catch (error) {
         // Database is orphaned (files missing)
-        console.log(`Detected orphaned snapshot: ${db.name} (${error.message})`);
+        // Detected orphaned snapshot
         orphanedSnapshots.push(db.name);
 
         try {
           // Drop the orphaned database
           await pool.request().query(`DROP DATABASE [${db.name}]`);
           cleanedSnapshots.push(db.name);
-          console.log(`Cleaned up orphaned snapshot: ${db.name}`);
+          // Cleaned up orphaned snapshot
         } catch (dropError) {
           console.error(`Failed to drop orphaned snapshot ${db.name}:`, dropError.message);
         }
@@ -223,9 +253,9 @@ async function cleanupOrphanedSnapshots() {
         deletedSnapshots: cleanedSnapshots.slice(0, 10)
       });
 
-      console.log(`Startup cleanup completed: removed ${cleanedSnapshots.length} orphaned snapshots`);
+      // Startup cleanup completed
     } else {
-      console.log('No orphaned snapshots found');
+      // Startup cleanup completed
     }
 
     return { cleaned: cleanedSnapshots.length, orphans: orphanedSnapshots };
@@ -513,6 +543,27 @@ app.delete('/api/groups/:id', async (req, res) => {
   }
 });
 
+// Get operation history
+app.get('/api/history', async (req, res) => {
+  try {
+    const data = await readJsonFile(HISTORY_FILE);
+    res.json(data || { operations: [] });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to read history' });
+  }
+});
+
+// Clear operation history
+app.delete('/api/history', async (req, res) => {
+  try {
+    const emptyHistory = { operations: [], metadata: { lastUpdated: new Date().toISOString() } };
+    await writeJsonFile(HISTORY_FILE, emptyHistory);
+    res.json({ success: true, message: 'History cleared successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to clear history' });
+  }
+});
+
 // Get settings (without sensitive data)
 app.get('/api/settings', async (req, res) => {
   try {
@@ -542,6 +593,12 @@ app.get('/api/settings', async (req, res) => {
 app.put('/api/settings', async (req, res) => {
   try {
     const settings = req.body;
+    const currentSettings = await readJsonFile(SETTINGS_FILE) || { preferences: { maxHistoryEntries: 100 } };
+
+    // Check if maxHistoryEntries changed and trim history if needed
+    const newMaxHistoryEntries = settings.preferences?.maxHistoryEntries || 100;
+    const oldMaxHistoryEntries = currentSettings.preferences?.maxHistoryEntries || 100;
+
     // Don't store sensitive data in settings file
     const safeSettings = {
       ...settings,
@@ -551,7 +608,14 @@ app.put('/api/settings', async (req, res) => {
         password: ''  // Don't store password in file
       }
     };
+
     await writeJsonFile(SETTINGS_FILE, safeSettings);
+
+    // If maxHistoryEntries decreased, trim the history
+    if (newMaxHistoryEntries < oldMaxHistoryEntries) {
+      await trimHistoryToMaxEntries(newMaxHistoryEntries);
+    }
+
     sqlConfig = null; // Reset SQL config to reload
     res.json(safeSettings);
   } catch (error) {
@@ -1732,7 +1796,7 @@ app.get('/api/test-snapshot-path', async (req, res) => {
 // Get information about non-managed snapshots
 app.get('/api/snapshots/unmanaged', async (req, res) => {
   try {
-    console.log('Fetching unmanaged snapshots...');
+    // Fetching unmanaged snapshots
     const config = await getFreshSqlConfig();
     if (!config) {
       return res.status(400).json({ error: 'No SQL Server configuration found' });
@@ -1750,8 +1814,7 @@ app.get('/api/snapshots/unmanaged', async (req, res) => {
 
     await pool.close();
 
-    console.log(`Found ${result.recordset.length} total snapshots in SQL Server`);
-    console.log('Snapshot details:', result.recordset.map(db => ({ name: db.name, state: db.state_desc })));
+    // Found total snapshots in SQL Server
 
     // Get our managed snapshots (fresh read)
     const snapshotsData = await getSnapshotsData();
@@ -1765,16 +1828,14 @@ app.get('/api/snapshots/unmanaged', async (req, res) => {
       });
     });
 
-    console.log(`Found ${managedSnapshotNames.size} managed snapshots`);
-    console.log('Managed snapshot names:', Array.from(managedSnapshotNames));
+    // Found managed snapshots
 
     // Find unmanaged snapshots
     const unmanagedSnapshots = result.recordset.filter(db =>
       !managedSnapshotNames.has(db.name)
     );
 
-    console.log(`Found ${unmanagedSnapshots.length} unmanaged snapshots`);
-    console.log('Unmanaged snapshot names:', unmanagedSnapshots.map(db => db.name));
+    // Found unmanaged snapshots
 
     res.json({
       unmanagedCount: unmanagedSnapshots.length,

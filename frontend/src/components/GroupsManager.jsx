@@ -18,14 +18,12 @@ const GroupsManager = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [selectedDatabases, setSelectedDatabases] = useState([]);
-  const [unmanagedSnapshotCount, setUnmanagedSnapshotCount] = useState(0);
   const [refreshingGroups, setRefreshingGroups] = useState(new Set());
   const [expandedSnapshots, setExpandedSnapshots] = useState(new Set());
 
   // Separate loading states for different operations
   const [operationLoading, setOperationLoading] = useState({
     delete: false,
-    cleanup: false,
     rollback: false,
     createSnapshot: false
   });
@@ -46,7 +44,6 @@ const GroupsManager = () => {
 
   useEffect(() => {
     fetchGroups();
-    fetchUnmanagedSnapshots();
   }, []);
 
   // Refresh snapshots when groups change (new group created)
@@ -75,23 +72,6 @@ const GroupsManager = () => {
       setIsInitialLoading(false);
     }
   }, [showError]);
-
-  const fetchUnmanagedSnapshots = useCallback(async () => {
-    try {
-      // Add cache-busting parameter to ensure fresh data
-      const response = await fetch(`/api/snapshots/unmanaged?t=${Date.now()}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      console.log('Unmanaged snapshots data:', data);
-      setUnmanagedSnapshotCount(data.unmanagedCount || 0);
-    } catch (error) {
-      console.error('Error fetching unmanaged snapshots:', error);
-      // Don't show error to user for this background operation
-    }
-  }, []);
-
 
   const fetchSnapshots = async (groupId, showLoading = false, collapseExpanded = false) => {
     if (showLoading) {
@@ -150,19 +130,18 @@ const GroupsManager = () => {
       // Check if we have valid cached data
       if (verificationCache.current.data &&
           (now - verificationCache.current.timestamp) < CACHE_DURATION) {
-        console.log('Using cached verification data');
+        // Using cached verification data
         return processVerificationData(verificationCache.current.data, snapshot);
       }
 
       // If there's already a request in progress, wait for it
       if (verificationCache.current.promise) {
-        console.log('Waiting for existing verification request');
+        // Waiting for existing verification request
         const data = await verificationCache.current.promise;
         return processVerificationData(data, snapshot);
       }
 
       // Make new request and cache it
-      console.log('Making new verification request');
       verificationCache.current.promise = fetch('/api/snapshots/files-to-cleanup')
         .then(response => {
           if (!response.ok) {
@@ -424,7 +403,6 @@ const GroupsManager = () => {
       }
 
       await fetchGroups();
-      await fetchUnmanagedSnapshots();
       groupForm.reset();
       setSelectedDatabases([]);
       setEditingGroup(null);
@@ -501,37 +479,6 @@ const GroupsManager = () => {
     } finally {
       setOperationLoading(prev => ({ ...prev, createSnapshot: false }));
     }
-  };
-
-  const handleCleanupSnapshots = async () => {
-    showConfirmation({
-      title: 'Clean Up Orphaned Snapshots',
-      message: 'This will drop all orphaned snapshot databases from SQL Server (databases that exist but have missing files). This action cannot be undone.',
-      confirmText: 'Clean Up',
-      cancelText: 'Cancel',
-      type: 'danger',
-      onConfirm: async () => {
-        setOperationLoading(prev => ({ ...prev, cleanup: true }));
-        try {
-          const response = await fetch('/api/snapshots/cleanup-orphaned', {
-            method: 'POST'
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-          await fetchUnmanagedSnapshots();
-          showSuccess(`Cleaned up ${data.deletedCount} orphaned snapshots!`);
-        } catch (error) {
-          console.error('Error cleaning up snapshots:', error);
-          showError('Failed to clean up snapshots. Please try again.');
-        } finally {
-          setOperationLoading(prev => ({ ...prev, cleanup: false }));
-        }
-      }
-    });
   };
 
   // Individual snapshot action handlers
@@ -719,18 +666,6 @@ const GroupsManager = () => {
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              {unmanagedSnapshotCount > 0 && (
-                <LoadingButton
-                  onClick={handleCleanupSnapshots}
-                  className="btn-warning flex items-center space-x-2"
-                  aria-label="Clean up existing snapshots"
-                  loading={operationLoading.cleanup}
-                  loadingText="Cleaning up..."
-                >
-                  <Trash2 className="w-4 h-4" aria-hidden="true" />
-                  <span>Clean Up ({unmanagedSnapshotCount})</span>
-                </LoadingButton>
-              )}
               <LoadingButton
                 onClick={() => setIsCreatingGroup(true)}
                 className="btn-primary flex items-center space-x-2"
@@ -1172,12 +1107,7 @@ const GroupsManager = () => {
         required={inputModal.required}
       />
 
-      {/* Footer with unmanaged snapshot count */}
-      {unmanagedSnapshotCount > 0 && (
-        <div className="fixed bottom-4 right-4 bg-orange-100 dark:bg-orange-900 border border-orange-300 dark:border-orange-700 rounded-lg px-3 py-2 text-sm text-orange-800 dark:text-orange-200">
-          {unmanagedSnapshotCount} Unmanaged Snapshots
-        </div>
-      )}
+      {/* Footer */}
         </>
       )}
     </div>
