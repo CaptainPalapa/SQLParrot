@@ -1,0 +1,295 @@
+import React from 'react';
+import { Heart, Code, Database, Palette, Shield, Zap, Github, ExternalLink } from 'lucide-react';
+
+const AboutPanel = () => {
+  const features = [
+    {
+      icon: Database,
+      title: "Database Management",
+      description: "Create, restore, and delete snapshots with real-time monitoring and group organization"
+    },
+    {
+      icon: Palette,
+      title: "Beautiful Themes",
+      description: "7 stunning themes with live preview and persistent storage across sessions"
+    },
+    {
+      icon: Shield,
+      title: "Advanced Security",
+      description: "SQL Server metadata storage with user attribution, audit trails, and fail-fast validation"
+    },
+    {
+      icon: Zap,
+      title: "Smart Automation",
+      description: "Automatic checkpoint system and orphaned snapshot cleanup with health monitoring"
+    }
+  ];
+
+  const techStack = [
+    { name: "React 18", description: "Modern component-based UI" },
+    { name: "Vite", description: "Lightning-fast development server" },
+    { name: "Tailwind CSS", description: "Utility-first CSS framework" },
+    { name: "Node.js", description: "JavaScript runtime" },
+    { name: "Express", description: "Web application framework" },
+    { name: "SQL Server 2016+", description: "Database snapshots and metadata storage" }
+  ];
+
+  return (
+    <div className="space-y-8">
+      {/* Hero Section */}
+      <div className="text-center space-y-6">
+        <div className="flex justify-center">
+          <img
+            src="/sql-parrot-splash.png"
+            alt="SQL Parrot"
+            className="w-32 h-32 object-contain"
+          />
+        </div>
+        <div>
+          <h1 className="text-4xl font-bold text-secondary-900 dark:text-white mb-2">
+            SQL Parrot
+          </h1>
+          <p className="text-xl text-secondary-600 dark:text-secondary-400 mb-4">
+            A beautiful, modern tool for managing SQL Server database snapshots
+          </p>
+          <div className="flex justify-center space-x-4 text-sm text-secondary-500 dark:text-secondary-400">
+            <span className="flex items-center space-x-1">
+              <Code className="w-4 h-4" />
+              <span>Version 1.0.0</span>
+            </span>
+            <span className="flex items-center space-x-1">
+              <Heart className="w-4 h-4 text-red-500" />
+              <span>Made with AI assistance</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mission Statement */}
+      <div className="bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-primary-900 dark:to-secondary-900 rounded-lg p-6 border border-primary-200 dark:border-primary-700">
+        <blockquote className="text-lg italic text-secondary-700 dark:text-secondary-300 text-center">
+          "Why should minor, utility tools be ugly? Every developer deserves beautiful, intuitive interfaces for their daily work."
+        </blockquote>
+        <p className="text-center text-sm text-secondary-600 dark:text-secondary-400 mt-2">
+          — Will Belden, Creator
+        </p>
+      </div>
+
+      {/* Key Features */}
+      <div>
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
+          ✨ Key Features
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {features.map((feature, index) => {
+            const Icon = feature.icon;
+            return (
+              <div key={index} className="card p-6">
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 bg-primary-100 dark:bg-primary-900 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-2">
+                      {feature.title}
+                    </h3>
+                    <p className="text-secondary-600 dark:text-secondary-400">
+                      {feature.description}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Tech Stack */}
+      <div>
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
+          🏗️ Technology Stack
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {techStack.map((tech, index) => (
+            <div key={index} className="card p-4">
+              <h3 className="font-semibold text-secondary-900 dark:text-white mb-1">
+                {tech.name}
+              </h3>
+              <p className="text-sm text-secondary-600 dark:text-secondary-400">
+                {tech.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Architecture Highlights */}
+      <div>
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
+          🏛️ Architecture Highlights
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-3">
+              Frontend Stack
+            </h3>
+            <ul className="space-y-2 text-secondary-600 dark:text-secondary-400">
+              <li>• React 18 with modern hooks</li>
+              <li>• Vite for lightning-fast builds</li>
+              <li>• Tailwind CSS for styling</li>
+              <li>• Lucide React for icons</li>
+            </ul>
+          </div>
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-3">
+              Backend Stack
+            </h3>
+            <ul className="space-y-2 text-secondary-600 dark:text-secondary-400">
+              <li>• Node.js with Express</li>
+              <li>• SQL Server driver (mssql)</li>
+              <li>• SQL Server metadata storage</li>
+              <li>• CORS-enabled API</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Key Capabilities */}
+      <div>
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
+          🚀 Key Capabilities
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div className="card p-4">
+              <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+                Smart Snapshot Management
+              </h3>
+              <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+                <li>• Automatic checkpoint system</li>
+                <li>• Orphaned snapshot cleanup</li>
+                <li>• Multi-file snapshot support</li>
+                <li>• SQL Server metadata storage</li>
+              </ul>
+            </div>
+            <div className="card p-4">
+              <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+                Security & Reliability
+              </h3>
+              <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+                <li>• Secure environment variables</li>
+                <li>• Connection testing</li>
+                <li>• User attribution & audit trails</li>
+                <li>• Fail-fast validation</li>
+              </ul>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div className="card p-4">
+              <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+                User Experience
+              </h3>
+              <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+                <li>• 7 beautiful themes</li>
+                <li>• Live theme preview</li>
+                <li>• Responsive design</li>
+                <li>• Real-time monitoring</li>
+              </ul>
+            </div>
+            <div className="card p-4">
+              <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+                Developer Friendly
+              </h3>
+              <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+                <li>• Docker support</li>
+                <li>• Comprehensive API</li>
+                <li>• SQL Server metadata storage</li>
+                <li>• Multi-user support</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* About the Creator */}
+      <div className="bg-gradient-to-r from-secondary-50 to-primary-50 dark:from-secondary-800 dark:to-primary-900 rounded-lg p-6 border border-secondary-200 dark:border-secondary-700">
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-4">
+          👨‍💻 About the Creator
+        </h2>
+        <div className="space-y-4">
+          <p className="text-secondary-700 dark:text-secondary-300">
+            <strong>SQL Parrot</strong> was conceived and designed by <strong>Will Belden</strong>, who believes that even minor tools should be both powerful and beautiful.
+          </p>
+          <div className="bg-white dark:bg-secondary-800 rounded-lg p-4 border border-secondary-200 dark:border-secondary-600">
+            <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+              Important Disclosure
+            </h3>
+            <p className="text-sm text-secondary-600 dark:text-secondary-400">
+              This project is <strong>100% AI-generated code</strong>. Will's expertise lies in application design, architecture, and defining what tools should accomplish - not in the technical implementation of modern web frameworks like Vite, React, etc.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-semibold text-secondary-900 dark:text-white mb-2">
+                The Project Represents:
+              </h4>
+              <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+                <li>• Application Design Expertise</li>
+                <li>• Architectural Vision</li>
+                <li>• AI-Assisted Development</li>
+                <li>• Open Source Philosophy</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* License & Open Source */}
+      <div className="bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-primary-900 dark:to-secondary-900 rounded-lg p-6 border border-primary-200 dark:border-primary-700">
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-4">
+          📄 License & Open Source
+        </h2>
+        <div className="space-y-4">
+          <p className="text-secondary-700 dark:text-secondary-300">
+            SQL Parrot is released under the <strong>MIT License</strong>, which means you're free to use, modify, and distribute it however you'd like.
+          </p>
+          <div className="bg-white dark:bg-secondary-800 rounded-lg p-4 border border-secondary-200 dark:border-secondary-600">
+            <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+              What This Means
+            </h3>
+            <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+              <li>• ✅ Use it in commercial projects</li>
+              <li>• ✅ Fork and modify as needed</li>
+              <li>• ✅ Distribute your own versions</li>
+              <li>• ✅ Just give credit where credit is due</li>
+            </ul>
+          </div>
+          <p className="text-sm text-secondary-600 dark:text-secondary-400">
+            The only thing we ask is that you acknowledge the original concept by <strong>Will Belden</strong> and include a link back to the <a href="https://github.com/CaptainPalapa/SQLParrot" className="text-primary-600 dark:text-primary-400 hover:underline">GitHub repository</a>.
+          </p>
+        </div>
+      </div>
+
+      {/* Links */}
+      <div className="text-center space-y-4">
+        <div className="flex justify-center space-x-4">
+          <a
+            href="https://github.com/CaptainPalapa/SQLParrot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <Github className="w-4 h-4" />
+            <span>GitHub Repository</span>
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
+        <p className="text-sm text-secondary-500 dark:text-secondary-400">
+          SQL Parrot - Making database snapshot management beautiful!
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default AboutPanel;

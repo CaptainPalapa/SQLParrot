@@ -1,0 +1,22 @@
+{
+  "name": "sql-parrot",
+  "version": "1.0.0",
+  "description": "SQL Server Snapshot Management Tool",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "start:docker": "cd backend && npm start",
+    "test": "jest",
+    "test:api": "jest tests/snapshot-rollback-api.spec.js",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "dotenv": "^17.2.3",
+    "jest": "^30.2.0",
+    "mssql": "^12.0.0",
+    "supertest": "^7.1.4"
+  }
+}

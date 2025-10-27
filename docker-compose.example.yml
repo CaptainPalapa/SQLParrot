@@ -1,0 +1,61 @@
+# SQL Parrot Docker Compose Example
+# Copy this file to docker-compose.yml and customize for your environment
+# The bulk of this compose file is intended as a separate stack from your SQL Server.
+# If you want to integrate, see commented examples at the bottom.
+
+services:
+  sql-parrot:
+    build: .
+    ports:
+      - "${SQL_PARROT_BACKEND_PORT:-3000}:3000"  # Backend API and Frontend served together
+    environment:
+      # SQL Server Connection
+      - SQL_SERVER=${SQL_SERVER:-host.docker.internal}
+      - SQL_USERNAME=${SQL_USERNAME:-your_username}
+      - SQL_PASSWORD=${SQL_PASSWORD:-your_password}
+      - SQL_TRUST_CERTIFICATE=${SQL_TRUST_CERTIFICATE:-true}
+
+      # Application Settings
+      - NODE_ENV=production
+      - PORT=3000
+
+      # Snapshot Storage Path (for SQL Server commands)
+      - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/var/opt/mssql/snapshots}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# Example: Integration with existing SQL Server stack
+# If you have an existing SQL Server in Docker, you can connect via network:
+#
+# services:
+#   sql-parrot:
+#     # ... same configuration as above ...
+#     networks:
+#       - sql-server-network
+#     depends_on:
+#       - sql-server
+#
+#   sql-server:
+#     image: mcr.microsoft.com/mssql/server:2022-latest
+#     environment:
+#       - ACCEPT_EULA=Y
+#       - SA_PASSWORD=YourStrong@Passw0rd
+#     ports:
+#       - "1433:1433"
+#     volumes:
+#       - sql-server-data:/var/opt/mssql
+#     networks:
+#       - sql-server-network
+#
+# volumes:
+#   sql-server-data:
+#     driver: local
+#
+# networks:
+#   sql-server-network:
+#     driver: bridge
