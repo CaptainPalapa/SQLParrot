@@ -185,4 +185,4 @@ data/groups.json
 data/history.json
 .env.safe
 test-results/
-".cursor/mcp.json" 
+.cursor/
