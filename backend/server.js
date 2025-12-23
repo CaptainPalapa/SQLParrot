@@ -1778,63 +1778,21 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
             console.log(`⚠️ Could not check database state: ${stateError.message}`);
           }
 
-          // Step 4: Direct data copy strategy - copy data from snapshot to existing database
+          // Step 4: Restore database from snapshot using proper SQL Server command
+          // This restores the ENTIRE database state (all tables, schema, procedures, etc.)
+          // Note: SQL Server automatically deletes the snapshot after successful restore
           try {
-            console.log(`🔄 Attempting direct data copy strategy...`);
+            console.log(`🔄 Restoring database from snapshot: ${dbSnapshot.snapshotName}`);
 
-            // Step 4a: Get the snapshot database name
-            const snapshotDbName = dbSnapshot.snapshotName;
-
-            // Step 4b: Get all tables from the snapshot database
-            const tablesResult = await pool.request().query(`
-              SELECT TABLE_SCHEMA, TABLE_NAME
-              FROM [${snapshotDbName}].INFORMATION_SCHEMA.TABLES
-              WHERE TABLE_TYPE = 'BASE TABLE'
+            await pool.request().query(`
+              RESTORE DATABASE [${sourceDbName}] FROM DATABASE_SNAPSHOT = '${dbSnapshot.snapshotName}'
             `);
 
-            console.log(`📊 Found ${tablesResult.recordset.length} tables to copy from snapshot`);
+            console.log(`✅ Successfully restored database ${sourceDbName} from snapshot`);
 
-            // Step 4c: For each table, truncate the existing table and copy data from snapshot
-            for (const table of tablesResult.recordset) {
-              const schemaName = table.TABLE_SCHEMA;
-              const tableName = table.TABLE_NAME;
-              const fullTableName = `[${schemaName}].[${tableName}]`;
-
-              try {
-                // Truncate the existing table to clear all data
-                await pool.request().query(`
-                  USE [${sourceDbName}];
-                  TRUNCATE TABLE ${fullTableName}
-                `);
-                console.log(`✅ Truncated table: ${fullTableName}`);
-
-                // Copy data from snapshot to existing table with IDENTITY_INSERT in same batch
-                await pool.request().query(`
-                  USE [${sourceDbName}];
-                  SET IDENTITY_INSERT ${fullTableName} ON;
-                  INSERT INTO ${fullTableName} ([ID], [CRUDDate], [Name], [Price], [Description])
-                  SELECT [ID], [CRUDDate], [Name], [Price], [Description] FROM [${snapshotDbName}].${fullTableName};
-                  SET IDENTITY_INSERT ${fullTableName} OFF;
-                `);
-
-                const rowCountResult = await pool.request().query(`
-                  USE [${sourceDbName}];
-                  SELECT COUNT(*) as count FROM ${fullTableName}
-                `);
-                const rowCount = rowCountResult.recordset[0].count;
-
-                console.log(`✅ Copied ${rowCount} rows to: ${fullTableName}`);
-
-              } catch (tableError) {
-                console.log(`⚠️ Could not copy table ${fullTableName}: ${tableError.message}`);
-              }
-            }
-
-            console.log(`✅ Successfully completed direct data copy for database: ${sourceDbName}`);
-
-          } catch (directCopyError) {
-            console.log(`❌ Direct data copy also failed: ${directCopyError.message}`);
-            throw directCopyError;
+          } catch (restoreError) {
+            console.log(`❌ Failed to restore database from snapshot: ${restoreError.message}`);
+            throw restoreError;
           }
 
           // Step 5: Restore multi-user access
