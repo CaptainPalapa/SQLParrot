@@ -3,10 +3,45 @@ import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield } from 'lucide-
 import { Toast, ConfirmationModal, InputModal } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import DatabaseSelector from './DatabaseSelector';
-import { LoadingButton, LoadingPage } from './ui/Loading';
+import { LoadingButton, LoadingPage, LoadingSpinner } from './ui/Loading';
+import ConnectionOverlay from './ui/ConnectionOverlay';
+import TimeAgo from './ui/TimeAgo';
+import { format as formatTimeAgo } from 'timeago.js';
 import { useNotification } from '../hooks/useNotification';
 import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
+
+const MAX_RETRIES = 5;
+const RETRY_DELAYS = [1000, 2000, 3000, 4000, 5000]; // Exponential backoff - give SQL Server time to fully initialize
+
+// Detect if an error message indicates SQL Server is still starting up vs a real error
+const isStartupError = (errorMessage) => {
+  const startupPatterns = [
+    /cannot open database/i,
+    /login failed/i,
+    /network-related/i,
+    /instance-specific error/i,
+    /server was not found/i,
+    /not accessible/i,
+    /connection refused/i,
+    /ECONNREFUSED/i,
+    /timeout/i,
+    /failed to connect/i,
+  ];
+  return startupPatterns.some(pattern => pattern.test(errorMessage));
+};
+
+// Get a friendly error message for display
+const getFriendlyErrorMessage = (errorMessage) => {
+  if (isStartupError(errorMessage)) {
+    return 'Waiting for SQL Server to be ready...';
+  }
+  // For other errors, show something more user-friendly than raw error
+  if (errorMessage.includes('500')) {
+    return 'Server error - retrying...';
+  }
+  return errorMessage;
+};
 
 const GroupsManager = () => {
   const [groups, setGroups] = useState([]);
@@ -23,6 +58,12 @@ const GroupsManager = () => {
   const [verificationResults, setVerificationResults] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [settings, setSettings] = useState({});
+
+  // Connection state management
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected', 'connecting', 'reconnecting', 'error'
+  const [connectionError, setConnectionError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
+  const retryTimeoutRef = useRef(null);
 
   // Separate loading states for different operations
   const [operationLoading, setOperationLoading] = useState({
@@ -44,27 +85,125 @@ const GroupsManager = () => {
   const { modalState: confirmModal, showConfirmation, hideConfirmation, handleConfirm } = useConfirmationModal();
   const { modalState: inputModal, showInputModal, hideInputModal, handleSubmit } = useInputModal();
 
+  // Check connection health
+  const checkConnection = useCallback(async () => {
+    try {
+      const response = await fetch('/api/health');
+      const data = await response.json();
+      return data.connected === true;
+    } catch (error) {
+      console.error('Health check failed:', error);
+      return false;
+    }
+  }, []);
+
+  // Load data with connection handling
+  const loadData = useCallback(async (isRetry = false) => {
+    if (isRetry) {
+      setConnectionStatus('reconnecting');
+    } else if (connectionStatus !== 'connected') {
+      setConnectionStatus('connecting');
+    }
+
+    setIsLoading(true);
+
+    try {
+      // First check if connection is healthy
+      const isConnected = await checkConnection();
+      if (!isConnected) {
+        throw new Error('SQL Server connection unavailable');
+      }
+
+      // Fetch groups
+      const response = await fetch('/api/groups');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const responseData = await response.json();
+      const fetchedGroups = responseData.data?.groups || responseData.groups || [];
+
+      // Success - update groups
+      setGroups(fetchedGroups);
+
+      // Connection successful
+      setConnectionStatus('connected');
+      setConnectionError('');
+      setRetryCount(0);
+
+      // Also fetch settings
+      try {
+        const settingsResponse = await fetch('/api/settings');
+        if (settingsResponse.ok) {
+          const settingsData = await settingsResponse.json();
+          setSettings(settingsData);
+        }
+      } catch (settingsError) {
+        console.error('Error fetching settings:', settingsError);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+      const friendlyMessage = getFriendlyErrorMessage(error.message);
+      setConnectionError(friendlyMessage);
+
+      // If we haven't exceeded max retries, schedule a retry
+      // For startup errors, always retry (SQL Server is coming up)
+      const shouldRetry = retryCount < MAX_RETRIES || isStartupError(error.message);
+
+      if (shouldRetry && retryCount < MAX_RETRIES) {
+        const nextRetry = retryCount + 1;
+        setRetryCount(nextRetry);
+        setConnectionStatus('reconnecting');
+
+        const delay = RETRY_DELAYS[Math.min(nextRetry - 1, RETRY_DELAYS.length - 1)];
+        retryTimeoutRef.current = setTimeout(() => {
+          loadData(true);
+        }, delay);
+      } else {
+        // Max retries exceeded, show error state
+        setConnectionStatus('error');
+      }
+    } finally {
+      setIsLoading(false);
+      setIsInitialLoading(false);
+    }
+  }, [checkConnection, connectionStatus, retryCount]);
+
+  // Manual reconnect handler
+  const handleReconnect = useCallback(() => {
+    // Clear any pending retry
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    setRetryCount(0);
+    setConnectionError('');
+    loadData(true);
+  }, [loadData]);
+
+  // Initial load
   useEffect(() => {
-    fetchGroups();
-    fetchSettings();
+    loadData();
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Component cleanup
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
     };
   }, []);
 
   // Refresh snapshots when groups change (new group created)
   useEffect(() => {
-    if (groups.length > 0) {
+    if (groups.length > 0 && connectionStatus === 'connected') {
       groups.forEach(group => {
         fetchSnapshots(group.id, true);
       });
     }
-  }, [groups]);
+  }, [groups, connectionStatus]);
 
+  // Legacy fetchGroups for operations that need to refresh data
   const fetchGroups = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -73,8 +212,6 @@ const GroupsManager = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const responseData = await response.json();
-
-      // Handle both old and new response formats
       const groups = responseData.data?.groups || responseData.groups || [];
       setGroups(groups);
     } catch (error) {
@@ -82,7 +219,6 @@ const GroupsManager = () => {
       showError('Failed to load groups. Please try again.');
     } finally {
       setIsLoading(false);
-      setIsInitialLoading(false);
     }
   }, [showError]);
 
@@ -406,24 +542,10 @@ const GroupsManager = () => {
     });
   };
 
-  // Helper function to format time ago
-  const getTimeAgo = (date) => {
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-    return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-  };
-
   const handleRollbackSnapshot = async (snapshot) => {
     const group = groups.find(g => g.id === snapshot.groupId);
     const createdDate = new Date(snapshot.createdAt);
-    const timeAgo = getTimeAgo(createdDate);
+    const timeAgo = formatTimeAgo(createdDate);
 
     showConfirmation({
       title: 'Rollback to Snapshot',
@@ -661,12 +783,23 @@ const GroupsManager = () => {
     }
   };
 
+  // Determine connection overlay status
+  const overlayStatus = isInitialLoading
+    ? (connectionStatus === 'error' ? 'error' : connectionStatus)
+    : (connectionStatus === 'connected' ? 'connected' : connectionStatus);
+
   return (
     <div className="space-y-6">
-      {isInitialLoading ? (
+      {isInitialLoading && connectionStatus !== 'error' && connectionStatus !== 'reconnecting' ? (
         <LoadingPage message="Loading database groups..." />
       ) : (
-        <>
+        <ConnectionOverlay
+          status={overlayStatus}
+          message={connectionError}
+          onRetry={handleReconnect}
+          retryCount={retryCount}
+          maxRetries={MAX_RETRIES}
+        >
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
@@ -929,35 +1062,26 @@ const GroupsManager = () => {
               )}
             </div>
 
+            {/* Snapshots Loading Indicator */}
+            {refreshingGroups.has(group.id) && (!snapshots[group.id] || snapshots[group.id].length === 0) && (
+              <div className="mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-700">
+                <div className="flex items-center space-x-2 text-secondary-500 dark:text-secondary-400">
+                  <LoadingSpinner size="sm" />
+                  <span className="text-sm">Loading snapshots...</span>
+                </div>
+              </div>
+            )}
+
             {/* Snapshots List */}
             {snapshots[group.id] && snapshots[group.id].length > 0 && (
               <div className="mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-700">
                 <h4 className="text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
                   Snapshots ({snapshots[group.id].length})
+                  {refreshingGroups.has(group.id) && <LoadingSpinner size="sm" className="inline-block ml-2" />}
                 </h4>
                 <div className="space-y-2">
                   {(expandedSnapshots.has(group.id) ? snapshots[group.id] : snapshots[group.id].slice(0, 2)).map((snapshot, index) => {
                     const createdDate = new Date(snapshot.createdAt);
-                    const now = new Date();
-                    const diffMs = now - createdDate;
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const diffHours = Math.floor(diffMs / 3600000);
-                    const diffDays = Math.floor(diffMs / 86400000);
-
-                    let timeAgo = '';
-                    if (diffMins < 1) {
-                      timeAgo = 'just now';
-                    } else if (diffMins < 60) {
-                      timeAgo = `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-                    } else if (diffHours < 24) {
-                      timeAgo = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-                    } else if (diffDays === 1) {
-                      timeAgo = 'yesterday';
-                    } else if (diffDays < 7) {
-                      timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-                    } else {
-                      timeAgo = `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) !== 1 ? 's' : ''} ago`;
-                    }
 
                     return (
                       <div
@@ -985,7 +1109,7 @@ const GroupsManager = () => {
                               {createdDate.toLocaleDateString()} {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                             </span>
                             <span>•</span>
-                            <span>{timeAgo}</span>
+                            <TimeAgo datetime={snapshot.createdAt} />
                           </div>
                         </div>
 
@@ -1234,9 +1358,7 @@ const GroupsManager = () => {
           </div>
         </div>
       )}
-
-      {/* Footer */}
-        </>
+        </ConnectionOverlay>
       )}
     </div>
   );

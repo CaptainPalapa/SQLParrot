@@ -63,7 +63,18 @@ app.use(express.json());
 // Data file paths - REMOVED: No longer using JSON files
 
 // Initialize SQL Server metadata storage
+// Track initialization state
+let isInitialized = false;
+let initializationError = null;
+let isInitializing = false;
+
 async function initializeMetadataStorage() {
+  if (isInitialized) return true;
+  if (isInitializing) return false;
+
+  isInitializing = true;
+  initializationError = null;
+
   try {
     console.log('🚀 Initializing SQL Server metadata storage...');
 
@@ -74,11 +85,52 @@ async function initializeMetadataStorage() {
     await metadataStorage.initialize();
 
     console.log('✅ SQL Server metadata storage ready');
+    isInitialized = true;
+    initializationError = null;
     return true;
   } catch (error) {
     console.error('❌ Failed to initialize metadata storage:', error.message);
+    initializationError = error.message;
+    isInitialized = false;
     throw error;
+  } finally {
+    isInitializing = false;
   }
+}
+
+// Retry initialization with exponential backoff
+const INIT_RETRY_DELAYS = [2000, 4000, 8000, 16000, 30000]; // Max 30 seconds between retries
+let initRetryCount = 0;
+let initRetryTimeout = null;
+
+async function tryInitializeWithRetry() {
+  try {
+    await initializeMetadataStorage();
+    initRetryCount = 0; // Reset on success
+    return true;
+  } catch (error) {
+    initRetryCount++;
+    const delay = INIT_RETRY_DELAYS[Math.min(initRetryCount - 1, INIT_RETRY_DELAYS.length - 1)];
+    console.log(`⏳ Will retry SQL Server connection in ${delay / 1000} seconds... (attempt ${initRetryCount})`);
+
+    initRetryTimeout = setTimeout(tryInitializeWithRetry, delay);
+    return false;
+  }
+}
+
+// Check if backend is ready to serve requests
+function isBackendReady() {
+  return isInitialized;
+}
+
+// Get current initialization status
+function getInitializationStatus() {
+  return {
+    initialized: isInitialized,
+    initializing: isInitializing,
+    error: initializationError,
+    retryCount: initRetryCount
+  };
 }
 
 // Helper functions - REMOVED: No longer using JSON files
@@ -599,6 +651,56 @@ async function getFreshSqlConfig() {
 // Note: File Management API helpers removed - external file API no longer supported
 
 // Routes
+
+// Health check endpoint - lightweight connection test
+app.get('/api/health', async (req, res) => {
+  const status = getInitializationStatus();
+
+  // If not initialized, try to initialize now (might trigger reconnection)
+  if (!status.initialized && !status.initializing) {
+    try {
+      await metadataStorage.testConnection();
+      // If test passes but we weren't initialized, trigger initialization
+      if (!isBackendReady()) {
+        tryInitializeWithRetry();
+      }
+    } catch (error) {
+      // Connection still not available
+      return res.status(503).json({
+        status: 'error',
+        connected: false,
+        initialized: false,
+        message: error.message,
+        retrying: status.initializing || initRetryCount > 0
+      });
+    }
+  }
+
+  if (status.initialized) {
+    res.json({
+      status: 'ok',
+      connected: true,
+      initialized: true,
+      message: 'Connected to SQL Server'
+    });
+  } else if (status.initializing) {
+    res.status(503).json({
+      status: 'connecting',
+      connected: false,
+      initialized: false,
+      message: 'Connecting to SQL Server...',
+      retrying: true
+    });
+  } else {
+    res.status(503).json({
+      status: 'error',
+      connected: false,
+      initialized: false,
+      message: status.error || 'SQL Server not available',
+      retrying: initRetryCount > 0
+    });
+  }
+});
 
 // Get all groups
 app.get('/api/groups', async (req, res) => {
@@ -2478,27 +2580,24 @@ if (process.env.NODE_ENV !== 'test') {
   const server = app.listen(PORT, async () => {
     console.log(`SQL Parrot backend running on port ${PORT}`);
 
-    // Initialize SQL Server metadata storage (fail fast if not available)
-    try {
-      await initializeMetadataStorage();
-    } catch (error) {
-      console.error('❌ CRITICAL: Failed to initialize metadata storage:', error.message);
-      console.error('❌ Application cannot start without SQL Server connection');
-      process.exit(1);
-    }
+    // Try to initialize SQL Server metadata storage (will retry if not available)
+    const initialized = await tryInitializeWithRetry();
 
-    // Run orphan cleanup on startup
-    try {
-      const cleanupResult = await cleanupOrphanedSnapshots();
-      if (cleanupResult.cleaned > 0) {
-        console.log(`✅ Startup cleanup: Removed ${cleanupResult.cleaned} orphaned snapshots`);
-      } else {
-        console.log('✅ Startup cleanup: No orphaned snapshots found');
+    if (initialized) {
+      // Run orphan cleanup on startup only if initialized
+      try {
+        const cleanupResult = await cleanupOrphanedSnapshots();
+        if (cleanupResult.cleaned > 0) {
+          console.log(`✅ Startup cleanup: Removed ${cleanupResult.cleaned} orphaned snapshots`);
+        } else {
+          console.log('✅ Startup cleanup: No orphaned snapshots found');
+        }
+      } catch (error) {
+        console.error('❌ Startup cleanup failed:', error.message);
       }
-
-      // Metadata is now 100% SQL-based, no JSON cleanup needed
-    } catch (error) {
-      console.error('❌ Startup cleanup failed:', error.message);
+    } else {
+      console.log('⚠️  Backend started but SQL Server not yet available');
+      console.log('⚠️  Will keep retrying connection in background...');
     }
   });
 

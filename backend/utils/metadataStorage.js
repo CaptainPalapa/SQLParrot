@@ -19,6 +19,9 @@ class MetadataStorage {
     this.userName = process.env.SQLPARROT_USER_NAME || 'unknown_user';
     this.metadataDatabaseName = 'sqlparrot';
     this.sqlConfig = null;
+    this.pool = null;
+    this.isConnecting = false;
+    this.connectionError = null;
 
     console.log(`🔧 SQL Server Metadata Storage:`);
     console.log(`   SQLPARROT_USER_NAME = "${this.userName}"`);
@@ -51,6 +54,11 @@ class MetadataStorage {
           enableArithAbort: true,
           requestTimeout: 30000,
           connectionTimeout: 30000
+        },
+        pool: {
+          max: 10,
+          min: 0,
+          idleTimeoutMillis: 30000
         }
       };
     }
@@ -58,18 +66,78 @@ class MetadataStorage {
   }
 
   /**
-   * Test SQL Server connection and fail fast if not available
+   * Get a connection pool, creating or reconnecting as needed
+   * This maintains a persistent pool instead of opening/closing for each request
+   * @returns {ConnectionPool} SQL Server connection pool
+   */
+  async getPool() {
+    // If we have a connected pool, return it
+    if (this.pool && this.pool.connected) {
+      return this.pool;
+    }
+
+    // If already connecting, wait for it
+    if (this.isConnecting) {
+      // Wait a bit and try again
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return this.getPool();
+    }
+
+    // Need to connect
+    this.isConnecting = true;
+    this.connectionError = null;
+
+    try {
+      const config = await this.getSqlConfig();
+
+      // Close existing pool if any
+      if (this.pool) {
+        try {
+          await this.pool.close();
+        } catch (e) {
+          // Ignore close errors
+        }
+        this.pool = null;
+      }
+
+      this.pool = await sql.connect(config);
+      console.log('✅ SQL Server connection pool established');
+      return this.pool;
+    } catch (error) {
+      this.connectionError = error.message;
+      console.error('❌ Failed to establish connection pool:', error.message);
+      throw error;
+    } finally {
+      this.isConnecting = false;
+    }
+  }
+
+  /**
+   * Close the connection pool (call on app shutdown)
+   */
+  async closePool() {
+    if (this.pool) {
+      try {
+        await this.pool.close();
+        console.log('🔌 SQL Server connection pool closed');
+      } catch (e) {
+        // Ignore close errors
+      }
+      this.pool = null;
+    }
+  }
+
+  /**
+   * Test SQL Server connection
    * @returns {Object} Connection test result
    */
   async testConnection() {
     try {
       console.log('🔍 Testing SQL Server connection...');
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       // Test basic connectivity
-      const result = await pool.request().query('SELECT 1 as test');
-      await pool.close();
+      await pool.request().query('SELECT 1 as test');
 
       console.log('✅ SQL Server connection successful');
       return { success: true, message: 'SQL Server connection successful' };
@@ -86,8 +154,7 @@ class MetadataStorage {
   async initialize() {
     try {
       console.log('🚀 Initializing SQL Server metadata storage...');
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       // Create metadata database if it doesn't exist
       await pool.request().query(`
@@ -183,7 +250,6 @@ class MetadataStorage {
           PRINT 'Stats table already exists'
       `);
 
-      await pool.close();
       console.log('✅ SQL Server metadata storage initialized successfully');
       return { success: true, message: 'Metadata storage initialized' };
 
@@ -199,8 +265,7 @@ class MetadataStorage {
    */
   async isInitialized() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       // Check if database exists
       const dbResult = await pool.request().query(`
@@ -208,7 +273,7 @@ class MetadataStorage {
       `);
 
       if (dbResult.recordset.length === 0) {
-        await pool.close();
+
         return false;
       }
 
@@ -221,7 +286,6 @@ class MetadataStorage {
         WHERE type = 'U' AND name IN ('snapshot', 'history', 'groups', 'stats')
       `);
 
-      await pool.close();
       return tableResult.recordset[0].table_count === 4;
     } catch (error) {
       console.error('❌ Error checking metadata initialization:', error.message);
@@ -236,8 +300,7 @@ class MetadataStorage {
    */
   async addSnapshot(snapshot) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -271,7 +334,6 @@ class MetadataStorage {
         )
       `);
 
-      await pool.close();
       return { success: true, mode: 'sql' };
 
     } catch (error) {
@@ -286,8 +348,7 @@ class MetadataStorage {
    */
   async getAllSnapshots() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -308,8 +369,6 @@ class MetadataStorage {
         FROM [dbo].[snapshot]
         ORDER BY created_at DESC
       `);
-
-      await pool.close();
 
       // Parse JSON fields
       const snapshots = result.recordset.map(row => ({
@@ -333,8 +392,7 @@ class MetadataStorage {
    */
   async deleteSnapshot(snapshotId) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -343,7 +401,6 @@ class MetadataStorage {
         WHERE snapshot_name = '${snapshotId}'
       `);
 
-      await pool.close();
       return { success: true, deleted: result.rowsAffected[0] };
 
     } catch (error) {
@@ -359,8 +416,7 @@ class MetadataStorage {
    */
   async addHistory(historyEntry) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -386,7 +442,6 @@ class MetadataStorage {
         )
       `);
 
-      await pool.close();
       return { success: true, mode: 'sql' };
 
     } catch (error) {
@@ -402,8 +457,7 @@ class MetadataStorage {
    */
   async getHistory(limit = 100) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -420,8 +474,6 @@ class MetadataStorage {
         FROM [dbo].[history]
         ORDER BY timestamp DESC
       `);
-
-      await pool.close();
 
       // Parse JSON fields
       const history = result.recordset.map(row => ({
@@ -469,8 +521,7 @@ class MetadataStorage {
    */
   async getSettings() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -479,8 +530,6 @@ class MetadataStorage {
         FROM [dbo].[stats]
         WHERE stat_name LIKE 'setting_%'
       `);
-
-      await pool.close();
 
       const settings = { preferences: { maxHistoryEntries: 100 } };
       result.recordset.forEach(row => {
@@ -502,8 +551,7 @@ class MetadataStorage {
    */
   async updateSettings(settings) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -520,8 +568,6 @@ class MetadataStorage {
         `);
       }
 
-      await pool.close();
-
     } catch (error) {
       console.error(`❌ Failed to update settings: ${error.message}`);
       throw error;
@@ -534,8 +580,7 @@ class MetadataStorage {
    */
   async getAllGroups() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -544,8 +589,6 @@ class MetadataStorage {
         FROM [dbo].[snapshot]
         ORDER BY group_name
       `);
-
-      await pool.close();
 
       const groups = result.recordset.map(row => ({
         id: row.id,
@@ -579,8 +622,7 @@ class MetadataStorage {
    */
   async updateGroup(groupId, group) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -592,8 +634,6 @@ class MetadataStorage {
           [updated_at] = GETDATE()
         WHERE [id] = '${groupId}'
       `);
-
-      await pool.close();
 
       return { success: true };
     } catch (error) {
@@ -608,16 +648,13 @@ class MetadataStorage {
    */
   async deleteGroup(groupId) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
       await pool.request().query(`
         DELETE FROM [dbo].[groups] WHERE [id] = '${groupId}'
       `);
-
-      await pool.close();
 
       return { success: true };
     } catch (error) {
@@ -631,14 +668,11 @@ class MetadataStorage {
    */
   async clearHistory() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
       await pool.request().query(`DELETE FROM [dbo].[history]`);
-
-      await pool.close();
 
       return { success: true };
     } catch (error) {
@@ -662,8 +696,7 @@ class MetadataStorage {
    */
   async addHistoryEntry(historyEntry) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -689,8 +722,6 @@ class MetadataStorage {
         )
       `);
 
-      await pool.close();
-
       return { success: true, mode: 'sql' };
     } catch (error) {
       console.error(`❌ Failed to add history entry: ${error.message}`);
@@ -704,16 +735,13 @@ class MetadataStorage {
    */
   async getSettings() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
       const result = await pool.request().query(`
         SELECT stat_value FROM [dbo].[stats] WHERE stat_name = 'settings'
       `);
-
-      await pool.close();
 
       if (result.recordset.length > 0) {
         const settings = JSON.parse(result.recordset[0].stat_value);
@@ -741,8 +769,7 @@ class MetadataStorage {
    */
   async updateSettings(settings) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -755,8 +782,6 @@ class MetadataStorage {
         WHEN NOT MATCHED THEN
           INSERT (stat_name, stat_value) VALUES (source.stat_name, source.stat_value);
       `);
-
-      await pool.close();
 
       return { success: true };
     } catch (error) {
@@ -772,8 +797,7 @@ class MetadataStorage {
    */
   async trimHistoryEntries(maxEntries) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -795,11 +819,10 @@ class MetadataStorage {
         `);
 
         const trimmed = currentCount - maxEntries;
-        await pool.close();
+
         return { success: true, trimmed };
       }
 
-      await pool.close();
       return { success: true, trimmed: 0 };
     } catch (error) {
       console.error(`❌ Failed to trim history entries: ${error.message}`);
@@ -813,8 +836,7 @@ class MetadataStorage {
    */
   async getGroups() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -829,8 +851,6 @@ class MetadataStorage {
         FROM [dbo].[groups]
         ORDER BY name
       `);
-
-      await pool.close();
 
       const groups = result.recordset.map(row => {
         const group = {
@@ -865,10 +885,14 @@ class MetadataStorage {
   /**
    * Get all groups (alias for compatibility)
    * @returns {Array} Array of groups
+   * @throws {Error} If database connection fails
    */
   async getAllGroups() {
     const result = await this.getGroups();
-    return result.success ? result.groups : [];
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to retrieve groups from database');
+    }
+    return result.groups;
   }
 
   /**
@@ -878,8 +902,7 @@ class MetadataStorage {
    */
   async createGroup(group) {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -899,8 +922,6 @@ class MetadataStorage {
         )
       `);
 
-      await pool.close();
-
       return { success: true };
     } catch (error) {
       console.error(`❌ Failed to create group: ${error.message}`);
@@ -914,8 +935,7 @@ class MetadataStorage {
    */
   async getHistory() {
     try {
-      const config = await this.getSqlConfig();
-      const pool = await sql.connect(config);
+      const pool = await this.getPool();
 
       await pool.request().query(`USE [${this.metadataDatabaseName}]`);
 
@@ -932,8 +952,6 @@ class MetadataStorage {
         FROM [dbo].[history]
         ORDER BY timestamp DESC
       `);
-
-      await pool.close();
 
       const history = result.recordset.map(row => {
         const entry = {
