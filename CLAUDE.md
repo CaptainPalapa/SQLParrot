@@ -19,7 +19,7 @@ npm run install:all      # Install all dependencies
 
 ## Git Workflow
 - Main branch: `main`
-- This is a public open source repo (MIT license)
+- This is a public open source repo (AGPL v3 + Commercial dual license)
 - Commit directly to main for now (small project)
 
 ---
@@ -65,10 +65,9 @@ Create a Tauri-based desktop executable ("lite" version) that runs alongside the
 
 #### Phase 3: Metadata Storage for Tauri
 - [ ] Decide on local storage approach for Tauri version:
-  - Option A: SQLite local database (via `rusqlite`)
+  - Option A: SQLite local database (via `rusqlite`) - matches Docker version's approach
   - Option B: JSON file storage (simpler)
-  - Option C: Store metadata in SQL Server itself (like Docker version uses `sqlparrot` db)
-- [ ] Port metadata storage logic to Rust
+- [ ] Port metadata storage logic to Rust (Docker version now uses local SQLite)
 
 #### Phase 4: Frontend Adaptation
 - [ ] Create abstraction layer for API calls that works with both:
