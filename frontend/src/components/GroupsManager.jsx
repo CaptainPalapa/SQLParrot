@@ -682,7 +682,8 @@ const GroupsManager = () => {
           // Handle structured API response
           if (data.success) {
             showSuccess(data.message || `Successfully rolled back to snapshot "${snapshot.displayName}"!`);
-            await fetchSnapshots(snapshot.groupId, false, true);
+            // Refresh all data since rollback can affect multiple groups
+            await loadData();
           } else {
             showError(data.message || 'Failed to rollback snapshot. Please try again.');
           }

@@ -1,9 +1,44 @@
 // ABOUTME: Displays relative time that auto-updates (e.g., "5 minutes ago", "yesterday")
-// ABOUTME: Uses timeago.js for human-readable time formatting with live updates
+// ABOUTME: Uses a single shared timer for synchronized updates across all instances
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { render, cancel } from 'timeago.js';
+import { format } from 'timeago.js';
+
+// Shared state for synchronized updates
+let globalTick = 0;
+let listeners = new Set();
+let intervalId = null;
+
+const UPDATE_INTERVAL = 5000; // Update every 5 seconds
+
+function startGlobalTimer() {
+  if (intervalId) return;
+  intervalId = setInterval(() => {
+    globalTick++;
+    listeners.forEach(listener => listener(globalTick));
+  }, UPDATE_INTERVAL);
+}
+
+function stopGlobalTimer() {
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalId = null;
+  }
+}
+
+function subscribe(listener) {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    startGlobalTimer();
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      stopGlobalTimer();
+    }
+  };
+}
 
 const TimeAgo = ({
   datetime,
@@ -11,22 +46,19 @@ const TimeAgo = ({
   live = true,
   locale = 'en_US'
 }) => {
-  const elementRef = useRef(null);
+  const [, setTick] = useState(0);
 
+  // Subscribe to global timer for synchronized updates
   useEffect(() => {
-    const element = elementRef.current;
-    if (!element || !datetime) return;
+    if (!live) return;
+    return subscribe(setTick);
+  }, [live]);
 
-    if (live) {
-      render(element, locale);
-    }
-
-    return () => {
-      if (live && element) {
-        cancel(element);
-      }
-    };
-  }, [datetime, live, locale]);
+  // Format the time
+  const formatTime = useCallback(() => {
+    if (!datetime) return '';
+    return format(datetime, locale);
+  }, [datetime, locale]);
 
   if (!datetime) {
     return null;
@@ -35,11 +67,9 @@ const TimeAgo = ({
   const dateValue = datetime instanceof Date ? datetime.toISOString() : datetime;
 
   return (
-    <time
-      ref={elementRef}
-      dateTime={dateValue}
-      className={className}
-    />
+    <time dateTime={dateValue} className={className}>
+      {formatTime()}
+    </time>
   );
 };
 

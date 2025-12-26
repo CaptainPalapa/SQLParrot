@@ -223,82 +223,38 @@ const SettingsPanel = () => {
 
         <div className="space-y-4">
           {metadataStatus && (
-            <div className={`border rounded-lg p-4 ${
-              metadataStatus.mode === 'sql'
-                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-            }`}>
+            <div className="border rounded-lg p-4 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
-                  {metadataStatus.mode === 'sql' ? (
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                  ) : (
-                    <AlertCircle className="w-5 h-5 text-yellow-600" />
-                  )}
-                  <span className={`text-sm font-medium ${
-                    metadataStatus.mode === 'sql'
-                      ? 'text-green-800 dark:text-green-200'
-                      : 'text-yellow-800 dark:text-yellow-200'
-                  }`}>
-                    {metadataStatus.mode === 'sql' ? 'SQL Server Tables' : 'Local JSON Files'}
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                    Local SQLite Database
                   </span>
                 </div>
-                <button
-                  onClick={handleSyncMetadata}
-                  disabled={isSyncing || metadataStatus.mode !== 'sql'}
-                  className={`btn-secondary flex items-center space-x-1 text-xs ${
-                    metadataStatus.mode !== 'sql' ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                  title={metadataStatus.mode !== 'sql' ? 'Sync only available in SQL Server mode' : 'Sync metadata between SQL Server and JSON'}
-                >
-                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-                  <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
-                </button>
               </div>
 
-              <div className={`text-sm ${
-                metadataStatus.mode === 'sql'
-                  ? 'text-green-700 dark:text-green-300'
-                  : 'text-yellow-700 dark:text-yellow-300'
-              }`}>
+              <div className="text-sm text-green-700 dark:text-green-300">
                 <div className="space-y-2">
                   <div className="flex items-center space-x-2">
                     <Server className="w-4 h-4" />
                     <span className="font-mono text-xs">
-                      {metadataStatus.mode === 'sql' ? 'sqlparrot database' : 'data/*.json files'}
+                      {metadataStatus.database || 'sqlparrot.db'}
                     </span>
                   </div>
 
-                  {metadataStatus.mode === 'sql' && (
-                    <div className="text-xs">
-                      <p className="font-medium">Benefits:</p>
-                      <ul className="list-disc list-inside ml-2 space-y-1">
-                        <li>Multi-user support with audit trail</li>
-                        <li>Centralized metadata storage</li>
-                        <li>Automatic conflict resolution</li>
-                        <li>User attribution for all operations</li>
-                      </ul>
-                    </div>
-                  )}
-
-                  {metadataStatus.mode === 'json' && (
-                    <div className="text-xs">
-                      <p className="font-medium">Current Mode:</p>
-                      <ul className="list-disc list-inside ml-2 space-y-1">
-                        <li>Local JSON file storage</li>
-                        <li>Single-user environment</li>
-                        <li>No audit trail</li>
-                        <li>Fallback mode when SQL Server unavailable</li>
-                      </ul>
-                    </div>
-                  )}
+                  <div className="text-xs">
+                    <p className="font-medium">Features:</p>
+                    <ul className="list-disc list-inside ml-2 space-y-1">
+                      <li>Local embedded database - no external dependencies</li>
+                      <li>User attribution for all operations</li>
+                      <li>Fast and lightweight</li>
+                      <li>Portable configuration</li>
+                    </ul>
+                  </div>
 
                   <div className="text-xs opacity-75">
                     <p>
                       <span className="font-medium">User:</span> {metadataStatus.userName || 'Unknown'}
-                    </p>
-                    <p>
-                      <span className="font-medium">Database:</span> {metadataStatus.metadataDatabaseName || 'N/A'}
                     </p>
                   </div>
                 </div>

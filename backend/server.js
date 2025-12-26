@@ -43,12 +43,12 @@ const createSuccessResponse = (data, successMessages = []) => {
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 console.log('📁 Loaded environment variables from .env file');
 
-// Import metadata storage AFTER environment variables are loaded
-const MetadataStorage = require('./utils/metadataStorage');
+// Import metadata storage (SQLite-based, local storage)
+const MetadataStorage = require('./utils/metadataStorageSqlite');
 const metadataStorage = new MetadataStorage();
 
-// Set metadata mode - always SQL mode since JSON files are no longer used
-const metadataMode = 'sql';
+// Metadata is stored locally in SQLite (no SQL Server connection needed for metadata)
+const metadataMode = 'sql'; // Always use SQLite for metadata storage
 
 
 const app = express();
@@ -62,29 +62,21 @@ app.use(express.json());
 
 // Data file paths - REMOVED: No longer using JSON files
 
-// Initialize SQL Server metadata storage
+// Initialize SQLite metadata storage
 // Track initialization state
 let isInitialized = false;
 let initializationError = null;
-let isInitializing = false;
 
 async function initializeMetadataStorage() {
   if (isInitialized) return true;
-  if (isInitializing) return false;
-
-  isInitializing = true;
-  initializationError = null;
 
   try {
-    console.log('🚀 Initializing SQL Server metadata storage...');
+    console.log('🚀 Initializing SQLite metadata storage...');
 
-    // Test SQL Server connection first
-    await metadataStorage.testConnection();
-
-    // Initialize metadata database and tables
+    // Initialize SQLite database and tables
     await metadataStorage.initialize();
 
-    console.log('✅ SQL Server metadata storage ready');
+    console.log('✅ SQLite metadata storage ready');
     isInitialized = true;
     initializationError = null;
     return true;
@@ -93,28 +85,6 @@ async function initializeMetadataStorage() {
     initializationError = error.message;
     isInitialized = false;
     throw error;
-  } finally {
-    isInitializing = false;
-  }
-}
-
-// Retry initialization with exponential backoff
-const INIT_RETRY_DELAYS = [2000, 4000, 8000, 16000, 30000]; // Max 30 seconds between retries
-let initRetryCount = 0;
-let initRetryTimeout = null;
-
-async function tryInitializeWithRetry() {
-  try {
-    await initializeMetadataStorage();
-    initRetryCount = 0; // Reset on success
-    return true;
-  } catch (error) {
-    initRetryCount++;
-    const delay = INIT_RETRY_DELAYS[Math.min(initRetryCount - 1, INIT_RETRY_DELAYS.length - 1)];
-    console.log(`⏳ Will retry SQL Server connection in ${delay / 1000} seconds... (attempt ${initRetryCount})`);
-
-    initRetryTimeout = setTimeout(tryInitializeWithRetry, delay);
-    return false;
   }
 }
 
@@ -127,9 +97,7 @@ function isBackendReady() {
 function getInitializationStatus() {
   return {
     initialized: isInitialized,
-    initializing: isInitializing,
-    error: initializationError,
-    retryCount: initRetryCount
+    error: initializationError
   };
 }
 
@@ -652,54 +620,59 @@ async function getFreshSqlConfig() {
 
 // Routes
 
-// Health check endpoint - lightweight connection test
+// Health check endpoint - checks both metadata storage and SQL Server connection
 app.get('/api/health', async (req, res) => {
   const status = getInitializationStatus();
 
-  // If not initialized, try to initialize now (might trigger reconnection)
-  if (!status.initialized && !status.initializing) {
+  // If not initialized, try to initialize now
+  if (!status.initialized) {
     try {
-      await metadataStorage.testConnection();
-      // If test passes but we weren't initialized, trigger initialization
-      if (!isBackendReady()) {
-        tryInitializeWithRetry();
-      }
+      await initializeMetadataStorage();
     } catch (error) {
-      // Connection still not available
       return res.status(503).json({
         status: 'error',
-        connected: false,
         initialized: false,
-        message: error.message,
-        retrying: status.initializing || initRetryCount > 0
+        connected: false,
+        message: error.message
       });
     }
   }
 
-  if (status.initialized) {
-    res.json({
-      status: 'ok',
-      connected: true,
-      initialized: true,
-      message: 'Connected to SQL Server'
-    });
-  } else if (status.initializing) {
-    res.status(503).json({
-      status: 'connecting',
-      connected: false,
-      initialized: false,
-      message: 'Connecting to SQL Server...',
-      retrying: true
-    });
-  } else {
-    res.status(503).json({
+  if (!status.initialized) {
+    return res.status(503).json({
       status: 'error',
-      connected: false,
       initialized: false,
-      message: status.error || 'SQL Server not available',
-      retrying: initRetryCount > 0
+      connected: false,
+      message: status.error || 'Metadata storage not available'
     });
   }
+
+  // Check SQL Server connection
+  let sqlConnected = false;
+  let sqlError = null;
+  try {
+    const config = await getFreshSqlConfig();
+    if (config && config.user) {
+      const pool = await sql.connect(config);
+      await pool.request().query('SELECT 1 as test');
+      await pool.close();
+      sqlConnected = true;
+    }
+  } catch (error) {
+    sqlError = error.message;
+  }
+
+  res.json({
+    status: sqlConnected ? 'ok' : 'degraded',
+    initialized: true,
+    connected: sqlConnected,
+    metadataStorage: 'ready',
+    sqlServer: sqlConnected ? 'connected' : 'disconnected',
+    sqlError: sqlError,
+    message: sqlConnected
+      ? 'All systems operational'
+      : 'SQL Server not configured or unreachable - configure in Settings'
+  });
 });
 
 // Get all groups
@@ -1768,18 +1741,35 @@ app.get('/api/snapshots/:snapshotId/check-external', async (req, res) => {
       .filter(dbSnapshot => dbSnapshot.success)
       .map(dbSnapshot => dbSnapshot.database);
 
+    // Get all SQL Parrot snapshot names from metadata to identify external snapshots
+    const allMetadataSnapshots = await metadataStorage.getAllSnapshots();
+    const sqlParrotSnapshotNames = new Set();
+    allMetadataSnapshots.forEach(s => {
+      if (s.databaseSnapshots) {
+        s.databaseSnapshots.forEach(dbSnap => {
+          if (dbSnap.snapshotName) {
+            sqlParrotSnapshotNames.add(dbSnap.snapshotName);
+          }
+        });
+      }
+    });
+
     const allSnapshotsResult = await pool.request().query(`
       SELECT d.name as snapshot_name, DB_NAME(d.source_database_id) as source_db
       FROM sys.databases d
       WHERE d.source_database_id IS NOT NULL
       AND (${sourceDatabaseNames.map(db => `d.source_database_id = DB_ID('${db}')`).join(' OR ')})
-      AND d.name NOT LIKE 'sf_%'
     `);
 
     await pool.close();
 
-    if (allSnapshotsResult.recordset.length > 0) {
-      const externalSnapshots = allSnapshotsResult.recordset;
+    // Filter to find truly external snapshots (not in our metadata)
+    const externalSnapshotsFound = allSnapshotsResult.recordset.filter(
+      row => !sqlParrotSnapshotNames.has(row.snapshot_name)
+    );
+
+    if (externalSnapshotsFound.length > 0) {
+      const externalSnapshots = externalSnapshotsFound;
       const dropCommands = externalSnapshots.map(s => `DROP DATABASE [${s.snapshot_name}];`);
 
       return res.json({
@@ -1822,16 +1812,33 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       .filter(dbSnapshot => dbSnapshot.success)
       .map(dbSnapshot => dbSnapshot.database);
 
+    // Get all SQL Parrot snapshot names from metadata to identify external snapshots
+    const allMetadataSnapshots = await metadataStorage.getAllSnapshots();
+    const sqlParrotSnapshotNames = new Set();
+    allMetadataSnapshots.forEach(s => {
+      if (s.databaseSnapshots) {
+        s.databaseSnapshots.forEach(dbSnap => {
+          if (dbSnap.snapshotName) {
+            sqlParrotSnapshotNames.add(dbSnap.snapshotName);
+          }
+        });
+      }
+    });
+
     const allSnapshotsResult = await pool.request().query(`
       SELECT d.name as snapshot_name, DB_NAME(d.source_database_id) as source_db
       FROM sys.databases d
       WHERE d.source_database_id IS NOT NULL
       AND (${sourceDatabaseNames.map(db => `d.source_database_id = DB_ID('${db}')`).join(' OR ')})
-      AND d.name NOT LIKE 'sf_%'
     `);
 
-    if (allSnapshotsResult.recordset.length > 0) {
-      const externalSnapshots = allSnapshotsResult.recordset;
+    // Filter to find truly external snapshots (not in our metadata)
+    const externalSnapshotsFound = allSnapshotsResult.recordset.filter(
+      row => !sqlParrotSnapshotNames.has(row.snapshot_name)
+    );
+
+    if (externalSnapshotsFound.length > 0) {
+      const externalSnapshots = externalSnapshotsFound;
       const dropCommands = externalSnapshots.map(s => `DROP DATABASE [${s.snapshot_name}];`);
 
       await pool.close();
@@ -1854,11 +1861,19 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
 
     try {
       // Get snapshot databases that match our group's naming pattern AND our source databases
+      // Pattern is {cleanGroupName}_{hash}_{database} based on generateSnapshotId()
+      const groups = await metadataStorage.getAllGroups();
+      const snapshotGroup = groups.find(g => g.id === snapshot.groupId);
+      const cleanGroupName = snapshotGroup?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || '';
+      const snapshotPattern = cleanGroupName ? `${cleanGroupName}_%` : 'sf_%';
+
+      console.log(`🔍 Looking for snapshots matching pattern: ${snapshotPattern}`);
+
       const groupSnapshotsResult = await pool.request().query(`
         SELECT name, source_database_id
         FROM sys.databases
         WHERE source_database_id IS NOT NULL
-        AND name LIKE 'sf_%'
+        AND name LIKE '${snapshotPattern}'
         AND (${sourceDatabaseNames.map(db => `source_database_id = DB_ID('${db}')`).join(' OR ')})
       `);
 
@@ -2016,11 +2031,17 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         .filter(dbSnapshot => dbSnapshot.success)
         .map(dbSnapshot => dbSnapshot.database);
 
+      // Use same pattern as initial cleanup
+      const groupsForCleanup = await metadataStorage.getAllGroups();
+      const snapshotGroupForCleanup = groupsForCleanup.find(g => g.id === snapshot.groupId);
+      const cleanGroupNameForCleanup = snapshotGroupForCleanup?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || '';
+      const cleanupPattern = cleanGroupNameForCleanup ? `${cleanGroupNameForCleanup}_%` : 'sf_%';
+
       const remainingGroupSnapshotsResult = await pool.request().query(`
         SELECT name, source_database_id
         FROM sys.databases
         WHERE source_database_id IS NOT NULL
-        AND name LIKE 'sf_%'
+        AND name LIKE '${cleanupPattern}'
         AND (${sourceDatabaseNames.map(db => `source_database_id = DB_ID('${db}')`).join(' OR ')})
       `);
 
@@ -2047,11 +2068,15 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
 
     // Step 4: Remove all snapshots from metadata (all snapshots have been cleaned up)
     // Delete all snapshots for this group from SQL metadata storage
+    console.log(`🗑️ Cleaning up metadata for group: ${snapshot.groupId}`);
     const allSnapshots = await metadataStorage.getAllSnapshots();
     const groupSnapshots = allSnapshots.filter(s => s.groupId === snapshot.groupId);
+    console.log(`🗑️ Found ${groupSnapshots.length} snapshots to delete from metadata`);
 
     for (const groupSnapshot of groupSnapshots) {
-      await metadataStorage.deleteSnapshot(groupSnapshot.id);
+      console.log(`🗑️ Deleting snapshot from metadata: ${groupSnapshot.id} (${groupSnapshot.displayName})`);
+      const deleteResult = await metadataStorage.deleteSnapshot(groupSnapshot.id);
+      console.log(`🗑️ Delete result: ${JSON.stringify(deleteResult)}`);
     }
 
     // Step 4: Create a new checkpoint snapshot after restore
@@ -2583,55 +2608,7 @@ app.get('/api/snapshots/unmanaged', async (req, res) => {
   }
 });
 
-// Health check endpoint that also checks for orphaned snapshots
-app.get('/api/health', async (req, res) => {
-  try {
-    const config = await getFreshSqlConfig();
-    if (!config) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'No SQL Server configuration found'
-      });
-    }
-
-    const pool = await sql.connect(config);
-
-    // Test basic connection
-    await pool.request().query('SELECT 1 as test');
-
-    // Check for orphaned snapshots
-    const result = await pool.request().query(`
-      SELECT name, create_date, state_desc
-      FROM sys.databases
-      WHERE source_database_id IS NOT NULL
-    `);
-
-    const orphanedSnapshots = [];
-    for (const db of result.recordset) {
-      try {
-        await pool.request().query(`SELECT 1 FROM [${db.name}].sys.tables`);
-      } catch (error) {
-        orphanedSnapshots.push(db.name);
-      }
-    }
-
-    await pool.close();
-
-    res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      sqlServer: 'connected',
-      orphanedSnapshots: orphanedSnapshots.length,
-      orphanedSnapshotNames: orphanedSnapshots
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+// Note: Health check endpoint consolidated above - this duplicate removed
 
 // Note: N8N API health check endpoint removed - external file API no longer supported
 
@@ -2658,11 +2635,11 @@ if (process.env.NODE_ENV !== 'test') {
   const server = app.listen(PORT, async () => {
     console.log(`SQL Parrot backend running on port ${PORT}`);
 
-    // Try to initialize SQL Server metadata storage (will retry if not available)
-    const initialized = await tryInitializeWithRetry();
+    // Initialize SQLite metadata storage (local, should always work)
+    try {
+      await initializeMetadataStorage();
 
-    if (initialized) {
-      // Run orphan cleanup on startup only if initialized
+      // Run orphan cleanup on startup
       try {
         const cleanupResult = await cleanupOrphanedSnapshots();
         if (cleanupResult.cleaned > 0) {
@@ -2673,9 +2650,9 @@ if (process.env.NODE_ENV !== 'test') {
       } catch (error) {
         console.error('❌ Startup cleanup failed:', error.message);
       }
-    } else {
-      console.log('⚠️  Backend started but SQL Server not yet available');
-      console.log('⚠️  Will keep retrying connection in background...');
+    } catch (error) {
+      console.error('❌ Failed to initialize SQLite metadata storage:', error.message);
+      console.error('   The application may not function correctly.');
     }
   });
 

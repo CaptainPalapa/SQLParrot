@@ -168,6 +168,12 @@ data/backups/
 *.ss
 *.snapshot
 
+# SQLite metadata database
+backend/data/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
 # Playwright MCP
 .playwright-mcp/
 
@@ -180,6 +186,7 @@ Thumbs.db
 .Trashes
 ehthumbs.db
 Desktop.ini
+nul
 data/snapshots.json
 data/groups.json
 data/history.json
