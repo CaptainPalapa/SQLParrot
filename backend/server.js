@@ -984,18 +984,12 @@ app.delete('/api/groups/:id', async (req, res) => {
 // Get operation history
 app.get('/api/history', async (req, res) => {
   try {
-    if (metadataMode === 'sql') {
-      // Use database-based history
-      const dbResult = await metadataStorage.getHistory();
-      if (dbResult.success && dbResult.history) {
-        res.json({ operations: dbResult.history });
-        return;
-      }
+    const dbResult = await metadataStorage.getHistory();
+    if (dbResult.success && dbResult.history) {
+      res.json({ operations: dbResult.history });
+    } else {
+      res.json({ operations: [] });
     }
-
-    // Fall back to JSON file approach
-    const data = await readJsonFile(HISTORY_FILE);
-    res.json(data || { operations: [] });
   } catch (error) {
     res.status(500).json({ error: 'Failed to read history' });
   }
@@ -1004,21 +998,12 @@ app.get('/api/history', async (req, res) => {
 // Clear operation history
 app.delete('/api/history', async (req, res) => {
   try {
-    if (metadataMode === 'sql') {
-      // Use database-based history
-      const dbResult = await metadataStorage.clearHistory();
-      if (dbResult.success) {
-        res.json(createSuccessResponse(null, ['History cleared successfully']));
-        return;
-      } else {
-        return res.status(500).json(createErrorResponse('Failed to clear history from database'));
-      }
+    const dbResult = await metadataStorage.clearHistory();
+    if (dbResult.success) {
+      res.json(createSuccessResponse(null, ['History cleared successfully']));
+    } else {
+      res.status(500).json(createErrorResponse('Failed to clear history'));
     }
-
-    // Fall back to JSON file approach
-    const emptyHistory = { operations: [], metadata: { lastUpdated: new Date().toISOString() } };
-    await writeJsonFile(HISTORY_FILE, emptyHistory);
-    res.json(createSuccessResponse(null, ['History cleared successfully']));
   } catch (error) {
     res.status(500).json({ error: 'Failed to clear history' });
   }
@@ -1027,89 +1012,35 @@ app.delete('/api/history', async (req, res) => {
 // Get settings (without sensitive data)
 app.get('/api/settings', async (req, res) => {
   try {
-    if (metadataMode === 'sql') {
-      // Use database-based settings
-      const dbResult = await metadataStorage.getSettings();
-      if (dbResult.success && dbResult.settings) {
-        // Convert database settings to expected format
-        const dbSettings = {
-          preferences: {
-            maxHistoryEntries: dbResult.settings.maxHistoryEntries || 100,
-            defaultGroup: dbResult.settings.defaultGroup || ''
-          },
-          autoVerification: {
-            enabled: dbResult.settings.autoVerificationEnabled || false,
-            intervalMinutes: dbResult.settings.autoVerificationIntervalMinutes || 15
-          },
-          connection: {
-            server: '',
-            port: 1433,
-            username: '',
-            password: '',
-            trustServerCertificate: true
-          }
-        };
+    const dbResult = await metadataStorage.getSettings();
+    const settings = dbResult.success && dbResult.settings ? dbResult.settings : {};
 
-        // Return settings but mask sensitive data
-        const safeSettings = {
-          ...dbSettings,
-          connection: {
-            ...dbSettings.connection,
-            username: '***masked***',
-            password: '***masked***'
-          },
-          fileApi: {
-            configured: false // External file API removed
-          },
-          environment: {
-            userName: metadataStorage.userName
-          }
-        };
-        res.json(safeSettings);
-        return;
-      }
-    }
-
-    // Fall back to JSON file approach
-    const data = await readJsonFile(SETTINGS_FILE);
-
-    // Provide default settings if file doesn't exist or is invalid
-    const defaultSettings = {
+    // Convert database settings to expected format
+    const formattedSettings = {
       preferences: {
-        maxHistoryEntries: 100
+        maxHistoryEntries: settings.maxHistoryEntries || 100,
+        defaultGroup: settings.defaultGroup || ''
       },
       autoVerification: {
-        enabled: false,
-        intervalMinutes: 15
+        enabled: settings.autoVerificationEnabled || false,
+        intervalMinutes: settings.autoVerificationIntervalMinutes || 15
       },
       connection: {
         server: '',
         port: 1433,
-        username: '',
-        password: '',
+        username: '***masked***',
+        password: '***masked***',
         trustServerCertificate: true
-      }
-    };
-
-    // Merge with defaults if data exists
-    const settings = data ? { ...defaultSettings, ...data } : defaultSettings;
-
-    // Return settings but mask sensitive data
-    const safeSettings = {
-      ...settings,
-      connection: {
-        ...settings.connection,
-        username: settings.connection?.username ? '***masked***' : '',
-        password: settings.connection?.password ? '***masked***' : ''
       },
       fileApi: {
-        configured: false // External file API removed
+        configured: false
       },
       environment: {
         userName: metadataStorage.userName
       }
     };
-    res.json(safeSettings);
+
+    res.json(formattedSettings);
   } catch (error) {
     res.status(500).json({ error: 'Failed to read settings' });
   }
@@ -1173,37 +1104,12 @@ app.put('/api/settings', async (req, res) => {
         }
       } catch (error) {
         console.error('❌ Failed to update settings in database:', error.message);
-        // Don't fall back - return error
-        return res.status(500).json({ error: 'Failed to update settings in database' });
+        res.status(500).json({ error: 'Failed to update settings in database' });
       }
+    } else {
+      // This shouldn't happen - metadataMode is always 'sql'
+      res.status(500).json({ error: 'Metadata storage not configured' });
     }
-
-    // Use JSON file approach
-    const currentSettings = await readJsonFile(SETTINGS_FILE) || { preferences: { maxHistoryEntries: 100 } };
-
-    // Check if maxHistoryEntries changed and trim history if needed
-    const newMaxHistoryEntries = settings.preferences?.maxHistoryEntries || 100;
-    const oldMaxHistoryEntries = currentSettings.preferences?.maxHistoryEntries || 100;
-
-    // Don't store sensitive data in settings file
-    const safeSettings = {
-      ...settings,
-      connection: {
-        ...settings.connection,
-        username: '', // Don't store username in file
-        password: ''  // Don't store password in file
-      }
-    };
-
-    await writeJsonFile(SETTINGS_FILE, safeSettings);
-
-    // If maxHistoryEntries decreased, trim the history
-    if (newMaxHistoryEntries < oldMaxHistoryEntries) {
-      await trimHistoryToMaxEntries(newMaxHistoryEntries);
-    }
-
-    sqlConfig = null; // Reset SQL config to reload
-    res.json(safeSettings);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update settings' });
   }
@@ -2253,9 +2159,8 @@ app.post('/api/snapshots/:snapshotId/cleanup', async (req, res) => {
 
     await pool.close();
 
-    // Remove snapshot from metadata
-    snapshotsData.snapshots = snapshotsData.snapshots.filter(s => s.id !== snapshotId);
-    await writeJsonFile(SNAPSHOTS_FILE, snapshotsData);
+    // Remove snapshot from SQLite metadata
+    await metadataStorage.deleteSnapshot(snapshotId);
 
     res.json({
       success: true,
