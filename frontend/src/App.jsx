@@ -35,7 +35,7 @@ function App() {
                     SQL Parrot
                   </h1>
                   <span className="text-sm text-secondary-500 dark:text-secondary-400">
-                    Snapshot Management
+                    Database Server Snapshot Management
                   </span>
                 </div>
 

@@ -9,19 +9,19 @@ const AboutPanel = () => {
       description: "Create, restore, and delete snapshots with real-time monitoring and group organization"
     },
     {
-      icon: Palette,
-      title: "Beautiful Themes",
-      description: "7 stunning themes with live preview and persistent storage across sessions"
-    },
-    {
       icon: Shield,
       title: "Advanced Security",
-      description: "SQL Server metadata storage with user attribution, audit trails, and fail-fast validation"
+      description: "Local SQLite metadata storage with user attribution, audit trails, and connection validation"
     },
     {
       icon: Zap,
       title: "Smart Automation",
       description: "Automatic checkpoint system and orphaned snapshot cleanup with health monitoring"
+    },
+    {
+      icon: Palette,
+      title: "Beautiful Themes",
+      description: "7 stunning themes with live preview and persistent storage across sessions"
     }
   ];
 
@@ -31,7 +31,11 @@ const AboutPanel = () => {
     { name: "Tailwind CSS", description: "Utility-first CSS framework" },
     { name: "Node.js", description: "JavaScript runtime" },
     { name: "Express", description: "Web application framework" },
-    { name: "SQL Server 2016+", description: "Database snapshots and metadata storage" }
+    { name: "SQLite", description: "Local metadata storage" }
+  ];
+
+  const supportedDatabases = [
+    { name: "SQL Server 2016+", description: "All editions including Express (requires SP1 for 2016)" }
   ];
 
   return (
@@ -123,6 +127,28 @@ const AboutPanel = () => {
         </div>
       </div>
 
+      {/* Supported Databases */}
+      <div>
+        <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
+          🗄️ Supported Databases
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {supportedDatabases.map((db, index) => (
+            <div key={index} className="card p-4">
+              <h3 className="font-semibold text-secondary-900 dark:text-white mb-1">
+                {db.name}
+              </h3>
+              <p className="text-sm text-secondary-600 dark:text-secondary-400">
+                {db.description}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-secondary-500 dark:text-secondary-400 mt-4 italic">
+          More database support coming soon!
+        </p>
+      </div>
+
       {/* Architecture Highlights */}
       <div>
         <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
@@ -147,7 +173,7 @@ const AboutPanel = () => {
             <ul className="space-y-2 text-secondary-600 dark:text-secondary-400">
               <li>• Node.js with Express</li>
               <li>• SQL Server driver (mssql)</li>
-              <li>• SQL Server metadata storage</li>
+              <li>• SQLite local metadata storage</li>
               <li>• CORS-enabled API</li>
             </ul>
           </div>
@@ -169,7 +195,7 @@ const AboutPanel = () => {
                 <li>• Automatic checkpoint system</li>
                 <li>• Orphaned snapshot cleanup</li>
                 <li>• Multi-file snapshot support</li>
-                <li>• SQL Server metadata storage</li>
+                <li>• Local SQLite metadata storage</li>
               </ul>
             </div>
             <div className="card p-4">
@@ -203,8 +229,8 @@ const AboutPanel = () => {
               <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
                 <li>• Docker support</li>
                 <li>• Comprehensive API</li>
-                <li>• SQL Server metadata storage</li>
-                <li>• Multi-user support</li>
+                <li>• Local SQLite metadata</li>
+                <li>• User attribution & history</li>
               </ul>
             </div>
           </div>
@@ -222,10 +248,10 @@ const AboutPanel = () => {
           </p>
           <div className="bg-white dark:bg-secondary-800 rounded-lg p-4 border border-secondary-200 dark:border-secondary-600">
             <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
-              Important Disclosure
+              AI-Assisted Development
             </h3>
             <p className="text-sm text-secondary-600 dark:text-secondary-400">
-              This project is <strong>100% AI-generated code</strong>. Will's expertise lies in application design, architecture, and defining what tools should accomplish - not in the technical implementation of modern web frameworks like Vite, React, etc.
+              This project showcases <strong>AI-assisted development</strong>. Will's expertise lies in application design, architecture, and defining what tools should accomplish. The implementation leverages AI collaboration to bring those designs to life using modern web technologies.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -236,7 +262,7 @@ const AboutPanel = () => {
               <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
                 <li>• Application Design Expertise</li>
                 <li>• Architectural Vision</li>
-                <li>• AI-Assisted Development</li>
+                <li>• AI Collaboration</li>
                 <li>• Open Source Philosophy</li>
               </ul>
             </div>
@@ -247,25 +273,34 @@ const AboutPanel = () => {
       {/* License & Open Source */}
       <div className="bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-primary-900 dark:to-secondary-900 rounded-lg p-6 border border-primary-200 dark:border-primary-700">
         <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-4">
-          📄 License & Open Source
+          📄 License
         </h2>
         <div className="space-y-4">
           <p className="text-secondary-700 dark:text-secondary-300">
-            SQL Parrot is released under the <strong>MIT License</strong>, which means you're free to use, modify, and distribute it however you'd like.
+            SQL Parrot is <strong>dual-licensed</strong> to support both open source and commercial use.
           </p>
           <div className="bg-white dark:bg-secondary-800 rounded-lg p-4 border border-secondary-200 dark:border-secondary-600">
             <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
-              What This Means
+              AGPL v3 (Open Source)
             </h3>
             <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
-              <li>• ✅ Use it in commercial projects</li>
-              <li>• ✅ Fork and modify as needed</li>
-              <li>• ✅ Distribute your own versions</li>
-              <li>• ✅ Just give credit where credit is due</li>
+              <li>• Free for personal, educational, and open source use</li>
+              <li>• If you modify and host it as a service, you must share your code</li>
+              <li>• Derivative works must also be AGPL licensed</li>
+            </ul>
+          </div>
+          <div className="bg-white dark:bg-secondary-800 rounded-lg p-4 border border-secondary-200 dark:border-secondary-600">
+            <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
+              Commercial License
+            </h3>
+            <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
+              <li>• For organizations that cannot comply with AGPL requirements</li>
+              <li>• Use in proprietary software without sharing modifications</li>
+              <li>• Contact the Author for commercial licensing inquiries</li>
             </ul>
           </div>
           <p className="text-sm text-secondary-600 dark:text-secondary-400">
-            The only thing we ask is that you acknowledge the original concept by <strong>Will Belden</strong> and include a link back to the <a href="https://github.com/CaptainPalapa/SQLParrot" className="text-primary-600 dark:text-primary-400 hover:underline">GitHub repository</a>.
+            See the <a href="https://github.com/CaptainPalapa/SQLParrot/blob/main/LICENSE" className="text-primary-600 dark:text-primary-400 hover:underline">LICENSE</a> file for full details.
           </p>
         </div>
       </div>

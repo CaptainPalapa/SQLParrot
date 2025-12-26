@@ -22,14 +22,14 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 - **Unique Database Ownership**: Each database can only belong to one group
 
 ### 🔧 **Advanced Features**
-- **SQL Server Metadata Storage**: All metadata stored in dedicated SQL Server database
+- **Local SQLite Metadata Storage**: All metadata stored locally in SQLite database (no SQL Server metadata database needed)
 - **Connection Testing**: Test SQL Server connections before operations
 - **Orphaned Snapshot Cleanup**: Clean up orphaned snapshot databases and files
 - **Health Monitoring**: Health check endpoint with orphaned snapshot detection
 - **Automatic Checkpoint System**: Creates checkpoints after rollbacks with sequence management
 - **Database Categorization**: Automatically categorizes databases (Global, User, Data Warehouse)
 - **Multi-file Snapshot Support**: Handles databases with multiple data files
-- **Multi-User Support**: Centralized metadata with user attribution and audit trails
+- **User Attribution**: Operation history with user tracking
 - **Fail-Fast Validation**: Application validates SQL Server connection and permissions on startup
 - **Responsive Design**: Beautiful UI that works on all devices
 
@@ -174,12 +174,12 @@ Access the theme browser by clicking the palette icon (🎨) in the header:
 - **CORS** - Cross-origin resource sharing
 
 ### **Data Storage**
-- **SQL Server Metadata Database** - Centralized storage in dedicated `sqlparrot` database
-  - `[snapshot]` table - Snapshot metadata with user attribution
-  - `[history]` table - Complete operation history with audit trails
-  - `[stats]` table - System statistics and monitoring data
-- **Local Settings** - Non-sensitive user preferences only
-  - `data/settings.json` - Theme preferences and UI settings
+- **Local SQLite Database** - All metadata stored locally in `backend/data/sqlparrot.db`
+  - `snapshots` table - Snapshot metadata with user attribution
+  - `groups` table - Database group definitions
+  - `history` table - Complete operation history
+  - `settings` table - Application settings
+- **Browser Storage** - Theme preferences stored in localStorage
 
 ## 📁 Project Structure
 
@@ -203,10 +203,12 @@ SQLParrot/
 │   └── tailwind.config.js
 ├── backend/                 # Node.js backend
 │   ├── server.js          # Express server
+│   ├── utils/             # Utility modules
+│   │   └── metadataStorageSqlite.js  # SQLite storage
+│   ├── data/              # Local data (gitignored)
+│   │   └── sqlparrot.db   # SQLite metadata database
 │   ├── env.example        # Environment template
 │   └── package.json
-├── data/                   # Local settings storage
-│   └── settings.json        # User preferences (theme, UI settings)
 ├── package.json            # Root package.json
 ├── docker-compose.example.yml
 └── README.md
@@ -301,16 +303,23 @@ volumes:
 - **Windows**: `C:\Snapshots`
 - **Linux**: `/var/snapshots` or `/opt/snapshots`
 
-## 🗄️ SQL Server Metadata Storage
+## 🗄️ Local SQLite Metadata Storage
 
-SQL Parrot now uses **SQL Server metadata tables exclusively** for storing snapshot metadata. This provides centralized storage, multi-user support, and comprehensive audit trails.
+SQL Parrot uses a **local SQLite database** for storing all metadata. This provides zero-configuration setup, fast access, and no additional database dependencies.
 
 ### Key Benefits
-- **Multi-User Support**: All users see the same snapshots with user attribution
-- **Centralized Storage**: Single source of truth in SQL Server
-- **Audit Trails**: Complete operation history with user tracking
-- **Fail-Fast Validation**: Application validates connection and permissions on startup
-- **No Sync Issues**: All instances read from the same database
+- **Zero Configuration**: No separate metadata database needed in SQL Server
+- **Fast Local Access**: SQLite provides instant read/write operations
+- **User Attribution**: Operations tracked with configured username
+- **Complete History**: All operations logged with timestamps
+- **Self-Contained**: Metadata travels with your SQL Parrot installation
+
+### Metadata Location
+The SQLite database is stored at `backend/data/sqlparrot.db` and contains:
+- **groups** - Database group definitions
+- **snapshots** - Snapshot metadata and database mappings
+- **history** - Complete operation history
+- **settings** - Application preferences
 
 ### Required Environment Variables
 ```env
@@ -321,17 +330,9 @@ SQL_USERNAME=your_username_here
 SQL_PASSWORD=your_password_here
 SQL_TRUST_CERTIFICATE=true
 
-# User identification for audit trail (REQUIRED)
+# User identification for audit trail (OPTIONAL)
 SQLPARROT_USER_NAME=your_name_here
 ```
-
-### Metadata Database: `sqlparrot`
-SQL Parrot creates a dedicated `sqlparrot` database that is:
-- **Separate from user databases** - never touches your actual data
-- **Excluded from all snapshot/restore operations** - metadata only
-- **Shared across all instances** - Docker, local npm, etc.
-
-📖 **See [METADATA_STORAGE_SYSTEM.md](METADATA_STORAGE_SYSTEM.md) for complete details**
 
 ## 🛠️ Configuration
 
@@ -352,7 +353,6 @@ SQL Parrot requires specific permissions to perform snapshot operations. The use
 - Restore databases from snapshots
 - Access system metadata (`sys.databases`, `sys.master_files`)
 - Execute system commands (`xp_cmdshell`, `DBCC CHECKDB`)
-- Create and manage the `sqlparrot` metadata database
 
 #### **Permission Options:**
 
@@ -406,7 +406,6 @@ ALTER ROLE db_backupoperator ADD MEMBER [sql_parrot_service];
 - **"RESTORE permission denied"** → User needs `sysadmin` role or `CONTROL SERVER` permission
 - **"Cannot access sys.databases"** → User needs `VIEW ANY DEFINITION` permission
 - **"xp_cmdshell access denied"** → User needs `EXECUTE` permission on `xp_cmdshell`
-- **"Metadata database creation failed"** → User needs `CREATE ANY DATABASE` permission for `sqlparrot` database
 - **"Application fails to start"** → Check SQL Server connection and required permissions
 
 ### 🔒 Security & Environment Variables
@@ -440,9 +439,9 @@ SNAPSHOT_PATH=/var/opt/mssql/snapshots  # SQL Server on Docker/Linux
 **Security Features:**
 - ✅ Credentials never stored in version control
 - ✅ Settings API masks sensitive data
-- ✅ Environment variables take precedence over settings file
+- ✅ Environment variables take precedence over settings
 - ✅ `.env` file is gitignored
-- ✅ SQL Server metadata database isolated from user data
+- ✅ Local SQLite metadata isolated from SQL Server
 - ✅ User attribution and audit trails for all operations
 
 ## 🤝 Contributing
@@ -455,7 +454,12 @@ SNAPSHOT_PATH=/var/opt/mssql/snapshots  # SQL Server on Docker/Linux
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+SQL Parrot is dual-licensed:
+
+- **AGPL v3** - Free for open source use. If you modify and host SQL Parrot as a service, you must share your modifications under the same license.
+- **Commercial License** - For organizations that want to use SQL Parrot without AGPL obligations. Contact the Author for commercial licensing inquiries.
+
+See the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
@@ -472,7 +476,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **"Connection timeout"**: Check network connectivity and SQL Server firewall settings
 - **"Login failed"**: Verify username/password and SQL Server authentication mode
 - **"Application fails to start"**: Check SQL Server connection and required permissions
-- **"Metadata database creation failed"**: Ensure user has `CREATE ANY DATABASE` permission
 
 #### **Snapshot Creation Failures**
 - **"No data files found"**: Database must have at least one data file (not just log files)
@@ -510,7 +513,7 @@ curl -X POST http://localhost:3001/api/snapshots/{snapshotId}/cleanup
 
 #### **Reset Application State**
 1. Stop the application
-2. Connect to SQL Server and drop the `sqlparrot` database
+2. Delete the SQLite database file: `backend/data/sqlparrot.db`
 3. Restart the application (it will recreate the metadata database)
 4. All metadata will be reset to clean state
 
@@ -544,13 +547,13 @@ If you encounter any issues or have questions:
 
 **SQL Parrot** was conceived and designed by **Will Belden**, who believes that even minor tools should be both powerful and beautiful.
 
-**Important Disclosure**: This project is **100% AI-generated code**. Will's expertise lies in application design, architecture, and defining what tools should accomplish - not in the technical implementation of modern web frameworks like Vite, React, etc.
+**AI-Assisted Development**: This project showcases AI-assisted development. Will's expertise lies in application design, architecture, and defining what tools should accomplish. The implementation leverages AI collaboration to bring those designs to life using modern web technologies.
 
 The project represents:
 - **Application Design Expertise** - Understanding user workflows and defining optimal solutions
 - **Architectural Vision** - Structuring how applications should work and what they should accomplish
-- **AI-Assisted Development** - Leveraging modern AI tools to bring design concepts to life
-- **Open Source Philosophy** - Built for the community, by the community
+- **AI Collaboration** - Leveraging modern AI tools to bring design concepts to life
+- **Open Source Philosophy** - Built for the community, contributions welcome
 
 *"Why should minor, utility tools be ugly? Every developer deserves beautiful, intuitive interfaces for their daily work."* - Will Belden
 
