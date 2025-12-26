@@ -66,8 +66,24 @@ export const ConfirmationModal = ({
   message,
   confirmText = 'Confirm',
   cancelText = 'Cancel',
-  type = 'warning'
+  type = 'warning',
+  hideCancelButton = false,
+  dismissOnEnter = false
 }) => {
+  // Handle ESC key (always) and Enter key (when dismissOnEnter is true)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'Enter' && dismissOnEnter) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, dismissOnEnter]);
+
   if (!isOpen) return null;
 
   const handleConfirm = () => {
@@ -99,7 +115,7 @@ export const ConfirmationModal = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+      <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-xl mx-4">
         <div className="flex items-center space-x-3 mb-4">
           {getIcon()}
           <h3 className="text-lg font-semibold text-secondary-900 dark:text-white">
@@ -112,12 +128,14 @@ export const ConfirmationModal = ({
         </div>
 
         <div className="flex space-x-3">
-          <button
-            onClick={onClose}
-            className="btn-secondary flex-1"
-          >
-            {cancelText}
-          </button>
+          {!hideCancelButton && (
+            <button
+              onClick={onClose}
+              className="btn-secondary flex-1"
+            >
+              {cancelText}
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             className={`px-4 py-2 rounded-lg font-medium transition-colors flex-1 ${getConfirmButtonStyle()}`}

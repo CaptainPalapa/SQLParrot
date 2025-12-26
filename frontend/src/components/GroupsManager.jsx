@@ -503,7 +503,13 @@ const GroupsManager = () => {
         <div>
           <p>Are you sure you want to delete snapshot</p>
           <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
-          <p>This will permanently remove this snapshot and associated database entries and files. This action cannot be undone.</p>
+          <p className="mb-3">This removes the snapshot - your <strong>database stays exactly as it is now</strong>. All current data and changes are preserved.</p>
+          <p className="text-sm text-secondary-600 dark:text-secondary-400 mb-2">
+            <strong>What this means:</strong> You're removing the ability to rollback to this point in time. If you later want to undo changes made after this snapshot was created, you won't be able to.
+          </p>
+          <p className="text-sm text-secondary-500 dark:text-secondary-500">
+            Other snapshots in this group are not affected.
+          </p>
         </div>
       ),
       confirmText: 'Delete',
@@ -543,22 +549,75 @@ const GroupsManager = () => {
   };
 
   const handleRollbackSnapshot = async (snapshot) => {
+    // Pre-check for external snapshots before showing confirmation
+    try {
+      const checkResponse = await fetch(`/api/snapshots/${snapshot.id}/check-external`);
+      const checkData = await checkResponse.json();
+
+      if (checkData.hasExternalSnapshots) {
+        showConfirmation({
+          title: 'External Snapshots Detected',
+          message: (
+            <div>
+              <p className="mb-2">Cannot rollback: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
+              <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots during rollback, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
+              <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
+                <div className="bg-gray-100 dark:bg-gray-800 rounded p-2 font-mono text-xs text-gray-700 dark:text-gray-300">
+                  {checkData.dropCommands.map((cmd, idx) => (
+                    <div key={idx}>{cmd}</div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(checkData.dropCommands.join('\n'));
+                    showSuccess('SQL copied to clipboard');
+                  }}
+                  className="mt-2 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 underline"
+                >
+                  Copy to clipboard
+                </button>
+              </div>
+            </div>
+          ),
+          confirmText: 'Close',
+          hideCancelButton: true,
+          type: 'warning',
+          dismissOnEnter: true,
+          onConfirm: () => {}
+        });
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking for external snapshots:', error);
+      // Continue with rollback confirmation if check fails
+    }
+
     const group = groups.find(g => g.id === snapshot.groupId);
     const createdDate = new Date(snapshot.createdAt);
     const timeAgo = formatTimeAgo(createdDate);
+    const groupSnapshotCount = snapshots[snapshot.groupId]?.length || 0;
 
     showConfirmation({
       title: 'Rollback to Snapshot',
       message: (
         <div>
-          <p>Are you sure you want to rollback all databases in group "{group?.name || 'Unknown'}" to snapshot</p>
+          <p>Rollback all databases in group "{group?.name || 'Unknown'}" to snapshot</p>
           <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-            This snapshot was created {timeAgo} ({createdDate.toLocaleDateString()} at {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}).
+            Created {timeAgo} ({createdDate.toLocaleDateString()} at {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})
           </p>
-          <p className="mb-3">This will restore all databases to their state at the time this snapshot was created. This action cannot be undone.</p>
-          <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">
-            Restoring this snapshot will immediately invalidate all remaining snapshots in this group, and their associated files will need to be cleaned up.
+
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
+            <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-1">⚠️ This is destructive</p>
+            <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+              <li>All data changes made after this snapshot will be <strong>permanently lost</strong></li>
+              <li>All schema changes (stored procs, indexes, etc.) will be reverted</li>
+              <li>{groupSnapshotCount === 1 ? 'The snapshot' : `All ${groupSnapshotCount} snapshots`} in this group will be removed</li>
+            </ul>
+          </div>
+
+          <p className="text-sm text-secondary-600 dark:text-secondary-400">
+            A new "Automatic" checkpoint will be created at the reverted state.
           </p>
         </div>
       ),
@@ -575,11 +634,50 @@ const GroupsManager = () => {
             },
           });
 
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+          const data = await response.json();
+
+          // Handle external snapshots blocking rollback
+          if (response.status === 409 && data.externalSnapshots) {
+            setOperationLoading(prev => ({ ...prev, rollback: false }));
+            showConfirmation({
+              title: 'External Snapshots Detected',
+              message: (
+                <div>
+                  <p className="mb-2">Cannot rollback: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
+                  <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots during rollback, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
+                  <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                      Remove these snapshots manually, then retry:
+                    </p>
+                    <div className="bg-gray-100 dark:bg-gray-800 rounded p-2 font-mono text-xs text-gray-700 dark:text-gray-300">
+                      {data.dropCommands.map((cmd, idx) => (
+                        <div key={idx}>{cmd}</div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(data.dropCommands.join('\n'));
+                        showSuccess('SQL copied to clipboard');
+                      }}
+                      className="mt-2 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 underline"
+                    >
+                      Copy to clipboard
+                    </button>
+                  </div>
+                </div>
+              ),
+              confirmText: 'Close',
+              hideCancelButton: true,
+              type: 'warning',
+              dismissOnEnter: true,
+              onConfirm: () => {}
+            });
+            return;
           }
 
-          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `HTTP error! status: ${response.status}`);
+          }
 
           // Handle structured API response
           if (data.success) {
@@ -590,7 +688,7 @@ const GroupsManager = () => {
           }
         } catch (error) {
           console.error('Error rolling back snapshot:', error);
-          showError('Failed to rollback snapshot. Please try again.');
+          showError(error.message || 'Failed to rollback snapshot. Please try again.');
         } finally {
           setOperationLoading(prev => ({ ...prev, rollback: false }));
         }
@@ -1215,6 +1313,8 @@ const GroupsManager = () => {
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
         type={confirmModal.type}
+        hideCancelButton={confirmModal.hideCancelButton}
+        dismissOnEnter={confirmModal.dismissOnEnter}
       />
 
       {/* Input Modal */}
@@ -1259,14 +1359,30 @@ const GroupsManager = () => {
 
               {/* Detailed Issues */}
               {verificationResults.data?.orphanedInSQL && verificationResults.data.orphanedInSQL.length > 0 && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                  <h4 className="font-medium text-red-800 dark:text-red-200 mb-2">
-                    Orphaned Snapshots ({verificationResults.data.orphanedInSQL.length})
+                <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-800 dark:text-gray-200 mb-2">
+                    External Snapshots ({verificationResults.data.orphanedInSQL.length})
                   </h4>
-                  <div className="text-sm text-red-700 dark:text-red-300">
-                    {verificationResults.data.orphanedInSQL.slice(0, 5).join(', ')}
-                    {verificationResults.data.orphanedInSQL.length > 5 && ` and ${verificationResults.data.orphanedInSQL.length - 5} more...`}
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                    These snapshots were not created by SQL Parrot. To remove them manually, run:
+                  </p>
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded p-2 font-mono text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">
+                    {verificationResults.data.orphanedInSQL.map((name, idx) => (
+                      <div key={idx}>DROP DATABASE [{name}];</div>
+                    ))}
                   </div>
+                  <button
+                    onClick={() => {
+                      const sql = verificationResults.data.orphanedInSQL
+                        .map(name => `DROP DATABASE [${name}];`)
+                        .join('\n');
+                      navigator.clipboard.writeText(sql);
+                      showSuccess('SQL copied to clipboard');
+                    }}
+                    className="mt-2 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 underline"
+                  >
+                    Copy to clipboard
+                  </button>
                 </div>
               )}
 
@@ -1294,37 +1410,39 @@ const GroupsManager = () => {
                 </div>
               )}
 
-              {/* Cleanup Options */}
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <h4 className="font-medium text-blue-800 dark:text-blue-200 mb-3">
-                  Available Cleanup Actions
-                </h4>
-                <div className="flex flex-col gap-3">
-                  {(verificationResults.data?.orphanedInSQL?.length > 0 || verificationResults.data?.inaccessibleSnapshots?.length > 0) && (
-                    <LoadingButton
-                      onClick={() => runCleanupAction('orphaned')}
-                      className="btn-primary w-full flex items-center justify-center space-x-2"
-                      loading={isVerifying}
-                      loadingText="Cleaning..."
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Clean Orphaned Snapshots</span>
-                    </LoadingButton>
-                  )}
+              {/* Cleanup Options - only show if there's something we can actually clean */}
+              {(verificationResults.data?.inaccessibleSnapshots?.length > 0 || verificationResults.data?.missingInSQL?.length > 0) && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <h4 className="font-medium text-blue-800 dark:text-blue-200 mb-3">
+                    Available Cleanup Actions
+                  </h4>
+                  <div className="flex flex-col gap-3">
+                    {verificationResults.data?.inaccessibleSnapshots?.length > 0 && (
+                      <LoadingButton
+                        onClick={() => runCleanupAction('orphaned')}
+                        className="btn-primary w-full flex items-center justify-center space-x-2"
+                        loading={isVerifying}
+                        loadingText="Cleaning..."
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Clean Inaccessible Snapshots</span>
+                      </LoadingButton>
+                    )}
 
-                  {verificationResults.data?.missingInSQL?.length > 0 && (
-                    <LoadingButton
-                      onClick={() => runCleanupAction('json')}
-                      className="btn-secondary w-full flex items-center justify-center space-x-2"
-                      loading={isVerifying}
-                      loadingText="Cleaning..."
-                    >
-                      <Database className="w-4 h-4" />
-                      <span>Clean Stale Data</span>
-                    </LoadingButton>
-                  )}
+                    {verificationResults.data?.missingInSQL?.length > 0 && (
+                      <LoadingButton
+                        onClick={() => runCleanupAction('json')}
+                        className="btn-secondary w-full flex items-center justify-center space-x-2"
+                        loading={isVerifying}
+                        loadingText="Cleaning..."
+                      >
+                        <Database className="w-4 h-4" />
+                        <span>Clean Stale Metadata</span>
+                      </LoadingButton>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Cleanup Results */}
               {verificationResults.cleanupResults && (

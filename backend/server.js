@@ -1749,6 +1749,57 @@ app.delete('/api/snapshots/:snapshotId', async (req, res) => {
   }
 });
 
+// Pre-check for external snapshots before rollback
+app.get('/api/snapshots/:snapshotId/check-external', async (req, res) => {
+  try {
+    const { snapshotId } = req.params;
+
+    const snapshots = await metadataStorage.getAllSnapshots();
+    const snapshot = snapshots.find(s => s.id === snapshotId);
+
+    if (!snapshot) {
+      return res.status(404).json({ success: false, message: 'Snapshot not found' });
+    }
+
+    const config = await getSqlConfig();
+    const pool = await sql.connect(config);
+
+    const sourceDatabaseNames = snapshot.databaseSnapshots
+      .filter(dbSnapshot => dbSnapshot.success)
+      .map(dbSnapshot => dbSnapshot.database);
+
+    const allSnapshotsResult = await pool.request().query(`
+      SELECT d.name as snapshot_name, DB_NAME(d.source_database_id) as source_db
+      FROM sys.databases d
+      WHERE d.source_database_id IS NOT NULL
+      AND (${sourceDatabaseNames.map(db => `d.source_database_id = DB_ID('${db}')`).join(' OR ')})
+      AND d.name NOT LIKE 'sf_%'
+    `);
+
+    await pool.close();
+
+    if (allSnapshotsResult.recordset.length > 0) {
+      const externalSnapshots = allSnapshotsResult.recordset;
+      const dropCommands = externalSnapshots.map(s => `DROP DATABASE [${s.snapshot_name}];`);
+
+      return res.json({
+        success: true,
+        hasExternalSnapshots: true,
+        externalSnapshots: externalSnapshots.map(s => ({
+          snapshotName: s.snapshot_name,
+          sourceDatabase: s.source_db
+        })),
+        dropCommands: dropCommands
+      });
+    }
+
+    res.json({ success: true, hasExternalSnapshots: false });
+  } catch (error) {
+    console.error('Error checking for external snapshots:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Rollback to a specific snapshot
 app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
   try {
@@ -1765,16 +1816,43 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
     const config = await getSqlConfig();
     const pool = await sql.connect(config);
 
+    // Pre-check: Look for external snapshots that would block the rollback
+    // SQL Server requires ALL snapshots on a database to be dropped before restoring
+    const sourceDatabaseNames = snapshot.databaseSnapshots
+      .filter(dbSnapshot => dbSnapshot.success)
+      .map(dbSnapshot => dbSnapshot.database);
+
+    const allSnapshotsResult = await pool.request().query(`
+      SELECT d.name as snapshot_name, DB_NAME(d.source_database_id) as source_db
+      FROM sys.databases d
+      WHERE d.source_database_id IS NOT NULL
+      AND (${sourceDatabaseNames.map(db => `d.source_database_id = DB_ID('${db}')`).join(' OR ')})
+      AND d.name NOT LIKE 'sf_%'
+    `);
+
+    if (allSnapshotsResult.recordset.length > 0) {
+      const externalSnapshots = allSnapshotsResult.recordset;
+      const dropCommands = externalSnapshots.map(s => `DROP DATABASE [${s.snapshot_name}];`);
+
+      await pool.close();
+      return res.status(409).json({
+        success: false,
+        message: 'External snapshots detected',
+        error: 'Cannot rollback: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.',
+        externalSnapshots: externalSnapshots.map(s => ({
+          snapshotName: s.snapshot_name,
+          sourceDatabase: s.source_db
+        })),
+        dropCommands: dropCommands,
+        hint: 'Remove these snapshots manually using the SQL commands provided, then retry the rollback.'
+      });
+    }
+
     // Step 1: Drop ALL snapshot databases for OUR GROUP AND SOURCE DATABASES EXCEPT the target
     // This ensures complete cleanup while preserving the target snapshot for restore
     const droppedSnapshots = [];
 
     try {
-      // Get our source database names
-      const sourceDatabaseNames = snapshot.databaseSnapshots
-        .filter(dbSnapshot => dbSnapshot.success)
-        .map(dbSnapshot => dbSnapshot.database);
-
       // Get snapshot databases that match our group's naming pattern AND our source databases
       const groupSnapshotsResult = await pool.request().query(`
         SELECT name, source_database_id

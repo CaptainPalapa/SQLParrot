@@ -336,9 +336,12 @@ SQL Parrot creates a dedicated `sqlparrot` database that is:
 ## 🛠️ Configuration
 
 ### SQL Server Requirements
-- SQL Server 2016+ (for snapshot support)
+- SQL Server 2016 SP1+ (snapshots available in **all editions** including Express)
+- SQL Server 2016 without SP1 or earlier requires Enterprise/Developer edition
 - Appropriate permissions for snapshot operations (see below)
 - Network access from the application server
+
+📖 **See [docs/SNAPSHOT_BEHAVIOR.md](docs/SNAPSHOT_BEHAVIOR.md) for detailed information about how snapshots work, Delete vs Rollback behavior, and version requirements.**
 
 ### 🔐 SQL Server Permissions Required
 

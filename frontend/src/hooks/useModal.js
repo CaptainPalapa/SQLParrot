@@ -31,6 +31,8 @@ export const useConfirmationModal = () => {
     confirmText: 'Confirm',
     cancelText: 'Cancel',
     type: 'warning',
+    hideCancelButton: false,
+    dismissOnEnter: false,
     onConfirm: null
   });
 
@@ -40,6 +42,8 @@ export const useConfirmationModal = () => {
     confirmText = 'Confirm',
     cancelText = 'Cancel',
     type = 'warning',
+    hideCancelButton = false,
+    dismissOnEnter = false,
     onConfirm
   }) => {
     setModalState({
@@ -49,6 +53,8 @@ export const useConfirmationModal = () => {
       confirmText,
       cancelText,
       type,
+      hideCancelButton,
+      dismissOnEnter,
       onConfirm
     });
   }, []);

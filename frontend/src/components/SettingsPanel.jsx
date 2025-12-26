@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
-import FormCheckbox from './ui/FormCheckbox';
 import { useNotification } from '../hooks/useNotification';
 import { useFormValidation, validators } from '../utils/validation';
 
@@ -213,59 +212,6 @@ const SettingsPanel = () => {
               Maximum number of history entries to keep. Older entries will be automatically removed when this limit is exceeded.
             </p>
           </div>
-        </div>
-      </div>
-
-      {/* Automatic Verification */}
-      <div className="card p-6">
-        <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
-          Automatic Snapshot Verification
-        </h3>
-
-        <div className="space-y-4">
-          <div>
-            <FormCheckbox
-              id="autoVerificationEnabled"
-              checked={settings.autoVerification?.enabled || false}
-              onChange={(checked) => setSettings(prev => ({
-                ...prev,
-                autoVerification: {
-                  ...prev.autoVerification,
-                  enabled: checked
-                }
-              }))}
-              label="Enable automatic snapshot verification"
-              description="Automatically check for snapshot consistency issues at regular intervals"
-            />
-          </div>
-
-          {settings.autoVerification?.enabled && (
-            <div>
-              <label htmlFor="verificationInterval" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
-                Verification Interval (minutes)
-              </label>
-              <FormInput
-                id="verificationInterval"
-                type="number"
-                min="5"
-                max="1440"
-                value={settings.autoVerification.intervalMinutes?.toString() || '15'}
-                onChange={(value) => setSettings(prev => ({
-                  ...prev,
-                  autoVerification: {
-                    ...prev.autoVerification,
-                    intervalMinutes: parseInt(value) || 15
-                  }
-                }))}
-                placeholder="15"
-                className="w-full"
-              />
-              <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
-                How often to automatically check for snapshot issues (5-1440 minutes).
-                This helps detect external changes like database restores from backups.
-              </p>
-            </div>
-          )}
         </div>
       </div>
 
