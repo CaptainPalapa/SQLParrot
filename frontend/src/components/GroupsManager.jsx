@@ -10,6 +10,7 @@ import { format as formatTimeAgo } from 'timeago.js';
 import { useNotification } from '../hooks/useNotification';
 import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
+import { api } from '../api';
 
 const MAX_RETRIES = 5;
 const RETRY_DELAYS = [1000, 2000, 3000, 4000, 5000]; // Exponential backoff - give SQL Server time to fully initialize
@@ -88,8 +89,7 @@ const GroupsManager = () => {
   // Check connection health
   const checkConnection = useCallback(async () => {
     try {
-      const response = await fetch('/api/health');
-      const data = await response.json();
+      const data = await api.get('/api/health');
       return data.connected === true;
     } catch (error) {
       console.error('Health check failed:', error);
@@ -115,11 +115,10 @@ const GroupsManager = () => {
       }
 
       // Fetch groups
-      const response = await fetch('/api/groups');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const responseData = await api.get('/api/groups');
+      if (!responseData.success) {
+        throw new Error(responseData.messages?.error?.[0] || 'Failed to fetch groups');
       }
-      const responseData = await response.json();
       const fetchedGroups = responseData.data?.groups || responseData.groups || [];
 
       // Success - update groups
@@ -132,11 +131,8 @@ const GroupsManager = () => {
 
       // Also fetch settings
       try {
-        const settingsResponse = await fetch('/api/settings');
-        if (settingsResponse.ok) {
-          const settingsData = await settingsResponse.json();
-          setSettings(settingsData);
-        }
+        const settingsData = await api.get('/api/settings');
+        setSettings(settingsData);
       } catch (settingsError) {
         console.error('Error fetching settings:', settingsError);
       }
@@ -207,11 +203,7 @@ const GroupsManager = () => {
   const fetchGroups = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/groups');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const responseData = await response.json();
+      const responseData = await api.get('/api/groups');
       const groups = responseData.data?.groups || responseData.groups || [];
       setGroups(groups);
     } catch (error) {
@@ -224,11 +216,7 @@ const GroupsManager = () => {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const response = await fetch('/api/settings');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await api.get('/api/settings');
       setSettings(data);
     } catch (error) {
       console.error('Error fetching settings:', error);
@@ -243,16 +231,12 @@ const GroupsManager = () => {
     }
 
     try {
-      const response = await fetch(`/api/groups/${groupId}/snapshots`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await api.get(`/api/groups/${groupId}/snapshots`);
 
       // Extract snapshots from standardized response format
-      const snapshots = data.data;
+      const snapshotsList = data.data;
 
-      setSnapshots(prev => ({ ...prev, [groupId]: snapshots }));
+      setSnapshots(prev => ({ ...prev, [groupId]: snapshotsList }));
 
       // Collapse expanded snapshots if requested (after operations)
       if (collapseExpanded) {
@@ -296,13 +280,7 @@ const GroupsManager = () => {
         databases: selectedDatabases
       };
 
-      const response = await fetch('/api/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newGroup)
-      });
-
-      const responseData = await response.json();
+      const responseData = await api.post('/api/groups', newGroup);
 
       // Handle structured API response
       if (responseData.success) {
@@ -388,13 +366,7 @@ const GroupsManager = () => {
         deleteSnapshots: deleteSnapshots
       };
 
-      const response = await fetch(`/api/groups/${editingGroup.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedGroup)
-      });
-
-      const responseData = await response.json();
+      const responseData = await api.put(`/api/groups/${editingGroup.id}`, updatedGroup);
 
       // Handle structured API response
       if (responseData.success) {
@@ -428,11 +400,7 @@ const GroupsManager = () => {
       onConfirm: async () => {
         setIsLoading(true);
         try {
-          const response = await fetch(`/api/groups/${groupId}`, {
-            method: 'DELETE'
-          });
-
-          const responseData = await response.json();
+          const responseData = await api.delete(`/api/groups/${groupId}`);
 
           // Handle structured API response
           if (responseData.success) {
@@ -456,24 +424,7 @@ const GroupsManager = () => {
   const handleCreateSnapshot = async (groupId, snapshotName) => {
     setOperationLoading(prev => ({ ...prev, createSnapshot: true }));
     try {
-      const response = await fetch(`/api/groups/${groupId}/snapshots`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshotName })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        if (errorData.error && errorData.error.includes('Maximum of 9 snapshots')) {
-          showError(errorData.error);
-          return;
-        }
-        // Show specific error message from server
-        showError(errorData.error || `HTTP error! status: ${response.status}`);
-        return;
-      }
-
-      const data = await response.json();
+      const data = await api.post(`/api/groups/${groupId}/snapshots`, { snapshotName });
 
       if (data.success) {
         // Extract snapshot from standardized response format
@@ -482,7 +433,7 @@ const GroupsManager = () => {
         showSuccess(`Snapshot "${snapshot.displayName}" created successfully!`);
       } else {
         // Show specific error message from server response
-        const errorMessage = data.error || data.message || 'Failed to create snapshot. Please try again.';
+        const errorMessage = data.messages?.error?.[0] || data.error || data.message || 'Failed to create snapshot. Please try again.';
         showError(errorMessage);
       }
     } catch (error) {
@@ -518,18 +469,7 @@ const GroupsManager = () => {
       onConfirm: async () => {
         setOperationLoading(prev => ({ ...prev, delete: true }));
         try {
-          const response = await fetch(`/api/snapshots/${snapshot.id}`, {
-            method: 'DELETE',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
+          const data = await api.delete(`/api/snapshots/${snapshot.id}`);
 
           // Handle structured API response
           if (data.success) {
@@ -551,8 +491,7 @@ const GroupsManager = () => {
   const handleRollbackSnapshot = async (snapshot) => {
     // Pre-check for external snapshots before showing confirmation
     try {
-      const checkResponse = await fetch(`/api/snapshots/${snapshot.id}/check-external`);
-      const checkData = await checkResponse.json();
+      const checkData = await api.get(`/api/snapshots/${snapshot.id}/check-external`);
 
       if (checkData.hasExternalSnapshots) {
         showConfirmation({
@@ -627,17 +566,10 @@ const GroupsManager = () => {
       onConfirm: async () => {
         setOperationLoading(prev => ({ ...prev, rollback: true }));
         try {
-          const response = await fetch(`/api/snapshots/${snapshot.id}/rollback`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
-
-          const data = await response.json();
+          const data = await api.post(`/api/snapshots/${snapshot.id}/rollback`);
 
           // Handle external snapshots blocking rollback
-          if (response.status === 409 && data.externalSnapshots) {
+          if (data.externalSnapshots) {
             setOperationLoading(prev => ({ ...prev, rollback: false }));
             showConfirmation({
               title: 'External Snapshots Detected',
@@ -675,10 +607,6 @@ const GroupsManager = () => {
             return;
           }
 
-          if (!response.ok) {
-            throw new Error(data.message || `HTTP error! status: ${response.status}`);
-          }
-
           // Handle structured API response
           if (data.success) {
             showSuccess(data.message || `Successfully rolled back to snapshot "${snapshot.displayName}"!`);
@@ -713,18 +641,7 @@ const GroupsManager = () => {
       onConfirm: async () => {
         setIsLoading(true);
         try {
-          const response = await fetch(`/api/snapshots/${snapshot.id}/cleanup`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
+          const data = await api.post(`/api/snapshots/${snapshot.id}/cleanup`);
 
           // Handle structured API response
           if (data.success) {
@@ -750,13 +667,7 @@ const GroupsManager = () => {
 
     try {
       // First run consistency check to see if there are any issues
-      const response = await fetch('/api/snapshots/verify', { method: 'POST' });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await api.post('/api/snapshots/verify');
 
       if (data.verified) {
         // Everything is consistent, show success
@@ -796,7 +707,7 @@ const GroupsManager = () => {
 
     try {
       let endpoint;
-      let method = 'POST';
+      let useGet = false;
 
       switch (actionType) {
         case 'orphaned':
@@ -807,19 +718,13 @@ const GroupsManager = () => {
           break;
         case 'files':
           endpoint = '/api/snapshots/files-to-cleanup';
-          method = 'GET';
+          useGet = true;
           break;
         default:
           throw new Error('Unknown cleanup action');
       }
 
-      const response = await fetch(endpoint, { method });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = useGet ? await api.get(endpoint) : await api.post(endpoint);
 
       // Update verification results with cleanup results
       setVerificationResults(prev => ({

@@ -3,6 +3,7 @@ import { Clock, Database, Camera, Trash2, RotateCcw, ChevronLeft, ChevronRight, 
 import { Toast } from './ui/Modal';
 import { useNotification } from '../hooks/useNotification';
 import Modal from './ui/Modal';
+import { api } from '../api';
 
 const HistoryView = () => {
   const [history, setHistory] = useState([]);
@@ -23,11 +24,7 @@ const HistoryView = () => {
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/history');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await api.get('/api/history');
       setHistory(data.operations || []);
       // Reset to first page when data changes
       setCurrentPage(1);
@@ -42,12 +39,7 @@ const HistoryView = () => {
   const clearHistory = useCallback(async () => {
     setIsClearing(true);
     try {
-      const response = await fetch('/api/history', {
-        method: 'DELETE',
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      await api.delete('/api/history');
       await fetchHistory(); // Refresh the history
       showSuccess('History cleared successfully');
       setShowClearConfirm(false);

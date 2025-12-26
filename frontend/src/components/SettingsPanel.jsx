@@ -4,6 +4,7 @@ import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
 import { useFormValidation, validators } from '../utils/validation';
+import { api } from '../api';
 
 const SettingsPanel = () => {
   const [settings, setSettings] = useState({
@@ -38,11 +39,7 @@ const SettingsPanel = () => {
 
   const fetchSnapshotPath = useCallback(async () => {
     try {
-      const response = await fetch('/api/test-snapshot-path');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await api.get('/api/test-snapshot-path');
       setSnapshotPath(data.snapshotPath || 'Not configured');
     } catch (error) {
       console.error('Error fetching snapshot path:', error);
@@ -53,11 +50,7 @@ const SettingsPanel = () => {
   const fetchSettings = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/settings');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await api.get('/api/settings');
 
       // Ensure we have proper default structure
       const safeSettings = {
@@ -98,11 +91,7 @@ const SettingsPanel = () => {
 
   const fetchMetadataStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/metadata/status');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await api.get('/api/metadata/status');
       setMetadataStatus(data.data);
     } catch (error) {
       console.error('Error fetching metadata status:', error);
@@ -113,16 +102,7 @@ const SettingsPanel = () => {
   const handleSyncMetadata = async () => {
     setIsSyncing(true);
     try {
-      const response = await fetch('/api/metadata/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await api.post('/api/metadata/sync');
       showSuccess(`Sync completed: ${data.data.resolved.length} conflicts resolved`);
 
       // Refresh metadata status after sync
@@ -149,15 +129,7 @@ const SettingsPanel = () => {
         }
       };
 
-      const response = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedSettings)
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      await api.put('/api/settings', updatedSettings);
 
       setSettings(updatedSettings);
       showSuccess('Settings saved successfully!');
