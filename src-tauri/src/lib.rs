@@ -3,11 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-// Module declarations (to be implemented in later phases)
-// mod config;
-// mod db;
-// mod commands;
-// mod models;
+// Module declarations
+pub mod config;
+pub mod db;
+pub mod models;
 
 /// Standard API response format matching the Express backend
 #[derive(Debug, Serialize, Deserialize)]
