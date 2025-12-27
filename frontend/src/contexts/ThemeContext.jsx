@@ -7,6 +7,7 @@ export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const [currentTheme, setCurrentTheme] = useState('blue'); // Default theme
+  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
   const [userName, setUserName] = useState(null);
 
   // Fetch the userName from the backend
@@ -21,20 +22,28 @@ export const ThemeProvider = ({ children }) => {
 
           // Load theme for this environment
           const themeKey = `sql-parrot-theme-${envUserName}`;
+          const modeKey = `sql-parrot-mode-${envUserName}`;
           const savedTheme = localStorage.getItem(themeKey) || 'blue';
+          const savedMode = localStorage.getItem(modeKey);
+
           setCurrentTheme(savedTheme);
+          // Default to dark if no preference saved
+          setIsDarkMode(savedMode === null ? true : savedMode === 'dark');
         }
       } catch (error) {
         console.error('Failed to fetch userName:', error);
         // Fallback to default behavior
         const savedTheme = localStorage.getItem('sql-parrot-theme') || 'blue';
+        const savedMode = localStorage.getItem('sql-parrot-mode');
         setCurrentTheme(savedTheme);
+        setIsDarkMode(savedMode === null ? true : savedMode === 'dark');
       }
     };
 
     fetchUserName();
   }, []);
 
+  // Apply theme attribute
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', currentTheme);
 
@@ -43,13 +52,33 @@ export const ThemeProvider = ({ children }) => {
       const themeKey = `sql-parrot-theme-${userName}`;
       localStorage.setItem(themeKey, currentTheme);
     } else {
-      // Fallback to old key if userName not available yet
       localStorage.setItem('sql-parrot-theme', currentTheme);
     }
   }, [currentTheme, userName]);
 
+  // Apply dark mode class
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+
+    // Save mode with environment-specific key
+    if (userName) {
+      const modeKey = `sql-parrot-mode-${userName}`;
+      localStorage.setItem(modeKey, isDarkMode ? 'dark' : 'light');
+    } else {
+      localStorage.setItem('sql-parrot-mode', isDarkMode ? 'dark' : 'light');
+    }
+  }, [isDarkMode, userName]);
+
   const changeTheme = (themeId) => {
     setCurrentTheme(themeId);
+  };
+
+  const toggleDarkMode = () => {
+    setIsDarkMode(prev => !prev);
   };
 
   const getCurrentThemeData = () => {
@@ -60,7 +89,9 @@ export const ThemeProvider = ({ children }) => {
     currentTheme,
     changeTheme,
     getCurrentThemeData,
-    themes
+    themes,
+    isDarkMode,
+    toggleDarkMode
   };
 
   return (

@@ -30,10 +30,10 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 - **Responsive Design**: Beautiful UI that works on all devices
 
 ### 🎨 **Theme System**
-- **7 Themes**: Ocean Blue, Forest Emerald, Royal Purple, Sunset Rose, Autumn Orange, Ocean Teal, and Midnight Dark
+- **Light/Dark Mode**: Toggle between light and dark backgrounds
+- **7 Accent Colors**: Ocean Blue, Forest Emerald, Royal Purple, Sunset Rose, Autumn Orange, Ocean Teal, and Midnight
 - **Live Preview**: Hover to preview themes instantly
-- **Persistent Storage**: Your theme choice is remembered
-- **Dark Mode Support**: All themes work in both light and dark modes
+- **Persistent Storage**: Your preferences are remembered
 
 ## 🚀 Quick Start
 
