@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 // Module declarations
+pub mod commands;
 pub mod config;
 pub mod db;
 pub mod models;
@@ -54,22 +55,8 @@ pub struct HealthResponse {
     pub connected: bool,
     pub version: String,
     pub platform: String,
-}
-
-/// Simple health check command - tests that Tauri commands work
-#[tauri::command]
-fn check_health() -> ApiResponse<HealthResponse> {
-    ApiResponse::success(HealthResponse {
-        connected: false, // Will be true once SQL Server connection is implemented
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        platform: std::env::consts::OS.to_string(),
-    })
-}
-
-/// Placeholder command for getting groups (to be implemented)
-#[tauri::command]
-fn get_groups() -> ApiResponse<Vec<()>> {
-    ApiResponse::error("Not yet implemented - Tauri backend in development".to_string())
+    #[serde(rename = "sqlServerVersion", skip_serializing_if = "Option::is_none")]
+    pub sql_server_version: Option<String>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -86,8 +73,30 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            check_health,
-            get_groups,
+            // Connection commands
+            commands::check_health,
+            commands::test_connection,
+            commands::get_databases,
+            commands::save_connection,
+            commands::get_connection,
+            // Group commands
+            commands::get_groups,
+            commands::create_group,
+            commands::update_group,
+            commands::delete_group,
+            // Snapshot commands
+            commands::get_snapshots,
+            commands::create_snapshot,
+            commands::delete_snapshot,
+            commands::rollback_snapshot,
+            commands::verify_snapshots,
+            // Settings/history commands
+            commands::get_settings,
+            commands::update_settings,
+            commands::get_history,
+            commands::clear_history,
+            commands::trim_history,
+            commands::get_metadata_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

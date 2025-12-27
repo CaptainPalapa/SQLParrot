@@ -164,11 +164,16 @@ impl AppConfig {
         Ok(())
     }
 
-    /// Get the active connection profile
+    /// Get the active connection profile (returns Result)
     pub fn active_profile(&self) -> Result<&ConnectionProfile, ConfigError> {
         self.profiles
             .get(&self.active_profile)
             .ok_or_else(|| ConfigError::ProfileNotFound(self.active_profile.clone()))
+    }
+
+    /// Get the active connection profile (returns Option for convenience)
+    pub fn get_active_profile(&self) -> Option<&ConnectionProfile> {
+        self.profiles.get(&self.active_profile)
     }
 
     /// Get a mutable reference to the active profile

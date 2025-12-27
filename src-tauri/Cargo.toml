@@ -53,3 +53,6 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 
 # Directories for config file location
 dirs = "5.0"
+
+# System information
+whoami = "1.5"
