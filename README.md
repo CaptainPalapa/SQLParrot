@@ -7,6 +7,8 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3.3+-38bdf8.svg)
 
+> **⚠️ Using Full-Text Search?** Database snapshots do NOT include full-text catalogs. If your databases use full-text indexes, read the [Full-Text Search Warning](docs/SNAPSHOT_BEHAVIOR.md#full-text-search-warning) before using SQL Parrot.
+
 ## ✨ Features
 
 ### 🎨 **Beautiful Theme System**

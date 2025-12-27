@@ -4,28 +4,18 @@ This document explains how SQL Server snapshots work and how SQL Parrot manages 
 
 ## SQL Server Requirements
 
-### Version Requirements
+### Version & Edition Support
 
-| SQL Server Version | Snapshot Support |
-|-------------------|------------------|
-| SQL Server 2016 SP1+ | ✅ All editions |
-| SQL Server 2017+ | ✅ All editions |
-| SQL Server 2019+ | ✅ All editions |
-| SQL Server 2022+ | ✅ All editions |
-| SQL Server 2025+ | ✅ All editions |
+| SQL Server Version | Enterprise | Standard | Developer | Express |
+| ------------------ | :--------: | :------: | :-------: | :-----: |
+| 2016 SP1+          |     ✅      |    ✅     |     ✅     |    ✅    |
+| 2017+              |     ✅      |    ✅     |     ✅     |    ✅    |
+| 2019+              |     ✅      |    ✅     |     ✅     |    ✅    |
+| 2022+              |     ✅      |    ✅     |     ✅     |    ✅    |
+| 2016 Pre-SP1       |     ✅      |    ❌     |     ✅     |    ❌    |
+| 2014 and earlier   |     ✅      |    ❌     |     ✅     |    ❌    |
 
-**Important:** Prior to SQL Server 2016 SP1, database snapshots were **Enterprise Edition only**. Starting with SQL Server 2016 SP1, Microsoft made snapshots available in all editions including Standard, Developer, and Express.
-
-### Edition Support (SQL Server 2016 SP1 and later)
-
-| Edition | Supported |
-|---------|-----------|
-| Enterprise | ✅ |
-| Standard | ✅ |
-| Developer | ✅ |
-| Express | ✅ |
-
-If you're running SQL Server 2016 (without SP1) or earlier, you'll need Enterprise or Developer edition.
+**Note:** Microsoft made snapshots available in all editions starting with SQL Server 2016 SP1.
 
 ### Check Your Version
 
@@ -46,18 +36,43 @@ The `FullVersion` column will show something like "Microsoft SQL Server 2022..."
 
 SQL Server database snapshots capture the **entire database state** at the page level.
 
-| Captured | NOT Captured |
-|----------|--------------|
-| All table data (rows) | Full-text catalogs |
-| Stored procedures | |
-| Views | |
-| Triggers | |
-| Functions | |
-| Indexes | |
-| Table schema (columns, constraints) | |
-| User permissions | |
+| Captured                            | NOT Captured       |
+| ----------------------------------- | ------------------ |
+| All table data (rows)               | Full-text catalogs |
+| Stored procedures                   |                    |
+| Views                               |                    |
+| Triggers                            |                    |
+| Functions                           |                    |
+| Indexes                             |                    |
+| Table schema (columns, constraints) |                    |
+| User permissions                    |                    |
 
 **Key point:** Snapshots are **independent of each other**. They are not incremental or chained. Each snapshot is a complete point-in-time capture.
+
+### Full-Text Search Warning
+
+**If your database uses full-text search, read this carefully.**
+
+Full-text catalogs are NOT included in snapshots. When you query a snapshot, full-text searches run against the **source database's current catalog**, not the snapshot's point-in-time state. This is a SQL Server architectural limitation.
+
+**What this means after a rollback:**
+- Relational data: Restored to snapshot point-in-time ✅
+- Full-text indexes: Still reflect the pre-rollback state ❌
+- Result: Full-text queries may return inconsistent results
+
+**Workaround:** After restoring from a snapshot, rebuild full-text catalogs:
+
+```sql
+-- Rebuild the full-text catalog
+ALTER FULLTEXT CATALOG YourCatalogName REBUILD;
+
+-- Or rebuild specific full-text index
+ALTER FULLTEXT INDEX ON YourTable START FULL POPULATION;
+```
+
+**Note:** Catalog rebuilds can be time-consuming and I/O intensive for large databases.
+
+**If full-text consistency is critical:** Consider alternatives like temporal tables (SQL Server 2016+), log shipping, or traditional backups instead of snapshots.
 
 ---
 
@@ -196,7 +211,7 @@ Snapshots capture the complete schema definition, not just data. This includes:
 
 ---
 
-## Why Rollback Removes All Snapshots ("There Can Be Only One")
+## Why Rollback Removes All Snapshots
 
 This is a **SQL Server requirement**, not a SQL Parrot design choice.
 
@@ -206,6 +221,8 @@ When you execute `RESTORE DATABASE [X] FROM DATABASE_SNAPSHOT = 'Y'`:
 2. SQL Server won't auto-delete them - it simply **refuses** to restore if others exist
 3. The snapshot you restore FROM (Y) gets **consumed** by the restore operation
 
+**Why must other snapshots be dropped?** Those snapshots were based on a database state (or progression of states) that will no longer exist after the restore. Once you revert to an earlier point-in-time, later snapshots become invalid - they reference pages and data from a timeline that's been discarded.
+
 **Example:** If you have snapshots A, B, C on database X and want to restore from B:
 - You must DROP A and C first (SQL Server requirement)
 - Then `RESTORE DATABASE X FROM DATABASE_SNAPSHOT = B`
@@ -213,11 +230,9 @@ When you execute `RESTORE DATABASE [X] FROM DATABASE_SNAPSHOT = 'Y'`:
 - Result: zero snapshots remain
 
 **What SQL Parrot does:**
-- Pre-emptively drops all SQL Parrot snapshots (`sf_%` naming pattern) before restore
+- Pre-emptively drops all group-related snapshots before restore
 - Detects and warns about external snapshots (won't delete those - provides SQL instead)
 - Creates a fresh "Automatic" checkpoint after successful restore
-
-This is why rollback is "scorched earth" - not by choice, but because SQL Server enforces the Highlander rule.
 
 ---
 
