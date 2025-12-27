@@ -11,12 +11,6 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 
 ## ✨ Features
 
-### 🎨 **Beautiful Theme System**
-- **7 Stunning Themes**: Ocean Blue, Forest Emerald, Royal Purple, Sunset Rose, Autumn Orange, Ocean Teal, and Midnight Dark
-- **Live Preview**: Hover to preview themes instantly
-- **Persistent Storage**: Your theme choice is remembered
-- **Dark Mode Support**: All themes work in both light and dark modes
-
 ### 🗄️ **Database Management**
 - **Group Organization**: Create and manage database groups
 - **Snapshot Operations**: Create, restore, and delete snapshots
@@ -34,6 +28,12 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 - **User Attribution**: Operation history with user tracking
 - **Fail-Fast Validation**: Application validates SQL Server connection and permissions on startup
 - **Responsive Design**: Beautiful UI that works on all devices
+
+### 🎨 **Theme System**
+- **7 Themes**: Ocean Blue, Forest Emerald, Royal Purple, Sunset Rose, Autumn Orange, Ocean Teal, and Midnight Dark
+- **Live Preview**: Hover to preview themes instantly
+- **Persistent Storage**: Your theme choice is remembered
+- **Dark Mode Support**: All themes work in both light and dark modes
 
 ## 🚀 Quick Start
 
