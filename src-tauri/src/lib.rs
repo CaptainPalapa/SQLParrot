@@ -47,6 +47,18 @@ impl<T> ApiResponse<T> {
             timestamp: chrono::Utc::now().to_rfc3339(),
         }
     }
+
+    pub fn error_with_data(message: String, data: T) -> Self {
+        Self {
+            success: false,
+            data: Some(data),
+            messages: Messages {
+                error: vec![message],
+                ..Default::default()
+            },
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        }
+    }
 }
 
 /// Health check response

@@ -3,18 +3,20 @@ import { Search, Check, X, AlertCircle } from 'lucide-react';
 import { useNotification } from '../hooks/useNotification';
 import { api } from '../api';
 
-const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className = '', existingGroups = [], currentGroupId = null }) => {
+const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className = '', existingGroups = [], currentGroupId = null, clearFiltersOnMount = false }) => {
   const [databases, setDatabases] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter1, setFilter1] = useState(() => {
-    // Load from localStorage, default to empty - check if we're in browser
+    // Clear filters when editing a group, otherwise load from localStorage
+    if (clearFiltersOnMount) return '';
     if (typeof window !== 'undefined') {
       return localStorage.getItem('db-filter1') || '';
     }
     return '';
   });
   const [filter2, setFilter2] = useState(() => {
-    // Load from localStorage - check if we're in browser
+    // Clear filters when editing a group, otherwise load from localStorage
+    if (clearFiltersOnMount) return '';
     if (typeof window !== 'undefined') {
       return localStorage.getItem('db-filter2') || '';
     }
@@ -40,7 +42,9 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     setIsLoading(true);
     try {
       const data = await api.get('/api/databases');
-      setDatabases(data.databases || []);
+      // Handle both ApiResponse format (Tauri) and legacy format (Express)
+      const databases = data.data || data.databases || [];
+      setDatabases(databases);
     } catch (error) {
       console.error('Error fetching databases:', error);
       showError('Failed to load databases. Please check your SQL Server connection.');
@@ -59,15 +63,18 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     onSelectionChange(Array.from(selected));
   }, [selected, onSelectionChange]);
 
-  // Filter databases based on both filters
+  // Filter databases based on both filters, but always show selected databases
   const filteredDatabases = useMemo(() => {
     return databases.filter(db => {
+      // Always show selected databases regardless of filter
+      if (selected.has(db.name)) return true;
+
       const name = db.name.toLowerCase();
       const filter1Match = filter1 ? name.includes(filter1.toLowerCase()) : true;
       const filter2Match = filter2 ? name.includes(filter2.toLowerCase()) : true;
       return filter1Match && filter2Match;
     });
-  }, [databases, filter1, filter2]);
+  }, [databases, filter1, filter2, selected]);
 
   // Determine which databases are already in use by other groups
   const databasesInUse = useMemo(() => {

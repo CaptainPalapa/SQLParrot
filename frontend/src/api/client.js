@@ -93,15 +93,20 @@ const extractPathParams = (endpoint) => {
   const path = endpoint.replace(/^\/api\//, '');
   const segments = path.split('/');
 
-  // groups/:groupId/...
+  // groups/:id/... - use 'id' for direct group operations, 'groupId' for nested
   if (segments[0] === 'groups' && segments.length >= 2) {
-    // Use snake_case for Tauri/Rust commands
-    params.group_id = segments[1];
+    if (segments.length === 2) {
+      // Direct group operation (update, delete): groups/:id
+      params.id = segments[1];
+    } else {
+      // Nested operation (snapshots): groups/:groupId/snapshots
+      params.groupId = segments[1];
+    }
   }
 
-  // snapshots/:snapshotId/...
+  // snapshots/:id/... - use 'id' for direct operations
   if (segments[0] === 'snapshots' && segments.length >= 2) {
-    params.snapshot_id = segments[1];
+    params.id = segments[1];
   }
 
   return params;

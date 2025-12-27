@@ -79,8 +79,8 @@ function App() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {activeTab === 'groups' && <GroupsManager />}
-          {activeTab === 'settings' && <SettingsPanel />}
+          {activeTab === 'groups' && <GroupsManager onNavigateSettings={() => setActiveTab('settings')} />}
+          {activeTab === 'settings' && <SettingsPanel onNavigateGroups={() => setActiveTab('groups')} />}
           {activeTab === 'history' && <HistoryView />}
           {activeTab === 'about' && <AboutPanel />}
         </main>

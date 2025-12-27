@@ -8,11 +8,15 @@
     "dev:backend": "cd backend && npm run dev",
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "start:docker": "cd backend && npm start",
+    "tauri": "npx tauri",
+    "tauri:dev": "npx tauri dev",
+    "tauri:build": "npx tauri build",
     "test": "jest",
     "test:api": "jest tests/snapshot-rollback-api.spec.js",
     "test:watch": "jest --watch"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6",
     "concurrently": "^8.2.2",
     "dotenv": "^17.2.3",
     "jest": "^30.2.0",

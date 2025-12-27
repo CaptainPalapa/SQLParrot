@@ -60,7 +60,7 @@ fn default_true() -> bool {
 }
 
 fn default_snapshot_path() -> String {
-    "C:\\Snapshots".to_string()
+    "/var/opt/mssql/snapshots".to_string()
 }
 
 impl Default for ConnectionProfile {
@@ -70,10 +70,10 @@ impl Default for ConnectionProfile {
             db_type: DatabaseType::SqlServer,
             host: "localhost".to_string(),
             port: 1433,
-            username: "sa".to_string(),
+            username: "sql_parrot_service".to_string(),
             password: String::new(),
             trust_certificate: true,
-            snapshot_path: "C:\\Snapshots".to_string(),
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
         }
     }
 }

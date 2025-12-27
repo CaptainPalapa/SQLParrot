@@ -373,7 +373,7 @@ CREATE LOGIN [sql_parrot_service] WITH PASSWORD = 'YourSecurePassword123!';
 -- Grant specific permissions
 GRANT CREATE ANY DATABASE TO [sql_parrot_service];  -- Required for metadata database
 GRANT ALTER ANY DATABASE TO [sql_parrot_service];
-GRANT CONTROL SERVER TO [sql_parrot_service];  -- Required for RESTORE operations
+ALTER SERVER ROLE dbcreator ADD MEMBER [sql_parrot_service];  -- Required for RESTORE operations
 GRANT VIEW ANY DEFINITION TO [sql_parrot_service];  -- Required for sys.databases access
 GRANT VIEW SERVER STATE TO [sql_parrot_service];  -- Required for sys.master_files access
 
@@ -403,7 +403,7 @@ ALTER ROLE db_backupoperator ADD MEMBER [sql_parrot_service];
 
 #### **Troubleshooting Permission Issues:**
 - **"CREATE DATABASE permission denied"** → User needs `dbcreator` role or `CREATE ANY DATABASE` permission
-- **"RESTORE permission denied"** → User needs `sysadmin` role or `CONTROL SERVER` permission
+- **"RESTORE permission denied"** → User needs `dbcreator` server role, `sysadmin` role, or `CONTROL SERVER` permission
 - **"Cannot access sys.databases"** → User needs `VIEW ANY DEFINITION` permission
 - **"xp_cmdshell access denied"** → User needs `EXECUTE` permission on `xp_cmdshell`
 - **"Application fails to start"** → Check SQL Server connection and required permissions

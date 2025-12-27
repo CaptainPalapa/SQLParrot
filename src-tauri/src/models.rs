@@ -89,6 +89,12 @@ pub struct SettingsPreferences {
     pub default_group: String,
     #[serde(rename = "maxHistoryEntries", default = "default_max_history")]
     pub max_history_entries: u32,
+    #[serde(rename = "autoCreateCheckpoint", default = "default_auto_checkpoint")]
+    pub auto_create_checkpoint: bool,
+}
+
+fn default_auto_checkpoint() -> bool {
+    true
 }
 
 fn default_max_history() -> u32 {

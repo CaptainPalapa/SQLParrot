@@ -8,12 +8,13 @@ use crate::{ApiResponse, HealthResponse};
 
 /// Test connection to SQL Server using provided credentials
 #[tauri::command]
+#[allow(non_snake_case)]
 pub async fn test_connection(
     host: String,
     port: u16,
     username: String,
     password: String,
-    trust_certificate: bool,
+    trustCertificate: bool,
 ) -> ApiResponse<String> {
     let profile = ConnectionProfile {
         name: "test".to_string(),
@@ -22,7 +23,7 @@ pub async fn test_connection(
         port,
         username,
         password,
-        trust_certificate,
+        trust_certificate: trustCertificate,
         snapshot_path: String::new(),
     };
 
@@ -81,13 +82,14 @@ pub async fn check_health() -> ApiResponse<HealthResponse> {
 
 /// Save connection profile
 #[tauri::command]
+#[allow(non_snake_case)]
 pub async fn save_connection(
     host: String,
     port: u16,
     username: String,
     password: String,
-    trust_certificate: bool,
-    snapshot_path: String,
+    trustCertificate: bool,
+    snapshotPath: String,
 ) -> ApiResponse<()> {
     let mut config = AppConfig::load().unwrap_or_default();
 
@@ -98,8 +100,8 @@ pub async fn save_connection(
         port,
         username,
         password,
-        trust_certificate,
-        snapshot_path,
+        trust_certificate: trustCertificate,
+        snapshot_path: snapshotPath,
     };
 
     config

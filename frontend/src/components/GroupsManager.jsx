@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import PropTypes from 'prop-types';
 import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield } from 'lucide-react';
 import { Toast, ConfirmationModal, InputModal } from './ui/Modal';
 import FormInput from './ui/FormInput';
@@ -44,7 +45,7 @@ const getFriendlyErrorMessage = (errorMessage) => {
   return errorMessage;
 };
 
-const GroupsManager = () => {
+const GroupsManager = ({ onNavigateSettings }) => {
   const [groups, setGroups] = useState([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
@@ -142,7 +143,8 @@ const GroupsManager = () => {
       if (!responseData.success) {
         throw new Error(responseData.messages?.error?.[0] || 'Failed to fetch groups');
       }
-      const fetchedGroups = responseData.data?.groups || responseData.groups || [];
+      // Handle both ApiResponse format (Tauri: data is array) and Express format (groups property)
+      const fetchedGroups = Array.isArray(responseData.data) ? responseData.data : (responseData.data?.groups || responseData.groups || []);
 
       // Success - update groups
       setGroups(fetchedGroups);
@@ -227,8 +229,9 @@ const GroupsManager = () => {
     setIsLoading(true);
     try {
       const responseData = await api.get('/api/groups');
-      const groups = responseData.data?.groups || responseData.groups || [];
-      setGroups(groups);
+      // Handle both ApiResponse format (Tauri: data is array) and Express format (groups property)
+      const groupsList = Array.isArray(responseData.data) ? responseData.data : (responseData.data?.groups || responseData.groups || []);
+      setGroups(groupsList);
     } catch (error) {
       console.error('Error fetching groups:', error);
       showError('Failed to load groups. Please try again.');
@@ -450,8 +453,8 @@ const GroupsManager = () => {
       const data = await api.post(`/api/groups/${groupId}/snapshots`, { snapshotName });
 
       if (data.success) {
-        // Extract snapshot from standardized response format
-        const snapshot = data.data.snapshot;
+        // Rust ApiResponse returns snapshot directly in data.data
+        const snapshot = data.data;
         await fetchSnapshots(groupId, false, true);
         showSuccess(`Snapshot "${snapshot.displayName}" created successfully!`);
       } else {
@@ -689,24 +692,60 @@ const GroupsManager = () => {
     setVerificationResults(null);
 
     try {
-      // First run consistency check to see if there are any issues
-      const data = await api.post('/api/snapshots/verify');
+      // Verify all groups - collect results from each
+      let allOrphaned = [];
+      let allStale = [];
+      let allVerified = true;
 
-      if (data.verified) {
-        // Everything is consistent, show success
+      for (const group of groups) {
+        const response = await api.post('/api/snapshots/verify', { groupId: group.id });
+        console.log('Verify response for group', group.id, ':', JSON.stringify(response));
+        const result = response.data || response;
+        console.log('Verify result:', JSON.stringify(result));
+
+        if (!result.verified) {
+          allVerified = false;
+        }
+        // Map Rust field names: orphanedSnapshots -> orphanedInSQL, staleMetadata -> missingInSQL
+        if (result.orphanedSnapshots?.length > 0) {
+          allOrphaned.push(...result.orphanedSnapshots);
+        }
+        if (result.staleMetadata?.length > 0) {
+          allStale.push(...result.staleMetadata);
+        }
+      }
+      console.log('Verify totals:', { allOrphaned, allStale, allVerified });
+
+      // Build issues array for display
+      const issues = [];
+      if (allOrphaned.length > 0) {
+        issues.push(`${allOrphaned.length} external snapshot${allOrphaned.length === 1 ? '' : 's'} found on SQL Server`);
+      }
+      if (allStale.length > 0) {
+        issues.push(`${allStale.length} stale metadata entr${allStale.length === 1 ? 'y' : 'ies'} (snapshots no longer on server)`);
+      }
+
+      const verifyData = {
+        verified: allVerified,
+        issues,
+        orphanedInSQL: allOrphaned,
+        missingInSQL: allStale,
+        inaccessibleSnapshots: allStale // Same as stale for cleanup purposes
+      };
+
+      if (allVerified) {
         showSuccess('All snapshots are consistent with our data.');
         setVerificationResults({
           type: 'consistency',
           endpoint: '/api/snapshots/verify',
-          data,
+          data: verifyData,
           timestamp: new Date().toISOString()
         });
       } else {
-        // Issues found, show dialog with cleanup options
         setVerificationResults({
           type: 'consistency',
           endpoint: '/api/snapshots/verify',
-          data,
+          data: verifyData,
           timestamp: new Date().toISOString()
         });
         setShowVerificationModal(true);
@@ -824,6 +863,7 @@ const GroupsManager = () => {
           status={overlayStatus}
           message={connectionError}
           onRetry={handleReconnect}
+          onNavigateSettings={onNavigateSettings}
           retryCount={retryCount}
           maxRetries={MAX_RETRIES}
         >
@@ -957,6 +997,7 @@ const GroupsManager = () => {
                   onSelectionChange={setSelectedDatabases}
                   existingGroups={groups}
                   currentGroupId={editingGroup.id}
+                  clearFiltersOnMount={true}
                 />
               </div>
 
@@ -1124,7 +1165,7 @@ const GroupsManager = () => {
                               {snapshot.displayName}
                             </span>
                             <span className="text-xs text-secondary-500 dark:text-secondary-400">
-                              [{snapshot.databaseCount}]
+                              [{snapshot.databaseSnapshots?.length || 0} db{(snapshot.databaseSnapshots?.length || 0) !== 1 ? 's' : ''}]
                             </span>
                             {/* Hash code display */}
                             <span className="text-xs font-mono text-secondary-400 dark:text-secondary-500 opacity-70" title="Snapshot hash">
@@ -1409,6 +1450,10 @@ const GroupsManager = () => {
       )}
     </div>
   );
+};
+
+GroupsManager.propTypes = {
+  onNavigateSettings: PropTypes.func
 };
 
 export default GroupsManager;

@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use thiserror::Error;
-use tiberius::{AuthMethod, Client, Config};
+use tiberius::{AuthMethod, Client, Config, EncryptionLevel};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
@@ -40,6 +40,8 @@ impl SqlServerConnection {
 
         if profile.trust_certificate {
             config.trust_cert();
+            // Required for Docker SQL Server and self-signed certs
+            config.encryption(EncryptionLevel::Required);
         }
 
         let tcp = TcpStream::connect(config.get_addr())
@@ -237,15 +239,42 @@ impl SqlServerConnection {
         database: &str,
         snapshot_name: &str,
     ) -> Result<(), SqlServerError> {
-        let query = format!(
+        // Step 1: Set SINGLE_USER
+        let single_user_query = format!(
+            "ALTER DATABASE [{}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
+            database
+        );
+        log::info!("Running: {}", single_user_query);
+        self.client
+            .simple_query(&single_user_query)
+            .await
+            .map_err(|e| SqlServerError::QueryFailed(format!("SINGLE_USER failed: {}", e)))?;
+
+        // Step 2: RESTORE
+        let restore_query = format!(
             "RESTORE DATABASE [{}] FROM DATABASE_SNAPSHOT = '{}'",
             database, snapshot_name
         );
-        self.client
-            .simple_query(&query)
-            .await
-            .map_err(|e| SqlServerError::SnapshotError(e.to_string()))?;
-        Ok(())
+        log::info!("Running: {}", restore_query);
+        let restore_ok = match self.client.simple_query(&restore_query).await {
+            Ok(_) => true,
+            Err(e) => {
+                log::error!("RESTORE failed: {}", e);
+                false
+            }
+        };
+
+        // Step 3: Always try to set MULTI_USER (even if restore failed)
+        let multi_user_query = format!("ALTER DATABASE [{}] SET MULTI_USER", database);
+        log::info!("Running: {}", multi_user_query);
+        let _ = self.client.simple_query(&multi_user_query).await;
+
+        // Now return the restore result
+        if restore_ok {
+            Ok(())
+        } else {
+            Err(SqlServerError::SnapshotError("RESTORE failed".to_string()))
+        }
     }
 
     /// Check if a snapshot exists in SQL Server

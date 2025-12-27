@@ -11,13 +11,14 @@ use crate::ApiResponse;
 
 /// Get snapshots for a group
 #[tauri::command]
-pub async fn get_snapshots(group_id: String) -> ApiResponse<Vec<Snapshot>> {
+#[allow(non_snake_case)]
+pub async fn get_snapshots(groupId: String) -> ApiResponse<Vec<Snapshot>> {
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    match store.get_snapshots(&group_id) {
+    match store.get_snapshots(&groupId) {
         Ok(snapshots) => ApiResponse::success(snapshots),
         Err(e) => ApiResponse::error(format!("Failed to get snapshots: {}", e)),
     }
@@ -25,7 +26,10 @@ pub async fn get_snapshots(group_id: String) -> ApiResponse<Vec<Snapshot>> {
 
 /// Create a new snapshot for all databases in a group
 #[tauri::command]
-pub async fn create_snapshot(group_id: String, display_name: Option<String>) -> ApiResponse<Snapshot> {
+#[allow(non_snake_case)]
+pub async fn create_snapshot(groupId: String, snapshotName: Option<String>) -> ApiResponse<Snapshot> {
+    let group_id = groupId;
+    let display_name = snapshotName;
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
@@ -151,7 +155,8 @@ pub async fn create_snapshot(group_id: String, display_name: Option<String>) -> 
 
 /// Delete a snapshot
 #[tauri::command]
-pub async fn delete_snapshot(snapshot_id: String) -> ApiResponse<()> {
+pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
+    let snapshot_id = id;
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
@@ -215,7 +220,8 @@ pub async fn delete_snapshot(snapshot_id: String) -> ApiResponse<()> {
 
 /// Rollback to a snapshot
 #[tauri::command]
-pub async fn rollback_snapshot(snapshot_id: String) -> ApiResponse<RollbackResult> {
+pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
+    let snapshot_id = id;
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
@@ -307,27 +313,20 @@ pub async fn rollback_snapshot(snapshot_id: String) -> ApiResponse<RollbackResul
         }
 
         // Kill connections
+        log::info!("Killing connections for '{}'", db_snapshot.database);
         if let Err(e) = conn.kill_connections(&db_snapshot.database).await {
-            eprintln!("Warning: Failed to kill connections: {}", e);
+            log::warn!("Failed to kill connections: {}", e);
         }
 
-        // Set single user mode
-        if let Err(e) = conn.set_single_user(&db_snapshot.database).await {
-            results.push(OperationResult {
-                database: db_snapshot.database.clone(),
-                success: false,
-                error: Some(format!("Failed to set single user mode: {}", e)),
-            });
-            continue;
-        }
-
-        // Restore from snapshot
+        // Restore from snapshot (includes SINGLE_USER/MULTI_USER in same batch)
+        log::info!(
+            "Restoring database '{}' from snapshot '{}'",
+            db_snapshot.database,
+            db_snapshot.snapshot_name
+        );
         let restore_result = conn
             .restore_from_snapshot(&db_snapshot.database, &db_snapshot.snapshot_name)
             .await;
-
-        // Set back to multi user mode
-        let _ = conn.set_multi_user(&db_snapshot.database).await;
 
         match restore_result {
             Ok(_) => {
@@ -347,22 +346,26 @@ pub async fn rollback_snapshot(snapshot_id: String) -> ApiResponse<RollbackResul
         }
     }
 
-    // Delete snapshots after the target (newer ones)
-    let snapshots_after: Vec<Snapshot> = group_snapshots
-        .into_iter()
-        .filter(|s| s.sequence > snapshot.sequence)
-        .collect();
+    let success_count = results.iter().filter(|r| r.success).count();
+    let total_count = results.len();
 
-    for old_snapshot in snapshots_after {
-        for db_snapshot in &old_snapshot.database_snapshots {
-            if db_snapshot.success {
-                let _ = conn.drop_snapshot(&db_snapshot.snapshot_name).await;
+    // Only delete snapshots if ALL restores succeeded
+    if success_count == total_count && total_count > 0 {
+        // Delete ALL snapshots in this group (including target and newer ones)
+        // After rollback, the database state matches the target snapshot, so all snapshots are stale
+        let all_group_snapshots: Vec<Snapshot> = group_snapshots;
+
+        for old_snapshot in &all_group_snapshots {
+            for db_snapshot in &old_snapshot.database_snapshots {
+                if db_snapshot.success {
+                    let _ = conn.drop_snapshot(&db_snapshot.snapshot_name).await;
+                }
             }
+            let _ = store.delete_snapshot(&old_snapshot.id);
         }
-        let _ = store.delete_snapshot(&old_snapshot.id);
     }
 
-    // Log to history
+    // Log rollback to history
     let history_entry = HistoryEntry {
         id: Uuid::new_v4().to_string(),
         operation_type: "rollback".to_string(),
@@ -378,20 +381,119 @@ pub async fn rollback_snapshot(snapshot_id: String) -> ApiResponse<RollbackResul
     };
     let _ = store.add_history(&history_entry);
 
-    let success_count = results.iter().filter(|r| r.success).count();
-    let total_count = results.len();
+    // Check if we should auto-create a checkpoint after successful rollback
+    let settings = store.get_settings().unwrap_or_default();
+    log::info!(
+        "Auto-create check: setting={}, success={}/{}",
+        settings.preferences.auto_create_checkpoint,
+        success_count,
+        total_count
+    );
+    if settings.preferences.auto_create_checkpoint && success_count == total_count {
+        // Create automatic checkpoint
+        let new_sequence = match store.get_next_sequence(&group.id) {
+            Ok(s) => s,
+            Err(_) => 1,
+        };
+        let now = Utc::now();
+        let auto_snapshot_id = Uuid::new_v4().to_string();
 
-    ApiResponse::success(RollbackResult {
-        success: success_count == total_count,
+        let mut auto_database_snapshots = Vec::new();
+        let mut auto_results = Vec::new();
+
+        for database in &group.databases {
+            let auto_snapshot_name = format!(
+                "{}_snapshot_{}_{}_auto",
+                database,
+                group.name.replace(' ', "_"),
+                new_sequence
+            );
+
+            match conn
+                .create_snapshot(database, &auto_snapshot_name, &profile.snapshot_path)
+                .await
+            {
+                Ok(_) => {
+                    auto_database_snapshots.push(DatabaseSnapshot {
+                        database: database.clone(),
+                        snapshot_name: auto_snapshot_name,
+                        success: true,
+                        error: None,
+                    });
+                    auto_results.push(OperationResult {
+                        database: database.clone(),
+                        success: true,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    auto_database_snapshots.push(DatabaseSnapshot {
+                        database: database.clone(),
+                        snapshot_name: auto_snapshot_name,
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
+                    auto_results.push(OperationResult {
+                        database: database.clone(),
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        let auto_snapshot = Snapshot {
+            id: auto_snapshot_id.clone(),
+            group_id: group.id.clone(),
+            display_name: "Automatic".to_string(),
+            sequence: new_sequence,
+            created_at: now,
+            created_by: Some(whoami::username_os().to_string_lossy().into_owned()),
+            database_snapshots: auto_database_snapshots,
+            is_automatic: true,
+        };
+
+        let _ = store.add_snapshot(&auto_snapshot);
+
+        // Log automatic checkpoint to history
+        let auto_history = HistoryEntry {
+            id: Uuid::new_v4().to_string(),
+            operation_type: "create_automatic_checkpoint".to_string(),
+            timestamp: now,
+            user_name: Some(whoami::username_os().to_string_lossy().into_owned()),
+            details: Some(serde_json::json!({
+                "groupId": group.id,
+                "groupName": group.name,
+                "snapshotId": auto_snapshot_id,
+                "displayName": "Automatic"
+            })),
+            results: Some(auto_results),
+        };
+        let _ = store.add_history(&auto_history);
+    }
+
+    let result = RollbackResult {
+        success: success_count == total_count && total_count > 0,
         databases_restored: success_count,
         databases_failed: total_count - success_count,
         results,
-    })
+    };
+
+    if result.success {
+        ApiResponse::success(result)
+    } else {
+        ApiResponse::error_with_data(
+            format!("Rollback failed: {}/{} databases restored", success_count, total_count),
+            result,
+        )
+    }
 }
 
 /// Verify snapshots exist in SQL Server
 #[tauri::command]
-pub async fn verify_snapshots(group_id: String) -> ApiResponse<VerificationResult> {
+#[allow(non_snake_case)]
+pub async fn verify_snapshots(groupId: String) -> ApiResponse<VerificationResult> {
+    let group_id = groupId;
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
@@ -463,7 +565,9 @@ pub async fn verify_snapshots(group_id: String) -> ApiResponse<VerificationResul
 #[derive(serde::Serialize)]
 pub struct RollbackResult {
     pub success: bool,
+    #[serde(rename = "databasesRestored")]
     pub databases_restored: usize,
+    #[serde(rename = "databasesFailed")]
     pub databases_failed: usize,
     pub results: Vec<OperationResult>,
 }
@@ -471,6 +575,8 @@ pub struct RollbackResult {
 #[derive(serde::Serialize)]
 pub struct VerificationResult {
     pub verified: bool,
+    #[serde(rename = "orphanedSnapshots")]
     pub orphaned_snapshots: Vec<String>,
+    #[serde(rename = "staleMetadata")]
     pub stale_metadata: Vec<String>,
 }

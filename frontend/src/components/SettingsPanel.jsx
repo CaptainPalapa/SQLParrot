@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Plug, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Plug, Eye, EyeOff, Loader2, HelpCircle, Copy, Check } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
 import { useFormValidation, validators } from '../utils/validation';
 import { api, isTauri } from '../api';
 
-const SettingsPanel = () => {
+const SettingsPanel = ({ onNavigateGroups }) => {
   const [settings, setSettings] = useState({
     preferences: {
       defaultGroup: '',
-      maxHistoryEntries: 100
+      maxHistoryEntries: 100,
+      autoCreateCheckpoint: true
     },
     autoVerification: {
       enabled: false,
@@ -26,16 +27,32 @@ const SettingsPanel = () => {
   const [connection, setConnection] = useState({
     host: 'localhost',
     port: 1433,
-    username: 'sa',
+    username: 'sql_parrot_service',
     password: '',
     trustCertificate: true,
-    snapshotPath: 'C:\\Snapshots'
+    snapshotPath: '/var/opt/mssql/snapshots'
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(null); // null, 'success', 'error'
   const [isSavingConnection, setIsSavingConnection] = useState(false);
+  const [showPathHelper, setShowPathHelper] = useState(false);
+  const [copiedQuery, setCopiedQuery] = useState(false);
   const isTauriApp = isTauri();
+
+  const windowsPathQuery = `USE master;
+SELECT name 'Logical Name', physical_name 'File Location'
+FROM sys.master_files;`;
+
+  const copyPathQuery = async () => {
+    try {
+      await navigator.clipboard.writeText(windowsPathQuery);
+      setCopiedQuery(true);
+      setTimeout(() => setCopiedQuery(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
 
   // Form validation for settings
   const settingsForm = useFormValidation(
@@ -64,9 +81,9 @@ const SettingsPanel = () => {
           ...prev,
           host: result.data.host || 'localhost',
           port: result.data.port || 1433,
-          username: result.data.username || 'sa',
+          username: result.data.username || 'sql_parrot_service',
           trustCertificate: result.data.trust_certificate ?? true,
-          snapshotPath: result.data.snapshot_path || 'C:\\Snapshots'
+          snapshotPath: result.data.snapshot_path || '/var/opt/mssql/snapshots'
           // Note: password is not returned for security
         }));
       }
@@ -85,7 +102,7 @@ const SettingsPanel = () => {
         port: connection.port,
         username: connection.username,
         password: connection.password,
-        trust_certificate: connection.trustCertificate
+        trustCertificate: connection.trustCertificate
       });
 
       if (result.success) {
@@ -112,12 +129,16 @@ const SettingsPanel = () => {
         port: connection.port,
         username: connection.username,
         password: connection.password,
-        trust_certificate: connection.trustCertificate,
-        snapshot_path: connection.snapshotPath
+        trustCertificate: connection.trustCertificate,
+        snapshotPath: connection.snapshotPath
       });
 
       if (result.success) {
         showSuccess('Connection saved successfully!');
+        // Navigate to Groups tab after successful save
+        if (onNavigateGroups) {
+          setTimeout(() => onNavigateGroups(), 1000); // Brief delay to show success message
+        }
       } else {
         showError(result.messages?.error?.[0] || 'Failed to save connection');
       }
@@ -147,7 +168,8 @@ const SettingsPanel = () => {
       const safeSettings = {
         preferences: {
           defaultGroup: data.preferences?.defaultGroup || '',
-          maxHistoryEntries: data.preferences?.maxHistoryEntries || 100
+          maxHistoryEntries: data.preferences?.maxHistoryEntries || 100,
+          autoCreateCheckpoint: data.preferences?.autoCreateCheckpoint ?? true
         },
         autoVerification: {
           enabled: data.autoVerification?.enabled || false,
@@ -166,7 +188,8 @@ const SettingsPanel = () => {
       setSettings({
         preferences: {
           defaultGroup: '',
-          maxHistoryEntries: 100
+          maxHistoryEntries: 100,
+          autoCreateCheckpoint: true
         },
         autoVerification: {
           enabled: false,
@@ -212,7 +235,8 @@ const SettingsPanel = () => {
       const updatedSettings = {
         preferences: {
           defaultGroup: settings.preferences?.defaultGroup || '',
-          maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100
+          maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100,
+          autoCreateCheckpoint: settings.preferences?.autoCreateCheckpoint ?? true
         },
         autoVerification: {
           enabled: settings.autoVerification?.enabled || false,
@@ -327,19 +351,58 @@ const SettingsPanel = () => {
             </div>
 
             <div>
-              <label htmlFor="snapshotPath" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                Snapshot Storage Path
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="snapshotPath" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300">
+                  Snapshot Storage Path
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPathHelper(!showPathHelper)}
+                  className="text-xs text-primary-500 hover:text-primary-600 flex items-center space-x-1"
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  <span>Windows path help</span>
+                </button>
+              </div>
               <FormInput
                 id="snapshotPath"
                 type="text"
                 value={connection.snapshotPath}
                 onChange={(value) => setConnection(prev => ({ ...prev, snapshotPath: value }))}
-                placeholder="C:\Snapshots"
+                placeholder="/var/opt/mssql/snapshots"
               />
               <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
-                Local path on the SQL Server where snapshot files will be stored.
+                Path on SQL Server where snapshot files will be stored. Default is for Docker/Linux.
               </p>
+
+              {/* Windows Path Helper Popover */}
+              {showPathHelper && (
+                <div className="mt-2 p-3 bg-blue-50 dark:bg-secondary-800 rounded-lg border border-blue-200 dark:border-secondary-500">
+                  <p className="text-xs text-secondary-700 dark:text-secondary-200 mb-2">
+                    <strong>Windows (non-Docker):</strong> Run this query in SSMS to find your data directory:
+                  </p>
+                  <div className="relative">
+                    <pre className="text-xs bg-white dark:bg-secondary-900 p-2 rounded font-mono overflow-x-auto text-secondary-800 dark:text-secondary-100 border border-secondary-200 dark:border-secondary-600">
+                      {windowsPathQuery}
+                    </pre>
+                    <button
+                      type="button"
+                      onClick={copyPathQuery}
+                      className="absolute top-1 right-1 p-1 bg-secondary-200 dark:bg-secondary-700 rounded hover:bg-secondary-300 dark:hover:bg-secondary-600"
+                      title="Copy to clipboard"
+                    >
+                      {copiedQuery ? (
+                        <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-secondary-600 dark:text-secondary-300" />
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-secondary-600 dark:text-secondary-300 mt-2">
+                    Use the directory from the physical_name column (e.g., <code className="bg-white dark:bg-secondary-900 px-1 rounded text-secondary-800 dark:text-secondary-100">C:\Program Files\Microsoft SQL Server\...</code>)
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center space-x-2">
@@ -421,6 +484,30 @@ const SettingsPanel = () => {
               Maximum number of history entries to keep. Older entries will be automatically removed when this limit is exceeded.
             </p>
           </div>
+
+          <div className="flex items-start space-x-3">
+            <input
+              type="checkbox"
+              id="autoCreateCheckpoint"
+              checked={settings.preferences.autoCreateCheckpoint ?? true}
+              onChange={(e) => setSettings(prev => ({
+                ...prev,
+                preferences: {
+                  ...prev.preferences,
+                  autoCreateCheckpoint: e.target.checked
+                }
+              }))}
+              className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+            />
+            <div>
+              <label htmlFor="autoCreateCheckpoint" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300">
+                Auto-create checkpoint after rollback
+              </label>
+              <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                Automatically create a new "Automatic" snapshot after successfully rolling back to a previous state. This provides a recovery point at the rolled-back state.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -473,35 +560,37 @@ const SettingsPanel = () => {
         </div>
       </div>
 
-      {/* Environment Configuration */}
-      <div className="card p-6">
-        <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
-          Environment Configuration
-        </h3>
+      {/* Environment Configuration - Docker/Express only */}
+      {!isTauriApp && (
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
+            Environment Configuration
+          </h3>
 
-        <div className="space-y-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-center space-x-2 mb-2">
-              <Database className="w-5 h-5 text-blue-600" />
-              <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                Snapshot Storage Path
-              </span>
-            </div>
-            <div className="text-sm text-blue-700 dark:text-blue-300">
-              <div className="font-mono bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded text-xs">
-                {snapshotPath || 'Loading...'}
+          <div className="space-y-4">
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <Database className="w-5 h-5 text-blue-600" />
+                <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                  Snapshot Storage Path
+                </span>
               </div>
-              <p className="mt-2 text-xs">
-                This path is used in SQL Server CREATE DATABASE commands for snapshot storage.
-                Configured via SNAPSHOT_PATH environment variable.
-                <br />
-                <span className="font-medium">Note:</span> For Docker containers (especially Linux containers on Windows),
-                this must be a Docker volume, not a bind mount, to ensure proper file permissions and access.
-              </p>
+              <div className="text-sm text-blue-700 dark:text-blue-300">
+                <div className="font-mono bg-blue-100 dark:bg-blue-800 px-2 py-1 rounded text-xs">
+                  {snapshotPath || 'Loading...'}
+                </div>
+                <p className="mt-2 text-xs">
+                  This path is used in SQL Server CREATE DATABASE commands for snapshot storage.
+                  Configured via SNAPSHOT_PATH environment variable.
+                  <br />
+                  <span className="font-medium">Note:</span> For Docker containers (especially Linux containers on Windows),
+                  this must be a Docker volume, not a bind mount, to ensure proper file permissions and access.
+                </p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Save Button */}
       <div className="flex justify-end">
