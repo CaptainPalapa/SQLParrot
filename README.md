@@ -35,80 +35,60 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- Node.js 18+
+SQL Parrot can be run three ways:
+
+| Method | Best For | Setup Time |
+|--------|----------|------------|
+| **🖥️ Desktop App** | End users, quick setup | ~2 minutes |
+| **🐳 Docker** | Server deployment, self-hosted | ~5 minutes |
+| **💻 npm dev** | Development, contributing | ~5 minutes |
+
+### Option 1: Desktop App (Easiest)
+
+Download the installer for your platform from [Releases](https://github.com/CaptainPalapa/SQLParrot/releases):
+- **Windows**: `.exe` or `.msi`
+- **macOS**: `.dmg`
+- **Linux**: `.AppImage` or `.deb`
+
+Launch the app, go to Settings, configure your SQL Server connection, and you're ready!
+
+📖 **See [docs/TAURI.md](docs/TAURI.md) for desktop app documentation**
+
+---
+
+### Option 2: Docker or npm (Server/Development)
+
+**Prerequisites:**
+- Node.js 18+ (npm) or Docker
 - SQL Server instance
 - Git
 
-### Installation
+**Clone and configure:**
+```bash
+git clone https://github.com/CaptainPalapa/SQLParrot.git
+cd SQLParrot
+cp env.example .env
+# Edit .env with your SQL Server details
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/CaptainPalapa/SQLParrot.git
-   cd SQLParrot
-   ```
+**🐳 Docker:**
+```bash
+docker-compose up
+```
 
-2. **Environment Setup**
+**💻 npm Development:**
+```bash
+npm run install:all
+npm run dev
+```
 
-   **🚀 Quick Setup (Recommended):**
-   ```bash
-   # Linux/Mac
-   ./setup-env.sh
+📖 **See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed configuration guide**
 
-   # Windows
-   setup-env.bat
-   ```
+**Access the application:**
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:3001 (Docker/npm only)
 
-   **🐳 Docker (Only 1 .env file needed):**
-   ```bash
-   cp env.example .env
-   # Edit .env with your SQL Server details
-   docker-compose up
-   ```
-
-   **💻 NPM Development (Only 1 .env file needed):**
-   ```bash
-   cp env.example .env
-   # Edit .env with your SQL Server details
-   npm run dev
-   ```
-
-   📖 **See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed configuration guide**
-
-2. **Install dependencies**
-   ```bash
-   npm run install:all
-   ```
-
-3. **Set up secure environment variables**
-   ```bash
-   # Windows PowerShell
-   .\setup-env.ps1
-
-   # Or manually create .env file
-   cp backend/env.example backend/.env
-   ```
-
-   **Edit `backend/.env` file and add your SQL Server credentials:**
-   ```env
-   SQL_SERVER=your_server_address
-   SQL_USERNAME=your_username
-   SQL_PASSWORD=your_password
-   SQL_TRUST_CERTIFICATE=true
-   ```
-
-4. **Start the application**
-   ```bash
-   # Option 1: Use the startup script (Windows)
-   .\start-dev.bat
-
-   # Option 2: Manual start
-   npm run dev
-   ```
-
-5. **Open your browser**
-   - **Frontend**: http://localhost:3000 (React/Vite)
-   - **Backend API**: http://localhost:3001 (Node.js/Express)
+---
 
 ## 🎨 Theme Browser
 
@@ -167,14 +147,18 @@ Access the theme browser by clicking the palette icon (🎨) in the header:
 - **Tailwind CSS** - Utility-first CSS framework
 - **Lucide React** - Beautiful icon library
 
-### **Backend Stack**
+### **Backend Stack (Docker/npm)**
 - **Node.js** - JavaScript runtime
 - **Express** - Web application framework
 - **mssql** - SQL Server driver
-- **CORS** - Cross-origin resource sharing
+
+### **Backend Stack (Tauri Desktop)**
+- **Rust** - Systems programming language
+- **Tauri** - Desktop application framework
+- **tiberius** - SQL Server driver (TDS protocol)
 
 ### **Data Storage**
-- **Local SQLite Database** - All metadata stored locally in `backend/data/sqlparrot.db`
+- **Local SQLite Database** - All metadata stored locally
   - `snapshots` table - Snapshot metadata with user attribution
   - `groups` table - Database group definitions
   - `history` table - Complete operation history
@@ -185,31 +169,29 @@ Access the theme browser by clicking the palette icon (🎨) in the header:
 
 ```
 SQLParrot/
-├── frontend/                 # React frontend
+├── frontend/                 # React frontend (shared)
 │   ├── src/
 │   │   ├── components/      # React components
-│   │   │   ├── ui/         # Reusable UI components
-│   │   │   ├── __tests__/  # Component tests
-│   │   │   └── *.jsx       # Main components
 │   │   ├── contexts/        # React contexts
 │   │   ├── hooks/          # Custom React hooks
-│   │   ├── utils/          # Utility functions
-│   │   ├── constants/     # Theme definitions
-│   │   ├── App.jsx        # Main app component
-│   │   └── main.jsx       # Entry point
-│   ├── dist/              # Built frontend
-│   ├── package.json
-│   ├── vite.config.js
-│   └── tailwind.config.js
-├── backend/                 # Node.js backend
-│   ├── server.js          # Express server
-│   ├── utils/             # Utility modules
-│   │   └── metadataStorageSqlite.js  # SQLite storage
-│   ├── data/              # Local data (gitignored)
-│   │   └── sqlparrot.db   # SQLite metadata database
-│   ├── env.example        # Environment template
+│   │   └── utils/          # Utility functions
 │   └── package.json
-├── package.json            # Root package.json
+├── backend/                 # Node.js backend (Docker/npm)
+│   ├── server.js          # Express server
+│   ├── utils/
+│   │   └── metadataStorageSqlite.js
+│   └── package.json
+├── src-tauri/               # Rust backend (Desktop app)
+│   ├── src/
+│   │   ├── main.rs         # Entry point
+│   │   ├── lib.rs          # App setup
+│   │   ├── db/             # Database modules
+│   │   └── commands/       # Tauri commands
+│   ├── Cargo.toml
+│   └── tauri.conf.json
+├── docs/                    # Documentation
+│   ├── SNAPSHOT_BEHAVIOR.md # Snapshot technical details
+│   └── TAURI.md            # Desktop app docs
 ├── docker-compose.example.yml
 └── README.md
 ```
@@ -346,67 +328,54 @@ SQLPARROT_USER_NAME=your_name_here
 
 ### 🔐 SQL Server Permissions Required
 
-SQL Parrot requires specific permissions to perform snapshot operations. The user account must have the following capabilities:
+SQL Parrot requires specific permissions to perform snapshot operations.
 
 #### **Required Operations:**
-- Create and drop database snapshots
-- Restore databases from snapshots
+- Create and drop database snapshots (`CREATE DATABASE ... AS SNAPSHOT OF`)
+- Restore databases from snapshots (`RESTORE DATABASE ... FROM DATABASE_SNAPSHOT`)
 - Access system metadata (`sys.databases`, `sys.master_files`)
-- Execute system commands (`xp_cmdshell`, `DBCC CHECKDB`)
 
 #### **Permission Options:**
 
-**Option 1: Server Roles (Easiest Setup)**
+**Option 1: sysadmin Role (Simplest)**
 ```sql
--- Add user to required server roles
-ALTER SERVER ROLE dbcreator ADD MEMBER [your_username];
 ALTER SERVER ROLE sysadmin ADD MEMBER [your_username];
 ```
-- ✅ Simple setup, works immediately
-- ❌ Very broad permissions (security risk)
+- ✅ Works immediately, full access
+- ❌ Broad permissions (not recommended for production)
 
-**Option 2: Custom Permissions (Recommended)**
+**Option 2: Dedicated Service Account (Recommended)**
 ```sql
 -- Create a dedicated service account
 CREATE LOGIN [sql_parrot_service] WITH PASSWORD = 'YourSecurePassword123!';
 
--- Grant specific permissions
-GRANT CREATE ANY DATABASE TO [sql_parrot_service];  -- Required for metadata database
+-- Required for CREATE DATABASE (snapshots)
+GRANT CREATE ANY DATABASE TO [sql_parrot_service];
+
+-- Required for ALTER DATABASE (SINGLE_USER/MULTI_USER mode during restore)
 GRANT ALTER ANY DATABASE TO [sql_parrot_service];
-ALTER SERVER ROLE dbcreator ADD MEMBER [sql_parrot_service];  -- Required for RESTORE operations
-GRANT VIEW ANY DEFINITION TO [sql_parrot_service];  -- Required for sys.databases access
-GRANT VIEW SERVER STATE TO [sql_parrot_service];  -- Required for sys.master_files access
 
--- Enable xp_cmdshell (if needed for file operations)
-EXEC sp_configure 'xp_cmdshell', 1;
-RECONFIGURE;
+-- CRITICAL: Required for RESTORE DATABASE FROM SNAPSHOT
+ALTER SERVER ROLE dbcreator ADD MEMBER [sql_parrot_service];
 
--- Grant execute permission on xp_cmdshell
-GRANT EXECUTE ON xp_cmdshell TO [sql_parrot_service];
+-- Required for reading sys.databases and sys.master_files
+GRANT VIEW ANY DEFINITION TO [sql_parrot_service];
+GRANT VIEW SERVER STATE TO [sql_parrot_service];
 ```
 
-**Option 3: Database-Level Permissions**
-```sql
--- For each database you want to snapshot
-USE [your_database];
-CREATE USER [sql_parrot_service] FOR LOGIN [sql_parrot_service];
-ALTER ROLE db_owner ADD MEMBER [sql_parrot_service];
-ALTER ROLE db_backupoperator ADD MEMBER [sql_parrot_service];
-```
+**Note:** `CONTROL SERVER` permission is NOT sufficient for RESTORE operations - the `dbcreator` role is specifically required.
 
 #### **Security Best Practices:**
 - Use a dedicated service account (not `sa`)
 - Grant minimum required permissions
 - Use strong passwords
-- Consider using Windows Authentication if possible
 - Regularly audit permissions
 
 #### **Troubleshooting Permission Issues:**
 - **"CREATE DATABASE permission denied"** → User needs `dbcreator` role or `CREATE ANY DATABASE` permission
-- **"RESTORE permission denied"** → User needs `dbcreator` server role, `sysadmin` role, or `CONTROL SERVER` permission
+- **"RESTORE permission denied"** → User needs `dbcreator` server role (not just CONTROL SERVER)
 - **"Cannot access sys.databases"** → User needs `VIEW ANY DEFINITION` permission
-- **"xp_cmdshell access denied"** → User needs `EXECUTE` permission on `xp_cmdshell`
-- **"Application fails to start"** → Check SQL Server connection and required permissions
+- **"Application fails to start"** → Check SQL Server connection and verify permissions above
 
 ### 🔒 Security & Environment Variables
 
