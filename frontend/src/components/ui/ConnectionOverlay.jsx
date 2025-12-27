@@ -3,7 +3,7 @@
 
 import React from 'react';
 import PropTypes from 'prop-types';
-import { RefreshCw, WifiOff } from 'lucide-react';
+import { RefreshCw, WifiOff, Settings } from 'lucide-react';
 import { LoadingSpinner } from './Loading';
 
 const ConnectionOverlay = ({
@@ -40,6 +40,14 @@ const ConnectionOverlay = ({
           title: 'Connection Lost',
           defaultMessage: 'Unable to connect to SQL Server',
           showRetry: true
+        };
+      case 'needs_config':
+        return {
+          icon: <Settings className="w-12 h-12 text-primary-400" />,
+          title: 'Connection Required',
+          defaultMessage: 'Please configure your SQL Server connection in Settings',
+          showRetry: false,
+          showSettings: true
         };
       case 'loading':
         return {
@@ -95,6 +103,13 @@ const ConnectionOverlay = ({
             </button>
           )}
 
+          {/* Settings hint for needs_config */}
+          {config.showSettings && (
+            <p className="text-sm text-primary-400 mt-2">
+              Click the <strong>Settings</strong> tab above to configure your connection.
+            </p>
+          )}
+
           {/* Retry count indicator */}
           {status === 'reconnecting' && retryCount > 0 && (
             <div className="mt-3 flex justify-center">
@@ -119,7 +134,7 @@ const ConnectionOverlay = ({
 };
 
 ConnectionOverlay.propTypes = {
-  status: PropTypes.oneOf(['connected', 'connecting', 'reconnecting', 'error', 'loading']),
+  status: PropTypes.oneOf(['connected', 'connecting', 'reconnecting', 'error', 'loading', 'needs_config']),
   message: PropTypes.string,
   onRetry: PropTypes.func,
   retryCount: PropTypes.number,

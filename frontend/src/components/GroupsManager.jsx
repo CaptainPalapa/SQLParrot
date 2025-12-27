@@ -10,7 +10,7 @@ import { format as formatTimeAgo } from 'timeago.js';
 import { useNotification } from '../hooks/useNotification';
 import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
-import { api } from '../api';
+import { api, isTauri } from '../api';
 
 const MAX_RETRIES = 5;
 const RETRY_DELAYS = [1000, 2000, 3000, 4000, 5000]; // Exponential backoff - give SQL Server time to fully initialize
@@ -61,10 +61,11 @@ const GroupsManager = () => {
   const [settings, setSettings] = useState({});
 
   // Connection state management
-  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected', 'connecting', 'reconnecting', 'error'
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected', 'connecting', 'reconnecting', 'error', 'needs_config'
   const [connectionError, setConnectionError] = useState('');
   const [retryCount, setRetryCount] = useState(0);
   const retryTimeoutRef = useRef(null);
+  const isTauriApp = isTauri();
 
   // Separate loading states for different operations
   const [operationLoading, setOperationLoading] = useState({
@@ -99,6 +100,26 @@ const GroupsManager = () => {
 
   // Load data with connection handling
   const loadData = useCallback(async (isRetry = false) => {
+    // In Tauri mode, first check if we have a configured profile
+    if (isTauriApp) {
+      try {
+        const healthData = await api.get('/api/health');
+        // If not connected (no profile with password), show config needed
+        if (!healthData.connected && !healthData.data?.connected) {
+          setConnectionStatus('needs_config');
+          setIsInitialLoading(false);
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {
+        // If health check fails entirely, also need config
+        setConnectionStatus('needs_config');
+        setIsInitialLoading(false);
+        setIsLoading(false);
+        return;
+      }
+    }
+
     if (isRetry) {
       setConnectionStatus('reconnecting');
     } else if (connectionStatus !== 'connected') {
@@ -108,10 +129,12 @@ const GroupsManager = () => {
     setIsLoading(true);
 
     try {
-      // First check if connection is healthy
-      const isConnected = await checkConnection();
-      if (!isConnected) {
-        throw new Error('SQL Server connection unavailable');
+      // First check if connection is healthy (for Docker mode)
+      if (!isTauriApp) {
+        const isConnected = await checkConnection();
+        if (!isConnected) {
+          throw new Error('SQL Server connection unavailable');
+        }
       }
 
       // Fetch groups
