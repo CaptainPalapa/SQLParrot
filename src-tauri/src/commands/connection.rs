@@ -58,29 +58,24 @@ pub async fn get_databases() -> ApiResponse<Vec<DatabaseInfo>> {
     }
 }
 
-/// Check overall health status
+/// Check overall health status - does NOT auto-connect to SQL Server
+/// Connection status is checked separately via test_connection when user requests it
 #[tauri::command]
 pub async fn check_health() -> ApiResponse<HealthResponse> {
+    // Just return app health - don't try to connect to SQL Server automatically
+    // User must explicitly test/save connection first
     let config = AppConfig::load().ok();
-    let mut connected = false;
-    let mut sql_version = None;
-
-    if let Some(ref cfg) = config {
-        if let Some(profile) = cfg.get_active_profile() {
-            if let Ok(mut conn) = SqlServerConnection::connect(profile).await {
-                if let Ok(version) = conn.test_connection().await {
-                    connected = true;
-                    sql_version = Some(version);
-                }
-            }
-        }
-    }
+    let has_profile = config
+        .as_ref()
+        .and_then(|c| c.get_active_profile())
+        .map(|p| !p.password.is_empty())
+        .unwrap_or(false);
 
     ApiResponse::success(HealthResponse {
-        connected,
+        connected: has_profile, // Just indicates if a profile with password is configured
         version: env!("CARGO_PKG_VERSION").to_string(),
         platform: std::env::consts::OS.to_string(),
-        sql_server_version: sql_version,
+        sql_server_version: None, // Only set when user explicitly tests connection
     })
 }
 

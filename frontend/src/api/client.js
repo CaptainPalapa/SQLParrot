@@ -25,6 +25,11 @@ const endpointToCommand = (endpoint, method) => {
   // Health check
   if (path === 'health') return 'check_health';
 
+  // Connection management
+  if (path === 'connection') return 'get_connection';
+  if (path === 'test-connection') return 'test_connection';
+  if (path === 'save-connection') return 'save_connection';
+
   // Databases
   if (path === 'databases') return 'get_databases';
 
@@ -62,7 +67,7 @@ const endpointToCommand = (endpoint, method) => {
 
   // Group snapshots: groups/:id/snapshots
   if (segments[0] === 'groups' && segments[2] === 'snapshots') {
-    return method === 'POST' ? 'create_snapshot' : 'get_group_snapshots';
+    return method === 'POST' ? 'create_snapshot' : 'get_snapshots';
   }
 
   // Snapshot operations: snapshots/:id/...
@@ -81,7 +86,7 @@ const endpointToCommand = (endpoint, method) => {
 /**
  * Extract path parameters from endpoint
  * @param {string} endpoint - API endpoint with actual values
- * @returns {Object} Extracted parameters
+ * @returns {Object} Extracted parameters (using snake_case for Rust)
  */
 const extractPathParams = (endpoint) => {
   const params = {};
@@ -90,12 +95,13 @@ const extractPathParams = (endpoint) => {
 
   // groups/:groupId/...
   if (segments[0] === 'groups' && segments.length >= 2) {
-    params.groupId = segments[1];
+    // Use snake_case for Tauri/Rust commands
+    params.group_id = segments[1];
   }
 
   // snapshots/:snapshotId/...
   if (segments[0] === 'snapshots' && segments.length >= 2) {
-    params.snapshotId = segments[1];
+    params.snapshot_id = segments[1];
   }
 
   return params;

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server } from 'lucide-react';
+import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Plug, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
 import { useFormValidation, validators } from '../utils/validation';
-import { api } from '../api';
+import { api, isTauri } from '../api';
 
 const SettingsPanel = () => {
   const [settings, setSettings] = useState({
@@ -22,6 +22,21 @@ const SettingsPanel = () => {
   const [metadataStatus, setMetadataStatus] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Connection settings state (for Tauri desktop app)
+  const [connection, setConnection] = useState({
+    host: 'localhost',
+    port: 1433,
+    username: 'sa',
+    password: '',
+    trustCertificate: true,
+    snapshotPath: 'C:\\Snapshots'
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState(null); // null, 'success', 'error'
+  const [isSavingConnection, setIsSavingConnection] = useState(false);
+  const isTauriApp = isTauri();
+
   // Form validation for settings
   const settingsForm = useFormValidation(
     {},
@@ -35,7 +50,83 @@ const SettingsPanel = () => {
     fetchSettings();
     fetchSnapshotPath();
     fetchMetadataStatus();
+    if (isTauriApp) {
+      fetchConnection();
+    }
+  }, [isTauriApp]);
+
+  // Fetch saved connection profile (Tauri only)
+  const fetchConnection = useCallback(async () => {
+    try {
+      const result = await api.get('/api/connection');
+      if (result.success && result.data) {
+        setConnection(prev => ({
+          ...prev,
+          host: result.data.host || 'localhost',
+          port: result.data.port || 1433,
+          username: result.data.username || 'sa',
+          trustCertificate: result.data.trust_certificate ?? true,
+          snapshotPath: result.data.snapshot_path || 'C:\\Snapshots'
+          // Note: password is not returned for security
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching connection:', error);
+    }
   }, []);
+
+  // Test SQL Server connection
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionStatus(null);
+    try {
+      const result = await api.post('/api/test-connection', {
+        host: connection.host,
+        port: connection.port,
+        username: connection.username,
+        password: connection.password,
+        trust_certificate: connection.trustCertificate
+      });
+
+      if (result.success) {
+        setConnectionStatus('success');
+        showSuccess(`Connected! ${result.data}`);
+      } else {
+        setConnectionStatus('error');
+        showError(result.messages?.error?.[0] || 'Connection failed');
+      }
+    } catch (error) {
+      setConnectionStatus('error');
+      showError('Connection test failed: ' + error.message);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  // Save connection profile (Tauri only)
+  const handleSaveConnection = async () => {
+    setIsSavingConnection(true);
+    try {
+      const result = await api.post('/api/save-connection', {
+        host: connection.host,
+        port: connection.port,
+        username: connection.username,
+        password: connection.password,
+        trust_certificate: connection.trustCertificate,
+        snapshot_path: connection.snapshotPath
+      });
+
+      if (result.success) {
+        showSuccess('Connection saved successfully!');
+      } else {
+        showError(result.messages?.error?.[0] || 'Failed to save connection');
+      }
+    } catch (error) {
+      showError('Failed to save connection: ' + error.message);
+    } finally {
+      setIsSavingConnection(false);
+    }
+  };
 
   const fetchSnapshotPath = useCallback(async () => {
     try {
@@ -152,6 +243,152 @@ const SettingsPanel = () => {
         </p>
       </div>
 
+
+      {/* SQL Server Connection (Tauri desktop app only) */}
+      {isTauriApp && (
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4 flex items-center space-x-2">
+            <Plug className="w-5 h-5" />
+            <span>SQL Server Connection</span>
+            {connectionStatus === 'success' && (
+              <span className="ml-2 px-2 py-0.5 text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded-full">
+                Connected
+              </span>
+            )}
+          </h3>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="host" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                  Host / Server
+                </label>
+                <FormInput
+                  id="host"
+                  type="text"
+                  value={connection.host}
+                  onChange={(value) => setConnection(prev => ({ ...prev, host: value }))}
+                  placeholder="localhost or server name"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="port" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                  Port
+                </label>
+                <FormInput
+                  id="port"
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={connection.port.toString()}
+                  onChange={(value) => setConnection(prev => ({ ...prev, port: parseInt(value) || 1433 }))}
+                  placeholder="1433"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                  Username
+                </label>
+                <FormInput
+                  id="username"
+                  type="text"
+                  value={connection.username}
+                  onChange={(value) => setConnection(prev => ({ ...prev, username: value }))}
+                  placeholder="sa"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <FormInput
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={connection.password}
+                    onChange={(value) => setConnection(prev => ({ ...prev, password: value }))}
+                    placeholder="Enter password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-secondary-500 hover:text-secondary-700 dark:text-secondary-400 dark:hover:text-secondary-200"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="snapshotPath" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                Snapshot Storage Path
+              </label>
+              <FormInput
+                id="snapshotPath"
+                type="text"
+                value={connection.snapshotPath}
+                onChange={(value) => setConnection(prev => ({ ...prev, snapshotPath: value }))}
+                placeholder="C:\Snapshots"
+              />
+              <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                Local path on the SQL Server where snapshot files will be stored.
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <input
+                id="trustCertificate"
+                type="checkbox"
+                checked={connection.trustCertificate}
+                onChange={(e) => setConnection(prev => ({ ...prev, trustCertificate: e.target.checked }))}
+                className="w-4 h-4 text-primary-600 bg-secondary-100 border-secondary-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-secondary-800 focus:ring-2 dark:bg-secondary-700 dark:border-secondary-600"
+              />
+              <label htmlFor="trustCertificate" className="text-sm text-secondary-700 dark:text-secondary-300">
+                Trust server certificate (for self-signed certs)
+              </label>
+            </div>
+
+            <div className="flex items-center space-x-3 pt-2">
+              <button
+                onClick={handleTestConnection}
+                disabled={isTestingConnection || !connection.host || !connection.username}
+                className="btn-secondary flex items-center space-x-2"
+              >
+                {isTestingConnection ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : connectionStatus === 'success' ? (
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                ) : connectionStatus === 'error' ? (
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                ) : (
+                  <Plug className="w-4 h-4" />
+                )}
+                <span>{isTestingConnection ? 'Testing...' : 'Test Connection'}</span>
+              </button>
+
+              <button
+                onClick={handleSaveConnection}
+                disabled={isSavingConnection || !connection.host || !connection.username}
+                className="btn-primary flex items-center space-x-2"
+              >
+                {isSavingConnection ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>{isSavingConnection ? 'Saving...' : 'Save Connection'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preferences */}
       <div className="card p-6">

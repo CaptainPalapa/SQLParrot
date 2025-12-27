@@ -10,6 +10,7 @@
     "beforeBuildCommand": "npm run build --prefix frontend"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "SQL Parrot",
