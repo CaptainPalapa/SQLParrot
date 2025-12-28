@@ -330,6 +330,13 @@ class MetadataStorage {
         JSON.stringify(historyEntry)
       );
 
+      console.log(`✅ Added history entry to metadata database`);
+
+      // Enforce max history entries limit
+      const settingsResult = await this.getSettings();
+      const maxEntries = settingsResult.settings?.maxHistoryEntries || 100;
+      await this.trimHistoryEntries(maxEntries);
+
       return { success: true, mode: 'sqlite' };
     } catch (error) {
       console.error(`❌ Failed to add history entry: ${error.message}`);
