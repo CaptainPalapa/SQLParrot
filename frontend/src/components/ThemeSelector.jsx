@@ -27,8 +27,12 @@ const ThemeSelector = ({ isOpen, onClose }) => {
       role="dialog"
       aria-modal="true"
       aria-labelledby="theme-selector-title"
+      onClick={onClose}
     >
-      <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden">
+      <div
+        className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-6 border-b border-secondary-200 dark:border-secondary-700">
           <div className="flex items-center space-x-2">
             <Palette className="w-6 h-6 text-primary-600" />
