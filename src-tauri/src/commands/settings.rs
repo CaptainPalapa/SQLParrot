@@ -20,11 +20,22 @@ pub async fn get_settings() -> ApiResponse<Settings> {
 }
 
 /// Update application settings
+/// Note: Takes individual fields to match the API client's request format
 #[tauri::command]
-pub async fn update_settings(settings: Settings) -> ApiResponse<Settings> {
+#[allow(non_snake_case)]
+pub async fn update_settings(
+    preferences: crate::models::SettingsPreferences,
+    autoVerification: crate::models::AutoVerification,
+) -> ApiResponse<Settings> {
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
+    };
+
+    let settings = Settings {
+        preferences,
+        auto_verification: autoVerification,
+        connection: Default::default(),
     };
 
     match store.update_settings(&settings) {

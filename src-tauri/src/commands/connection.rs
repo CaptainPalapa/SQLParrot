@@ -144,3 +144,31 @@ pub struct ConnectionProfilePublic {
     pub trust_certificate: bool,
     pub snapshot_path: String,
 }
+
+/// Get the current snapshot path configuration
+#[tauri::command]
+pub async fn test_snapshot_path() -> ApiResponse<SnapshotPathInfo> {
+    match AppConfig::load() {
+        Ok(config) => {
+            let path = config
+                .get_active_profile()
+                .map(|p| p.snapshot_path.clone())
+                .unwrap_or_else(|| "Not configured".to_string());
+            ApiResponse::success(SnapshotPathInfo {
+                snapshot_path: path,
+                configured: config.get_active_profile().is_some(),
+            })
+        }
+        Err(_) => ApiResponse::success(SnapshotPathInfo {
+            snapshot_path: "Not configured".to_string(),
+            configured: false,
+        }),
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct SnapshotPathInfo {
+    #[serde(rename = "snapshotPath")]
+    pub snapshot_path: String,
+    pub configured: bool,
+}

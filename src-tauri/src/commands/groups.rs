@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::db::{MetadataStore, SqlServerConnection};
-use crate::models::Group;
+use crate::models::{Group, HistoryEntry};
 use crate::ApiResponse;
 
 /// Get all groups
@@ -42,7 +42,23 @@ pub async fn create_group(name: String, databases: Vec<String>) -> ApiResponse<G
     };
 
     match store.create_group(&group) {
-        Ok(_) => ApiResponse::success(group),
+        Ok(_) => {
+            // Log to history
+            let history_entry = HistoryEntry {
+                id: Uuid::new_v4().to_string(),
+                operation_type: "create_group".to_string(),
+                timestamp: now,
+                user_name: Some(whoami::username_os().to_string_lossy().into_owned()),
+                details: Some(serde_json::json!({
+                    "groupId": group.id,
+                    "groupName": group.name,
+                    "databaseCount": group.databases.len()
+                })),
+                results: None,
+            };
+            let _ = store.add_history(&history_entry);
+            ApiResponse::success(group)
+        }
         Err(e) => ApiResponse::error(format!("Failed to create group: {}", e)),
     }
 }
@@ -127,12 +143,28 @@ pub async fn update_group(id: String, name: String, databases: Vec<String>) -> A
     };
 
     match store.update_group(&group) {
-        Ok(_) => ApiResponse::success(group),
+        Ok(_) => {
+            // Log to history
+            let history_entry = HistoryEntry {
+                id: Uuid::new_v4().to_string(),
+                operation_type: "update_group".to_string(),
+                timestamp: Utc::now(),
+                user_name: Some(whoami::username_os().to_string_lossy().into_owned()),
+                details: Some(serde_json::json!({
+                    "groupId": group.id,
+                    "groupName": group.name,
+                    "databaseCount": group.databases.len()
+                })),
+                results: None,
+            };
+            let _ = store.add_history(&history_entry);
+            ApiResponse::success(group)
+        }
         Err(e) => ApiResponse::error(format!("Failed to update group: {}", e)),
     }
 }
 
-/// Delete a group and all its snapshots
+/// Delete a group and all its snapshots (including from SQL Server)
 #[tauri::command]
 pub async fn delete_group(id: String) -> ApiResponse<()> {
     let store = match MetadataStore::open() {
@@ -140,13 +172,74 @@ pub async fn delete_group(id: String) -> ApiResponse<()> {
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    // Delete snapshots first
+    // Get group info before deleting for history
+    let groups = store.get_groups().unwrap_or_default();
+    let group = groups.iter().find(|g| g.id == id);
+    let group_name = group.map(|g| g.name.clone()).unwrap_or_default();
+
+    // Get all snapshots for this group to drop from SQL Server
+    let group_snapshots = store.get_snapshots(&id).unwrap_or_default();
+    let mut dropped_count = 0;
+
+    // If there are snapshots, we need to drop them from SQL Server first
+    if !group_snapshots.is_empty() {
+        let config = match crate::config::AppConfig::load() {
+            Ok(c) => c,
+            Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
+        };
+
+        let profile = match config.get_active_profile() {
+            Some(p) => p,
+            None => return ApiResponse::error("No active connection profile".to_string()),
+        };
+
+        // Connect to SQL Server and drop each snapshot database
+        match crate::db::SqlServerConnection::connect(profile).await {
+            Ok(mut conn) => {
+                for snapshot in &group_snapshots {
+                    for db_snapshot in &snapshot.database_snapshots {
+                        if db_snapshot.success && !db_snapshot.snapshot_name.is_empty() {
+                            if let Ok(_) = conn.drop_snapshot(&db_snapshot.snapshot_name).await {
+                                dropped_count += 1;
+                                log::info!("Dropped snapshot database: {}", db_snapshot.snapshot_name);
+                            } else {
+                                log::warn!("Failed to drop snapshot database: {} (may not exist)", db_snapshot.snapshot_name);
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Could not connect to SQL Server to drop snapshots: {}", e);
+                // Continue with metadata deletion even if we couldn't drop SQL Server snapshots
+                // User will need to clean up orphans manually
+            }
+        }
+    }
+
+    // Delete snapshot metadata
     if let Err(e) = store.delete_snapshots_for_group(&id) {
         return ApiResponse::error(format!("Failed to delete group snapshots: {}", e));
     }
 
     match store.delete_group(&id) {
-        Ok(_) => ApiResponse::success(()),
+        Ok(_) => {
+            // Log to history
+            let history_entry = HistoryEntry {
+                id: Uuid::new_v4().to_string(),
+                operation_type: "delete_group".to_string(),
+                timestamp: Utc::now(),
+                user_name: Some(whoami::username_os().to_string_lossy().into_owned()),
+                details: Some(serde_json::json!({
+                    "groupId": id,
+                    "groupName": group_name,
+                    "droppedSnapshots": dropped_count
+                })),
+                results: None,
+            };
+            let _ = store.add_history(&history_entry);
+            ApiResponse::success(())
+        }
         Err(e) => ApiResponse::error(format!("Failed to delete group: {}", e)),
     }
 }

@@ -72,8 +72,11 @@ const GroupsManager = ({ onNavigateSettings }) => {
   const [operationLoading, setOperationLoading] = useState({
     delete: false,
     rollback: false,
-    createSnapshot: false
+    createSnapshot: false,
+    cleanup: false
   });
+  // Track which group has an operation in progress (locks all buttons for that group)
+  const [lockedGroupId, setLockedGroupId] = useState(null);
 
   // Form validation
   const groupForm = useFormValidation(
@@ -157,7 +160,8 @@ const GroupsManager = ({ onNavigateSettings }) => {
       // Also fetch settings
       try {
         const settingsData = await api.get('/api/settings');
-        setSettings(settingsData);
+        // Normalized response has settings in data property
+        setSettings(settingsData.data || settingsData);
       } catch (settingsError) {
         console.error('Error fetching settings:', settingsError);
       }
@@ -242,8 +246,9 @@ const GroupsManager = ({ onNavigateSettings }) => {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const data = await api.get('/api/settings');
-      setSettings(data);
+      const response = await api.get('/api/settings');
+      // Normalized response has settings in data property
+      setSettings(response.data || response);
     } catch (error) {
       console.error('Error fetching settings:', error);
     }
@@ -417,10 +422,30 @@ const GroupsManager = ({ onNavigateSettings }) => {
 
   const handleDeleteGroup = async (groupId) => {
     const group = groups.find(g => g.id === groupId);
+    const groupSnapshotList = snapshots[groupId] || [];
+    const hasSnapshots = groupSnapshotList.length > 0;
+
     showConfirmation({
       title: 'Delete Group',
-      message: `Are you sure you want to delete the group "${group?.name}"? This action cannot be undone.`,
-      confirmText: 'Delete',
+      message: hasSnapshots ? (
+        <div>
+          <p className="mb-3">Are you sure you want to delete the group "<strong>{group?.name}</strong>"?</p>
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
+            <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">⚠️ This group has {groupSnapshotList.length} snapshot{groupSnapshotList.length !== 1 ? 's' : ''}</p>
+            <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+              <li>All snapshots will be <strong>permanently deleted</strong></li>
+              <li>You will <strong>lose the ability to rollback</strong> to any previous state</li>
+              <li>Current database state becomes permanent</li>
+            </ul>
+          </div>
+          <p className="text-sm text-secondary-600 dark:text-secondary-400">
+            Consider rolling back or deleting snapshots first if you need to preserve a specific state.
+          </p>
+        </div>
+      ) : (
+        `Are you sure you want to delete the group "${group?.name}"? This action cannot be undone.`
+      ),
+      confirmText: hasSnapshots ? 'Delete Group & Snapshots' : 'Delete',
       cancelText: 'Cancel',
       type: 'danger',
       onConfirm: async () => {
@@ -494,6 +519,7 @@ const GroupsManager = ({ onNavigateSettings }) => {
       type: 'danger',
       onConfirm: async () => {
         setOperationLoading(prev => ({ ...prev, delete: true }));
+        setLockedGroupId(snapshot.groupId);
         try {
           const data = await api.delete(`/api/snapshots/${snapshot.id}`);
 
@@ -509,6 +535,7 @@ const GroupsManager = ({ onNavigateSettings }) => {
           showError('Failed to delete snapshot. Please try again.');
         } finally {
           setOperationLoading(prev => ({ ...prev, delete: false }));
+          setLockedGroupId(null);
         }
       }
     });
@@ -591,12 +618,14 @@ const GroupsManager = ({ onNavigateSettings }) => {
       type: 'success',
       onConfirm: async () => {
         setOperationLoading(prev => ({ ...prev, rollback: true }));
+        setLockedGroupId(snapshot.groupId);
         try {
           const data = await api.post(`/api/snapshots/${snapshot.id}/rollback`);
 
           // Handle external snapshots blocking rollback
           if (data.externalSnapshots) {
             setOperationLoading(prev => ({ ...prev, rollback: false }));
+            setLockedGroupId(null);
             showConfirmation({
               title: 'External Snapshots Detected',
               message: (
@@ -639,13 +668,53 @@ const GroupsManager = ({ onNavigateSettings }) => {
             // Refresh all data since rollback can affect multiple groups
             await loadData();
           } else {
-            showError(data.message || 'Failed to rollback snapshot. Please try again.');
+            // Show helpful error with suggestion to run Verify
+            const errorMsg = data.message || 'Failed to rollback snapshot.';
+            showConfirmation({
+              title: 'Rollback Failed',
+              message: (
+                <div>
+                  <p className="mb-3">{errorMsg}</p>
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-2">💡 Common cause: External snapshots</p>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                      SQL Server requires ALL snapshots for a database to be removed before restoring.
+                      Click <strong>Verify</strong> to check for orphaned or external snapshots that may be blocking this operation.
+                    </p>
+                  </div>
+                </div>
+              ),
+              confirmText: 'Close',
+              hideCancelButton: true,
+              type: 'warning',
+              onConfirm: () => {}
+            });
           }
         } catch (error) {
           console.error('Error rolling back snapshot:', error);
-          showError(error.message || 'Failed to rollback snapshot. Please try again.');
+          const errorMsg = error.message || 'Failed to rollback snapshot.';
+          showConfirmation({
+            title: 'Rollback Failed',
+            message: (
+              <div>
+                <p className="mb-3">{errorMsg}</p>
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-2">💡 Common cause: External snapshots</p>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                    SQL Server requires ALL snapshots for a database to be removed before restoring.
+                    Click <strong>Verify</strong> to check for orphaned or external snapshots that may be blocking this operation.
+                  </p>
+                </div>
+              </div>
+            ),
+            confirmText: 'Close',
+            hideCancelButton: true,
+            type: 'warning',
+            onConfirm: () => {}
+          });
         } finally {
           setOperationLoading(prev => ({ ...prev, rollback: false }));
+          setLockedGroupId(null);
         }
       }
     });
@@ -665,7 +734,8 @@ const GroupsManager = ({ onNavigateSettings }) => {
       cancelText: 'Cancel',
       type: 'warning',
       onConfirm: async () => {
-        setIsLoading(true);
+        setOperationLoading(prev => ({ ...prev, cleanup: true }));
+        setLockedGroupId(snapshot.groupId);
         try {
           const data = await api.post(`/api/snapshots/${snapshot.id}/cleanup`);
 
@@ -680,7 +750,8 @@ const GroupsManager = ({ onNavigateSettings }) => {
           console.error('Error cleaning up snapshot:', error);
           showError('Failed to cleanup snapshot. Please try again.');
         } finally {
-          setIsLoading(false);
+          setOperationLoading(prev => ({ ...prev, cleanup: false }));
+          setLockedGroupId(null);
         }
       }
     });
@@ -933,6 +1004,7 @@ const GroupsManager = ({ onNavigateSettings }) => {
                   selectedDatabases={selectedDatabases}
                   onSelectionChange={setSelectedDatabases}
                   existingGroups={groups}
+                  clearFiltersOnMount={true}
                 />
               </div>
 
@@ -1043,14 +1115,24 @@ const GroupsManager = ({ onNavigateSettings }) => {
               <div className="flex space-x-2">
                 <button
                   onClick={() => handleEditGroup(group)}
-                  className="p-2 hover:bg-secondary-100 dark:hover:bg-secondary-700 rounded-lg transition-colors"
+                  disabled={lockedGroupId === group.id}
+                  className={`p-2 rounded-lg transition-colors ${
+                    lockedGroupId === group.id
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-secondary-100 dark:hover:bg-secondary-700'
+                  }`}
                   aria-label={`Edit group ${group.name}`}
                 >
                   <Edit className="w-4 h-4 text-secondary-600 dark:text-secondary-400" aria-hidden="true" />
                 </button>
                 <button
                   onClick={() => handleDeleteGroup(group.id)}
-                  className="p-2 hover:bg-red-100 dark:hover:bg-red-900 rounded-lg transition-colors"
+                  disabled={lockedGroupId === group.id}
+                  className={`p-2 rounded-lg transition-colors ${
+                    lockedGroupId === group.id
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-red-100 dark:hover:bg-red-900'
+                  }`}
                   aria-label={`Delete group ${group.name}`}
                 >
                   <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" aria-hidden="true" />
@@ -1112,6 +1194,7 @@ const GroupsManager = ({ onNavigateSettings }) => {
                     }}
                     className="w-full btn-primary flex items-center justify-center space-x-2"
                     loading={false}
+                    disabled={lockedGroupId === group.id}
                   >
                     <Camera className="w-4 h-4" />
                     <span>Create Snapshot</span>
@@ -1122,6 +1205,7 @@ const GroupsManager = ({ onNavigateSettings }) => {
                     className="w-full btn-secondary flex items-center justify-center space-x-2"
                     loading={refreshingGroups.has(group.id)}
                     loadingText="Refreshing..."
+                    disabled={lockedGroupId === group.id}
                   >
                     <RotateCcw className="w-4 h-4" />
                     <span>Refresh Snapshots</span>
@@ -1164,13 +1248,6 @@ const GroupsManager = ({ onNavigateSettings }) => {
                             <span className="text-sm font-medium text-secondary-900 dark:text-white">
                               {snapshot.displayName}
                             </span>
-                            <span className="text-xs text-secondary-500 dark:text-secondary-400">
-                              [{snapshot.databaseSnapshots?.length || 0} db{(snapshot.databaseSnapshots?.length || 0) !== 1 ? 's' : ''}]
-                            </span>
-                            {/* Hash code display */}
-                            <span className="text-xs font-mono text-secondary-400 dark:text-secondary-500 opacity-70" title="Snapshot hash">
-                              {snapshot.id.split('_').pop()}
-                            </span>
                           </div>
                           <div className="flex items-center space-x-2 text-xs text-secondary-500 dark:text-secondary-400">
                             <span className="font-mono">
@@ -1188,13 +1265,23 @@ const GroupsManager = ({ onNavigateSettings }) => {
                             <>
                               <button
                                 onClick={() => handleDeleteSnapshot(snapshot)}
-                                className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors"
+                                disabled={lockedGroupId === group.id}
+                                className={`px-3 py-1 text-xs font-medium text-white rounded transition-colors ${
+                                  lockedGroupId === group.id
+                                    ? 'bg-red-400 cursor-not-allowed'
+                                    : 'bg-red-600 hover:bg-red-700'
+                                }`}
                               >
                                 Delete
                               </button>
                               <button
                                 onClick={() => handleRollbackSnapshot(snapshot)}
-                                className="px-3 py-1 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded transition-colors"
+                                disabled={lockedGroupId === group.id}
+                                className={`px-3 py-1 text-xs font-medium text-white rounded transition-colors ${
+                                  lockedGroupId === group.id
+                                    ? 'bg-green-400 cursor-not-allowed'
+                                    : 'bg-green-600 hover:bg-green-700'
+                                }`}
                               >
                                 Rollback
                               </button>
@@ -1203,7 +1290,12 @@ const GroupsManager = ({ onNavigateSettings }) => {
                             // No successful databases - show cleanup option
                             <button
                               onClick={() => handleCleanupSnapshot(snapshot)}
-                              className="px-3 py-1 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded transition-colors"
+                              disabled={lockedGroupId === group.id}
+                              className={`px-3 py-1 text-xs font-medium text-white rounded transition-colors ${
+                                lockedGroupId === group.id
+                                  ? 'bg-yellow-400 cursor-not-allowed'
+                                  : 'bg-yellow-600 hover:bg-yellow-700'
+                              }`}
                             >
                               Cleanup
                             </button>

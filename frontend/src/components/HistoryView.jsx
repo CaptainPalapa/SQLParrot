@@ -25,7 +25,23 @@ const HistoryView = () => {
     setIsLoading(true);
     try {
       const data = await api.get('/api/history');
-      setHistory(data.operations || []);
+      // Handle both Express format ({ operations: [...] }) and Tauri format ({ data: [...] })
+      const historyData = data.operations || data.data || [];
+      // Map Tauri field names to frontend expected names
+      const typeMap = {
+        'create_snapshot': 'create_snapshots',
+        'rollback': 'restore_snapshot',
+        'delete_snapshot': 'delete_snapshot',
+      };
+      const normalizedHistory = historyData.map(entry => {
+        const rawType = entry.type || entry.operation_type;
+        return {
+          ...entry,
+          type: typeMap[rawType] || rawType,
+          userName: entry.userName || entry.user_name,
+        };
+      });
+      setHistory(normalizedHistory);
       // Reset to first page when data changes
       setCurrentPage(1);
     } catch (error) {
@@ -71,6 +87,8 @@ const HistoryView = () => {
         return Trash2;
       case 'create_snapshots':
         return Camera;
+      case 'delete_snapshot':
+        return Trash2;
       case 'create_automatic_checkpoint':
         return Clock;
       case 'restore_snapshot':
@@ -92,6 +110,8 @@ const HistoryView = () => {
         return 'text-red-600 bg-red-100 dark:bg-red-900';
       case 'create_snapshots':
         return 'text-purple-600 bg-purple-100 dark:bg-purple-900';
+      case 'delete_snapshot':
+        return 'text-red-600 bg-red-100 dark:bg-red-900';
       case 'create_automatic_checkpoint':
         return 'text-orange-600 bg-orange-100 dark:bg-orange-900';
       case 'restore_snapshot':
@@ -126,7 +146,9 @@ const HistoryView = () => {
         return `Created automatic checkpoint for group "${getProperty('groupName')}" (${successCount}/${totalCount} successful)`;
       }
       case 'restore_snapshot':
-        return `Restored snapshot "${getProperty('snapshotName')}" for group "${getProperty('groupName')}"`;
+        return `Restored snapshot "${getProperty('snapshotName') || getProperty('displayName')}" for group "${getProperty('groupName')}"`;
+      case 'delete_snapshot':
+        return `Deleted snapshot "${getProperty('snapshotName') || getProperty('displayName')}" from group "${getProperty('groupName')}"`;
       case 'trim_history':
         return `${getProperty('removedCount')} history entries removed by changing max from ${getProperty('previousCount')} to ${getProperty('newMaxEntries')}`;
       default:

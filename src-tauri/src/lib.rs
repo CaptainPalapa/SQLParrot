@@ -102,6 +102,9 @@ pub fn run() {
             commands::delete_snapshot,
             commands::rollback_snapshot,
             commands::verify_snapshots,
+            commands::cleanup_snapshot,
+            commands::check_external_snapshots,
+            commands::test_snapshot_path,
             // Settings/history commands
             commands::get_settings,
             commands::update_settings,

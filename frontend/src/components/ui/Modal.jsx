@@ -169,6 +169,18 @@ export const InputModal = ({
     }
   }, [isOpen, initialValue]);
 
+  // Handle ESC key to close/cancel
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (required && !value.trim()) return;
@@ -231,6 +243,18 @@ const Modal = ({
   children,
   size = 'md'
 }) => {
+  // Handle ESC key to close
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const getSizeClass = () => {

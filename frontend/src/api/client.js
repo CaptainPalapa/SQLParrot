@@ -7,6 +7,127 @@
 const isTauri = () => typeof window !== 'undefined' && typeof window.__TAURI__ !== 'undefined';
 
 /**
+ * Normalize API responses to a consistent format across Express and Tauri backends.
+ * Both backends should return: { success, data, messages, timestamp }
+ * But the actual data structure inside 'data' may differ.
+ * @param {string} endpoint - The API endpoint
+ * @param {Object} response - The raw response from either backend
+ * @returns {Object} Normalized response
+ */
+const normalizeResponse = (endpoint, response) => {
+  const path = endpoint.replace(/^\/api\//, '');
+
+  // Health endpoint
+  if (path === 'health') {
+    // Express: direct { status, connected, ... }
+    // Tauri: { success, data: { connected, ... }, ... }
+    if (response.data !== undefined) {
+      // Tauri format - flatten data to top level for compatibility
+      return { ...response, ...response.data };
+    }
+    return response;
+  }
+
+  // Groups endpoint
+  if (path === 'groups') {
+    // Express: { success, data: { groups: [...] }, ... }
+    // Tauri: { success, data: [...], ... }
+    if (response.data?.groups) {
+      // Express format - lift groups array to data
+      return { ...response, data: response.data.groups };
+    }
+    return response;
+  }
+
+  // Snapshots endpoint (groups/:id/snapshots)
+  if (path.match(/^groups\/[^/]+\/snapshots$/)) {
+    // Express: direct { snapshots: [...], metadata }
+    // Tauri: { success, data: [...], ... }
+    if (response.snapshots !== undefined) {
+      // Express format - convert to standard format
+      return {
+        success: true,
+        data: response.snapshots,
+        metadata: response.metadata,
+        messages: { error: [], warning: [], info: [], success: [] },
+        timestamp: new Date().toISOString()
+      };
+    }
+    return response;
+  }
+
+  // Databases endpoint
+  if (path === 'databases') {
+    // Express: direct { databases: [...] }
+    // Tauri: { success, data: [...], ... }
+    if (response.databases !== undefined && response.data === undefined) {
+      // Express format
+      return {
+        success: true,
+        data: response.databases,
+        messages: { error: [], warning: [], info: [], success: [] },
+        timestamp: new Date().toISOString()
+      };
+    }
+    return response;
+  }
+
+  // Settings endpoint
+  if (path === 'settings') {
+    // Express: direct settings object { preferences, ... }
+    // Tauri: { success, data: Settings, ... }
+    if (response.preferences !== undefined && response.data === undefined) {
+      // Express format - wrap in standard format
+      return {
+        success: true,
+        data: response,
+        messages: { error: [], warning: [], info: [], success: [] },
+        timestamp: new Date().toISOString()
+      };
+    }
+    return response;
+  }
+
+  // Connection endpoint
+  if (path === 'connection') {
+    // Express: direct connection object or null
+    // Tauri: { success, data: ConnectionProfile, ... }
+    if (response.data === undefined && !response.success) {
+      // Express format - wrap in standard format
+      return {
+        success: true,
+        data: response,
+        messages: { error: [], warning: [], info: [], success: [] },
+        timestamp: new Date().toISOString()
+      };
+    }
+    return response;
+  }
+
+  // Test connection endpoint
+  if (path === 'test-connection') {
+    // Express: { success, message, databaseCount }
+    // Tauri: { success, data: String (version), ... }
+    // Keep as-is, components handle both
+    return response;
+  }
+
+  // Check-external endpoint (snapshots/:id/check-external)
+  if (path.match(/^snapshots\/[^/]+\/check-external$/)) {
+    // Express: direct { success, hasExternalSnapshots, externalSnapshots, dropCommands }
+    // Tauri: { success, data: { hasExternalSnapshots, externalSnapshots, dropCommands }, ... }
+    if (response.data?.hasExternalSnapshots !== undefined) {
+      // Tauri format - flatten data to top level
+      return { ...response, ...response.data };
+    }
+    return response;
+  }
+
+  // Default - return as-is
+  return response;
+};
+
+/**
  * Map HTTP endpoint + method to Tauri command name
  * @param {string} endpoint - API endpoint path
  * @param {string} method - HTTP method
@@ -125,19 +246,17 @@ export async function apiCall(endpoint, options = {}) {
   const body = options.body || null;
 
   if (isTauri()) {
-    // Tauri path - use invoke
-    // Dynamic import with try/catch to handle cases where Tauri API isn't installed
+    // Tauri path - use invoke via window.__TAURI__ global (injected by Tauri runtime)
     try {
-      const tauriCore = await import('@tauri-apps/api/core');
       const command = endpointToCommand(endpoint, method);
       const pathParams = extractPathParams(endpoint);
 
       // Merge path params with body
       const args = { ...pathParams, ...body };
 
-      // Tauri commands return the data directly, but we want consistent format
-      const result = await tauriCore.invoke(command, args);
-      return result;
+      // Use the Tauri global directly - available in Tauri v2 via window.__TAURI__.core
+      const result = await window.__TAURI__.core.invoke(command, args);
+      return normalizeResponse(endpoint, result);
     } catch (error) {
       // Wrap Tauri errors in consistent format
       return {
@@ -165,7 +284,8 @@ export async function apiCall(endpoint, options = {}) {
     }
 
     const response = await fetch(endpoint, fetchOptions);
-    return response.json();
+    const result = await response.json();
+    return normalizeResponse(endpoint, result);
   }
 }
 

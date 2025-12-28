@@ -162,7 +162,9 @@ FROM sys.master_files;`;
   const fetchSettings = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await api.get('/api/settings');
+      const response = await api.get('/api/settings');
+      // Normalized response has settings in data property
+      const data = response.data || response;
 
       // Ensure we have proper default structure
       const safeSettings = {
@@ -248,6 +250,11 @@ FROM sys.master_files;`;
 
       setSettings(updatedSettings);
       showSuccess('Settings saved successfully!');
+
+      // Navigate to Groups tab after successful save
+      if (onNavigateGroups) {
+        setTimeout(() => onNavigateGroups(), 1000);
+      }
     } catch (error) {
       console.error('Error saving settings:', error);
       showError('Failed to save settings. Please try again.');

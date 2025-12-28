@@ -25,18 +25,26 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
   const [selected, setSelected] = useState(new Set(selectedDatabases));
   const { showError } = useNotification();
 
-  // Save filters to localStorage when they change
+  // Clear filters when clearFiltersOnMount prop is true (happens when modal opens)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (clearFiltersOnMount) {
+      setFilter1('');
+      setFilter2('');
+    }
+  }, [clearFiltersOnMount]);
+
+  // Save filters to localStorage when they change (only if not in "clear" mode)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !clearFiltersOnMount) {
       localStorage.setItem('db-filter1', filter1);
     }
-  }, [filter1]);
+  }, [filter1, clearFiltersOnMount]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && !clearFiltersOnMount) {
       localStorage.setItem('db-filter2', filter2);
     }
-  }, [filter2]);
+  }, [filter2, clearFiltersOnMount]);
 
   const fetchDatabases = useCallback(async () => {
     setIsLoading(true);

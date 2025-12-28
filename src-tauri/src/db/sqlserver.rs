@@ -256,11 +256,11 @@ impl SqlServerConnection {
             database, snapshot_name
         );
         log::info!("Running: {}", restore_query);
-        let restore_ok = match self.client.simple_query(&restore_query).await {
-            Ok(_) => true,
+        let restore_error: Option<String> = match self.client.simple_query(&restore_query).await {
+            Ok(_) => None,
             Err(e) => {
                 log::error!("RESTORE failed: {}", e);
-                false
+                Some(e.to_string())
             }
         };
 
@@ -269,11 +269,10 @@ impl SqlServerConnection {
         log::info!("Running: {}", multi_user_query);
         let _ = self.client.simple_query(&multi_user_query).await;
 
-        // Now return the restore result
-        if restore_ok {
-            Ok(())
-        } else {
-            Err(SqlServerError::SnapshotError("RESTORE failed".to_string()))
+        // Now return the restore result with actual error message
+        match restore_error {
+            None => Ok(()),
+            Some(err) => Err(SqlServerError::SnapshotError(format!("RESTORE failed: {}", err)))
         }
     }
 
@@ -299,6 +298,29 @@ impl SqlServerConnection {
         let snapshots: Vec<String> = rows
             .iter()
             .filter_map(|row| row.get::<&str, _>(0).map(|s| s.to_string()))
+            .collect();
+
+        Ok(snapshots)
+    }
+
+    /// Get all snapshots with their source database names (for cross-app detection)
+    pub async fn get_snapshots_with_source(&mut self) -> Result<Vec<(String, String)>, SqlServerError> {
+        let query = r#"
+            SELECT name, DB_NAME(source_database_id) as source_db
+            FROM sys.databases
+            WHERE source_database_id IS NOT NULL
+        "#;
+
+        let stream = self.client.simple_query(query).await?;
+        let rows = stream.into_first_result().await?;
+
+        let snapshots: Vec<(String, String)> = rows
+            .iter()
+            .filter_map(|row| {
+                let name = row.get::<&str, _>(0)?;
+                let source = row.get::<&str, _>(1)?;
+                Some((name.to_string(), source.to_string()))
+            })
             .collect();
 
         Ok(snapshots)
