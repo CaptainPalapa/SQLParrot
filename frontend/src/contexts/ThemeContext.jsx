@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { themes } from '../constants/themes';
+import { api } from '../api';
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const ThemeContext = createContext();
@@ -14,10 +15,9 @@ export const ThemeProvider = ({ children }) => {
   useEffect(() => {
     const fetchUserName = async () => {
       try {
-        const response = await fetch('/api/settings');
-        if (response.ok) {
-          const settings = await response.json();
-          const envUserName = settings.environment?.userName || 'default';
+        const result = await api.get('/api/settings');
+        if (result.success && result.data) {
+          const envUserName = result.data.environment?.userName || 'default';
           setUserName(envUserName);
 
           // Load theme for this environment
@@ -29,15 +29,21 @@ export const ThemeProvider = ({ children }) => {
           setCurrentTheme(savedTheme);
           // Default to dark if no preference saved
           setIsDarkMode(savedMode === null ? true : savedMode === 'dark');
+        } else {
+          // API returned but no success - use fallback
+          loadFromLocalStorage();
         }
       } catch (error) {
         console.error('Failed to fetch userName:', error);
-        // Fallback to default behavior
-        const savedTheme = localStorage.getItem('sql-parrot-theme') || 'blue';
-        const savedMode = localStorage.getItem('sql-parrot-mode');
-        setCurrentTheme(savedTheme);
-        setIsDarkMode(savedMode === null ? true : savedMode === 'dark');
+        loadFromLocalStorage();
       }
+    };
+
+    const loadFromLocalStorage = () => {
+      const savedTheme = localStorage.getItem('sql-parrot-theme') || 'blue';
+      const savedMode = localStorage.getItem('sql-parrot-mode');
+      setCurrentTheme(savedTheme);
+      setIsDarkMode(savedMode === null ? true : savedMode === 'dark');
     };
 
     fetchUserName();
