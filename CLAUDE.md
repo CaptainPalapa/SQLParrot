@@ -1,124 +1,138 @@
 # SQL Parrot - Project Configuration
 
 ## Project Overview
-SQL Parrot is a web-based tool for managing SQL Server database snapshots. It provides a UI for creating, managing, and rolling back to database snapshots for testing workflows.
+SQL Parrot is a database snapshot management tool for SQL Server. It provides a beautiful UI for creating, managing, and rolling back to database snapshots for testing workflows. Available as both a Docker/npm web deployment and a Tauri desktop application.
 
 ## Architecture
-- **Frontend:** React 18 + Vite + Tailwind CSS (in `frontend/`)
-- **Backend:** Express.js + mssql driver (in `backend/`)
-- **Database:** SQL Server (connects to user's SQL Server instance)
-- **Deployment:** Docker support via docker-compose
+
+### Dual-Stack Deployment Model
+
+| Version | Backend | Use Case |
+|---------|---------|----------|
+| **Docker/npm** | Node.js/Express + mssql | Server deployment, self-hosted, multi-user |
+| **Tauri Desktop** | Rust + tiberius | Desktop app, "double-click and run", single user |
+
+### Frontend (Shared)
+- **React 18** + Vite + Tailwind CSS (in `frontend/`)
+- Works with both backends via API abstraction layer
+
+### Backend - Docker/npm
+- **Express.js** + mssql driver (in `backend/`)
+- Configuration via `.env` file
+- SQLite for metadata storage (`backend/data/sqlparrot.db`)
+
+### Backend - Tauri Desktop
+- **Rust** + tiberius (TDS protocol) + rusqlite (in `src-tauri/`)
+- Configuration via Settings UI (stored in app data directory)
+- SQLite for metadata storage (in app data directory)
+
+### Project Structure
+```
+SQLParrot/
+├── frontend/              # Shared React frontend
+│   ├── src/
+│   │   ├── components/    # React components
+│   │   ├── contexts/      # React contexts
+│   │   ├── hooks/         # Custom React hooks
+│   │   └── utils/         # Utility functions (including API abstraction)
+│   └── package.json
+├── backend/               # Node.js backend (Docker/npm)
+│   ├── server.js          # Express server
+│   ├── utils/
+│   │   └── metadataStorageSqlite.js
+│   └── package.json
+├── src-tauri/             # Rust backend (Desktop app)
+│   ├── src/
+│   │   ├── main.rs        # Entry point
+│   │   ├── lib.rs         # App setup, command registration
+│   │   ├── config.rs      # Connection profile management
+│   │   ├── models.rs      # Shared data types
+│   │   ├── db/            # Database modules
+│   │   │   ├── sqlserver.rs   # SQL Server via tiberius
+│   │   │   └── metadata.rs    # SQLite metadata storage
+│   │   └── commands/      # Tauri command handlers
+│   │       ├── connection.rs
+│   │       ├── groups.rs
+│   │       ├── snapshots.rs
+│   │       └── settings.rs
+│   ├── Cargo.toml
+│   └── tauri.conf.json
+├── docs/                  # Documentation
+│   ├── SNAPSHOT_BEHAVIOR.md
+│   ├── TAURI.md
+│   └── RELEASE_STRATEGY.md
+├── docker-compose.yml     # Docker deployment
+└── package.json           # Root orchestration
+```
 
 ## Development Commands
+
 ```bash
+# Install all dependencies
+npm run install:all
+
+# Web development (Docker/npm stack)
 npm run dev              # Start both frontend and backend
 npm run dev:frontend     # Frontend only (Vite on port 3000)
 npm run dev:backend      # Backend only (Express on port 3001)
-npm run install:all      # Install all dependencies
+
+# Desktop development (Tauri stack)
+npm run tauri:dev        # Run desktop app in dev mode
+npm run tauri:build      # Build production desktop app
 ```
 
 ## Git Workflow
 - Main branch: `main`
-- This is a public open source repo (AGPL v3 + Commercial dual license)
+- Public open source repo (AGPL v3 + Commercial dual license)
 - Commit directly to main for now (small project)
 
 ---
 
-# NEXT DEVELOPMENT TASK: Add Tauri Desktop App
+## Current Development Priorities
 
-## Goal
-Create a Tauri-based desktop executable ("lite" version) that runs alongside the existing Docker deployment option.
+### Release Automation (In Progress)
+See `docs/RELEASE_STRATEGY.md` for full details.
 
-## Requirements
-1. **Full feature parity** - All features from the web version must work in Tauri
-2. **Cross-platform** - Windows, Mac, and Linux executables
-3. **Direct SQL Server connection** - No Node.js backend; Rust backend talks directly to SQL Server
-4. **Keep Docker** - Docker deployment remains the primary open source distribution method
+**Phase 1 - Manual Releases (Current)**
+- Create releases manually on GitHub
+- Build locally: `npm run tauri:build`
+- Upload binaries to release
+- Tag with version: `git tag v1.x.x && git push --tags`
 
-## Technical Approach
+**Phase 2 - Semi-Automated (Next)**
+- [ ] Add GitHub Action for Tauri builds on tag push
+- [ ] Add GitHub Action for Docker push to ghcr.io
+- [ ] Create CHANGELOG.md
+- [ ] Address Dependabot vulnerabilities
 
-### Dual Distribution Model
-| Version | Backend | Use Case |
-|---------|---------|----------|
-| Docker | Node.js/Express | Server deployment, self-hosted, open source |
-| Tauri | Rust (tiberius) | Desktop app, "double-click and run" |
+**Phase 3 - Fully Automated (Future)**
+- [ ] Adopt Conventional Commits
+- [ ] Add Release Please for auto-versioning
+- [ ] Combined release workflow
 
-### Implementation Plan
+### Platform Support
+- **Windows**: Desktop builds working (.exe/.msi)
+- **macOS**: Planned - requires signing setup
+- **Linux**: Planned - needs testing
 
-#### Phase 1: Tauri Project Setup
-- [ ] Initialize Tauri v2 in the project (alongside existing structure)
-- [ ] Configure for cross-platform builds (Windows, Mac, Linux)
-- [ ] Set up shared frontend (React app works for both Docker and Tauri)
-- [ ] Configure Tauri to use existing `frontend/` as the web layer
+### Other Considerations
+- Keychain integration for secure credential storage (Tauri)
+- Optional password protection for web UI
 
-#### Phase 2: Rust Backend for SQL Server
-- [ ] Add `tiberius` crate for SQL Server connectivity
-- [ ] Port connection logic from `backend/server.js` to Rust
-- [ ] Implement Tauri commands for:
-  - Database connection management
-  - Snapshot creation (`CREATE DATABASE ... AS SNAPSHOT OF`)
-  - Snapshot listing (query `sys.databases`)
-  - Snapshot rollback (`RESTORE DATABASE ... FROM DATABASE_SNAPSHOT`)
-  - Snapshot deletion (`DROP DATABASE`)
-  - Group management
-  - History tracking
-
-#### Phase 3: Metadata Storage for Tauri
-- [ ] Decide on local storage approach for Tauri version:
-  - Option A: SQLite local database (via `rusqlite`) - matches Docker version's approach
-  - Option B: JSON file storage (simpler)
-- [ ] Port metadata storage logic to Rust (Docker version now uses local SQLite)
-
-#### Phase 4: Frontend Adaptation
-- [ ] Create abstraction layer for API calls that works with both:
-  - HTTP fetch (Docker/Express version)
-  - Tauri invoke (desktop version)
-- [ ] Environment detection to choose correct API method
-- [ ] Test all UI flows work with Tauri backend
-
-#### Phase 5: Build & Distribution
-- [ ] Configure GitHub Actions for cross-platform builds
-- [ ] Create release workflow for Windows (.exe/.msi), Mac (.dmg), Linux (.AppImage/.deb)
-- [ ] Update README with both installation options
-
-#### Phase 6: Documentation Updates
-- [ ] Update About page to show correct tech stack per deployment mode:
-  - Docker/npm: Node.js, Express, mssql driver
-  - Tauri/.exe: Rust, Tiberius, rusqlite
-- [ ] Update README architecture section to reflect dual-stack approach
-- [ ] Add optional simple password protection for UI (security for exposed port 3000)
-
-### File Structure (Proposed)
-```
-SQLParrot/
-├── frontend/          # Shared React frontend (existing)
-├── backend/           # Node.js backend for Docker (existing)
-├── src-tauri/         # Tauri Rust backend (NEW)
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── db/        # SQL Server connection logic
-│   │   ├── commands/  # Tauri command handlers
-│   │   └── storage/   # Local metadata storage
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── docker-compose.yml # Docker deployment (existing)
-└── package.json       # Orchestrates both dev workflows
-```
-
-### Key Rust Crates Needed
-- `tauri` - Desktop app framework
-- `tiberius` - SQL Server driver (TDS protocol)
-- `tokio` - Async runtime
-- `serde` / `serde_json` - Serialization
-- `rusqlite` or similar - Local metadata storage (if not using SQL Server)
-
-### Notes
-- The React frontend should be largely unchanged; just need an API abstraction layer
-- Tauri uses system webview (Edge on Windows, WebKit on Mac/Linux) - small binary size
-- User will need to configure SQL Server connection on first run (connection dialog)
-- Consider storing connection configs securely (Tauri has secure storage plugins)
+---
 
 ## Reference
+
+### Key Rust Crates (Tauri)
+- `tauri` v2 - Desktop app framework
+- `tiberius` - SQL Server driver (TDS protocol)
+- `rusqlite` - SQLite for metadata storage
+- `tokio` - Async runtime
+- `serde` / `serde_json` - Serialization
+- `chrono` - Date/time handling
+
+### Documentation
 - Tauri v2 docs: https://v2.tauri.app/
 - Tiberius (Rust SQL Server): https://docs.rs/tiberius/
-- Similar implementation in claupact project: `D:\Development\projects\claupact\app\`
+- Desktop app docs: `docs/TAURI.md`
+- Snapshot behavior: `docs/SNAPSHOT_BEHAVIOR.md`
