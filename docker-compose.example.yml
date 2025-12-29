@@ -47,8 +47,14 @@ services:
       - NODE_ENV=production
       - PORT=3000
 
-      # Snapshot Storage Path (where SQL Server stores snapshot files)
-      # Must be accessible to SQL Server, not to this container
+      # Snapshot Storage Path - where SQL Server stores snapshot files
+      # This path must be accessible to SQL Server, not this container. We need the value
+      # because the SQL commands require us to pass it when creating snapshots.
+      # Examples:
+      #   Windows host: C:\Snapshots (or any path SQL Server can write to)
+      #   Docker SQL Server: /var/opt/mssql/snapshots (Linux path - the container runs Linux internally)
+      # Note: Docker SQL Server requires a Docker volume, not a bind mount.
+      # See documentation for more details.
       - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/var/opt/mssql/snapshots}
     restart: unless-stopped
     healthcheck:
