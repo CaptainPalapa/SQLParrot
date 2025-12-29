@@ -11,18 +11,18 @@ The Tauri desktop app provides a native, cross-platform experience for SQL Parro
 | **SQL Server Driver** | mssql (Node.js) | tiberius (Rust) |
 | **Metadata Storage** | SQLite | SQLite |
 | **Configuration** | `.env` file | Settings dialog |
-| **Distribution** | Docker image / npm | .exe, .dmg, .AppImage |
+| **Distribution** | Docker image / npm | .exe (Windows), others planned |
 
 ## Installation
 
 ### Windows
 Download the `.exe` or `.msi` installer from the [Releases](https://github.com/CaptainPalapa/SQLParrot/releases) page.
 
-### macOS
-Download the `.dmg` file from the [Releases](https://github.com/CaptainPalapa/SQLParrot/releases) page.
+### macOS (Planned)
+macOS builds (`.dmg`) are planned for a future release. For now, Mac users can use the Docker deployment option.
 
-### Linux
-Download the `.AppImage` or `.deb` file from the [Releases](https://github.com/CaptainPalapa/SQLParrot/releases) page.
+### Linux (Planned)
+Linux builds (`.AppImage`, `.deb`) are planned for a future release. For now, Linux users can use the Docker deployment option.
 
 ---
 
