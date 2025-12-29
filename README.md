@@ -303,7 +303,26 @@ The SQLite database is stored at `backend/data/sqlparrot.db` and contains:
 - **groups** - Database group definitions
 - **snapshots** - Snapshot metadata and database mappings
 - **history** - Complete operation history
-- **settings** - Application preferences
+- **settings** - Application preferences (snapshot path, auto-verification, etc.)
+
+**Note:** UI preferences like theme and dark/light mode are stored in the browser's localStorage, not in SQLite.
+
+### Docker Data Persistence
+
+**Important:** For Docker deployments, you must mount a volume to persist your SQLite database. Without a volume, your data is lost when the container is recreated!
+
+```yaml
+services:
+  sql-parrot:
+    volumes:
+      # Bind mount (recommended - easy to backup/inspect):
+      - ./sqlparrot-data:/app/backend/data
+      # Or named volume (Docker manages location):
+      # - sqlparrot-data:/app/backend/data
+```
+
+- **Bind mount** (`./path:/container/path`): Maps a specific host folder. Easy to find, backup, and inspect.
+- **Named volume** (`volume-name:/container/path`): Docker manages storage location. More portable but harder to locate files.
 
 ### Required Environment Variables
 ```env

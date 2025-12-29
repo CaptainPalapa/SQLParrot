@@ -122,7 +122,7 @@ SQL Parrot stores all metadata (groups, snapshots, history) in a **local SQLite 
 
 | Mode | Location |
 |------|----------|
-| Docker | `/app/data/sqlparrot.db` (in container) |
+| Docker | `/app/backend/data/sqlparrot.db` (in container) |
 | npm dev | `backend/data/sqlparrot.db` |
 | Tauri | App data directory |
 
@@ -130,6 +130,25 @@ This means:
 - No SQL Server metadata database needed
 - Metadata is portable with your installation
 - Zero additional database configuration
+
+### Docker Data Persistence
+
+**Important:** For Docker deployments, you must mount a volume to persist your SQLite database. Without a volume, your data (groups, snapshots, settings, history) is lost when the container is recreated!
+
+```yaml
+# In docker-compose.yml
+services:
+  sql-parrot:
+    volumes:
+      # Bind mount (recommended - easy to backup/inspect):
+      - ./sqlparrot-data:/app/backend/data
+      # Or named volume (Docker manages location):
+      # - sqlparrot-data:/app/backend/data
+```
+
+**Bind mount vs Named volume:**
+- **Bind mount** (`./path:/container/path`): Maps a specific host folder. Easy to find, backup, and inspect.
+- **Named volume** (`volume-name:/container/path`): Docker manages storage location. More portable across platforms but harder to locate files.
 
 ---
 

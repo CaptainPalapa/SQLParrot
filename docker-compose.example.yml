@@ -56,9 +56,17 @@ services:
       # Note: Docker SQL Server requires a Docker volume, not a bind mount.
       # See documentation for more details.
       - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/var/opt/mssql/snapshots}
+    volumes:
+      # IMPORTANT: Persist SQLite database (groups, snapshots metadata, settings, history)
+      # Without this volume, your data is lost when the container is recreated!
+      # Bind mount (recommended - easy to backup/inspect):
+      - ./sqlparrot-data:/app/backend/data
+      # Or use a named volume (Docker manages location):
+      # - sqlparrot-data:/app/backend/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      # Using wget (available in Alpine) instead of curl
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

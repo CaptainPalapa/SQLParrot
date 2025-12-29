@@ -194,3 +194,6 @@ data/history.json
 test-results/
 .cursor/
 .obsidian/
+
+# Docker compose with user credentials (keep example file)
+docker-compose.yml
