@@ -59,7 +59,7 @@ const AboutPanel = () => {
           <div className="flex justify-center space-x-4 text-sm text-secondary-500 dark:text-secondary-400">
             <span className="flex items-center space-x-1">
               <Code className="w-4 h-4" />
-              <span>Version 1.0.0</span>
+              <span>Version 1.1.0</span>
             </span>
             <span className="flex items-center space-x-1">
               <Heart className="w-4 h-4 text-red-500" />
