@@ -154,10 +154,10 @@ const AboutPanel = () => {
         <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-6">
           🏛️ Architecture Highlights
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="card p-6">
             <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-3">
-              Frontend Stack
+              Frontend (Shared)
             </h3>
             <ul className="space-y-2 text-secondary-600 dark:text-secondary-400">
               <li>• React 18 with modern hooks</li>
@@ -168,13 +168,30 @@ const AboutPanel = () => {
           </div>
           <div className="card p-6">
             <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-3">
-              Backend Stack
+              Docker / npm Backend
             </h3>
+            <p className="text-xs text-secondary-500 dark:text-secondary-500 mb-2 italic">
+              For server deployments
+            </p>
             <ul className="space-y-2 text-secondary-600 dark:text-secondary-400">
               <li>• Node.js with Express</li>
               <li>• SQL Server driver (mssql)</li>
-              <li>• SQLite local metadata storage</li>
-              <li>• CORS-enabled API</li>
+              <li>• SQLite metadata storage</li>
+              <li>• CORS-enabled REST API</li>
+            </ul>
+          </div>
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-3">
+              Desktop App Backend
+            </h3>
+            <p className="text-xs text-secondary-500 dark:text-secondary-500 mb-2 italic">
+              For .exe / standalone installs
+            </p>
+            <ul className="space-y-2 text-secondary-600 dark:text-secondary-400">
+              <li>• Tauri v2 (Rust)</li>
+              <li>• Tiberius SQL Server driver</li>
+              <li>• rusqlite metadata storage</li>
+              <li>• Native IPC commands</li>
             </ul>
           </div>
         </div>
@@ -224,13 +241,13 @@ const AboutPanel = () => {
             </div>
             <div className="card p-4">
               <h3 className="font-semibold text-secondary-900 dark:text-white mb-2">
-                Developer Friendly
+                Flexible Deployment
               </h3>
               <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
-                <li>• Docker support</li>
-                <li>• Comprehensive API</li>
+                <li>• Desktop app (.exe, .dmg, .AppImage)</li>
+                <li>• Docker container deployment</li>
+                <li>• npm dev server mode</li>
                 <li>• Local SQLite metadata</li>
-                <li>• User attribution & history</li>
               </ul>
             </div>
           </div>

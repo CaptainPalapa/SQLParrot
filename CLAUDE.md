@@ -81,6 +81,13 @@ Create a Tauri-based desktop executable ("lite" version) that runs alongside the
 - [ ] Create release workflow for Windows (.exe/.msi), Mac (.dmg), Linux (.AppImage/.deb)
 - [ ] Update README with both installation options
 
+#### Phase 6: Documentation Updates
+- [ ] Update About page to show correct tech stack per deployment mode:
+  - Docker/npm: Node.js, Express, mssql driver
+  - Tauri/.exe: Rust, Tiberius, rusqlite
+- [ ] Update README architecture section to reflect dual-stack approach
+- [ ] Add optional simple password protection for UI (security for exposed port 3000)
+
 ### File Structure (Proposed)
 ```
 SQLParrot/

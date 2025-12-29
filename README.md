@@ -156,8 +156,9 @@ Access the theme browser by clicking the palette icon (🎨) in the header:
 
 ### **Backend Stack (Tauri Desktop)**
 - **Rust** - Systems programming language
-- **Tauri** - Desktop application framework
+- **Tauri v2** - Desktop application framework
 - **tiberius** - SQL Server driver (TDS protocol)
+- **rusqlite** - SQLite driver for local metadata
 
 ### **Data Storage**
 - **Local SQLite Database** - All metadata stored locally
