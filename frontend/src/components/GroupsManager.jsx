@@ -104,24 +104,30 @@ const GroupsManager = ({ onNavigateSettings }) => {
 
   // Load data with connection handling
   const loadData = useCallback(async (isRetry = false) => {
-    // In Tauri mode, first check if we have a configured profile
-    if (isTauriApp) {
-      try {
-        const healthData = await api.get('/api/health');
-        // If not connected (no profile with password), show config needed
-        if (!healthData.connected && !healthData.data?.connected) {
-          setConnectionStatus('needs_config');
-          setIsInitialLoading(false);
-          setIsLoading(false);
-          return;
-        }
-      } catch (e) {
-        // If health check fails entirely, also need config
+    // First check if we have a configured connection (both Tauri and Docker modes)
+    try {
+      const healthData = await api.get('/api/health');
+      // Check if connected (handle both response formats)
+      const isConnected = healthData.connected || healthData.data?.connected;
+      // Check if there's a connection error (vs just no config)
+      const hasConnectionError = healthData.sqlError || healthData.data?.sqlError;
+
+      if (!isConnected && !hasConnectionError) {
+        // No credentials configured - show setup screen
         setConnectionStatus('needs_config');
         setIsInitialLoading(false);
         setIsLoading(false);
         return;
       }
+    } catch (e) {
+      // If health check fails entirely in Tauri mode, need config
+      if (isTauriApp) {
+        setConnectionStatus('needs_config');
+        setIsInitialLoading(false);
+        setIsLoading(false);
+        return;
+      }
+      // In Docker mode, a failed health check is a server error - continue to retry logic
     }
 
     if (isRetry) {
@@ -133,12 +139,10 @@ const GroupsManager = ({ onNavigateSettings }) => {
     setIsLoading(true);
 
     try {
-      // First check if connection is healthy (for Docker mode)
-      if (!isTauriApp) {
-        const isConnected = await checkConnection();
-        if (!isConnected) {
-          throw new Error('SQL Server connection unavailable');
-        }
+      // Verify connection is healthy before loading data
+      const isConnected = await checkConnection();
+      if (!isConnected) {
+        throw new Error('SQL Server connection unavailable');
       }
 
       // Fetch groups

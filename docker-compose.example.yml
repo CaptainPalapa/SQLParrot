@@ -1,25 +1,54 @@
 # SQL Parrot Docker Compose Example
 # Copy this file to docker-compose.yml and customize for your environment
-# The bulk of this compose file is intended as a separate stack from your SQL Server.
-# If you want to integrate, see commented examples at the bottom.
+#
+# ============================================================================
+# SQL SERVER CONNECTION SCENARIOS
+# ============================================================================
+#
+# SCENARIO 1: SQL Server running natively on your host machine (not in Docker)
+#   SQL_SERVER=host.docker.internal
+#   This special hostname lets containers reach services on your host machine.
+#
+# SCENARIO 2: SQL Server in a DIFFERENT Docker container/stack
+#   If port 1433 is exposed to the host (ports: "1433:1433"):
+#     SQL_SERVER=host.docker.internal
+#   If port is NOT exposed, you need a shared Docker network between stacks:
+#     SQL_SERVER=<container-name>  (e.g., "my-sql-server")
+#     Plus: add both containers to the same external network (see Docker docs)
+#
+# SCENARIO 3: SQL Server in the SAME docker-compose stack (shared network)
+#   SQL_SERVER=sql-server  (use the service name, not host.docker.internal)
+#   No port exposure needed - containers on the same network talk directly.
+#   See "SAME STACK EXAMPLE" at the bottom of this file.
+#
+# ============================================================================
+# CREDENTIAL OPTIONS
+# ============================================================================
+# 1. Create a .env file with SQL_SERVER, SQL_USERNAME, SQL_PASSWORD
+# 2. Or set environment variables directly below
+# 3. Or leave empty and configure via the web UI Settings tab
+#    (saved to SQLite, persists across restarts)
+# ============================================================================
 
 services:
   sql-parrot:
     build: .
     ports:
-      - "${SQL_PARROT_BACKEND_PORT:-3000}:3000"  # Backend API and Frontend served together
+      - "${SQL_PARROT_BACKEND_PORT:-3000}:3000"  # Web UI and API served together
     environment:
       # SQL Server Connection
+      # See scenarios above - host.docker.internal works for Scenarios 1 & 2
       - SQL_SERVER=${SQL_SERVER:-host.docker.internal}
-      - SQL_USERNAME=${SQL_USERNAME:-your_username}
-      - SQL_PASSWORD=${SQL_PASSWORD:-your_password}
+      - SQL_USERNAME=${SQL_USERNAME:-}
+      - SQL_PASSWORD=${SQL_PASSWORD:-}
       - SQL_TRUST_CERTIFICATE=${SQL_TRUST_CERTIFICATE:-true}
 
       # Application Settings
       - NODE_ENV=production
       - PORT=3000
 
-      # Snapshot Storage Path (for SQL Server commands)
+      # Snapshot Storage Path (where SQL Server stores snapshot files)
+      # Must be accessible to SQL Server, not to this container
       - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/var/opt/mssql/snapshots}
     restart: unless-stopped
     healthcheck:
@@ -29,33 +58,22 @@ services:
       retries: 3
       start_period: 40s
 
-# Example: Integration with existing SQL Server stack
-# If you have an existing SQL Server in Docker, you can connect via network:
-#
-# services:
-#   sql-parrot:
-#     # ... same configuration as above ...
-#     networks:
-#       - sql-server-network
-#     depends_on:
-#       - sql-server
+# ============================================================================
+# SAME STACK EXAMPLE (Scenario 3)
+# ============================================================================
+# Uncomment below to run SQL Server in the same stack as SQL Parrot.
+# Note: Change SQL_SERVER above to "sql-server" (the service name).
 #
 #   sql-server:
 #     image: mcr.microsoft.com/mssql/server:2022-latest
 #     environment:
 #       - ACCEPT_EULA=Y
 #       - SA_PASSWORD=YourStrong@Passw0rd
-#     ports:
-#       - "1433:1433"
+#     # ports:                        # Port exposure is OPTIONAL in same-stack
+#     #   - "1433:1433"               # Only needed if you want host access too
 #     volumes:
-#       - sql-server-data:/var/opt/mssql
-#     networks:
-#       - sql-server-network
+#       - sql-data:/var/opt/mssql
 #
 # volumes:
-#   sql-server-data:
+#   sql-data:
 #     driver: local
-#
-# networks:
-#   sql-server-network:
-#     driver: bridge

@@ -1,0 +1,41 @@
+# Dependencies
+node_modules
+frontend/node_modules
+backend/node_modules
+
+# Tauri/Rust build artifacts (this is the big one!)
+src-tauri/target
+target
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Build outputs
+dist
+build
+frontend/dist
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local env files
+.env
+.env.local
+.env.*.local
+docker-compose.yml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test/coverage
+coverage
+.nyc_output
