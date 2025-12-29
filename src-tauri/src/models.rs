@@ -81,6 +81,10 @@ pub struct Settings {
     pub auto_verification: AutoVerification,
     #[serde(default)]
     pub connection: ConnectionInfo,
+    #[serde(rename = "passwordHash", default)]
+    pub password_hash: Option<String>,
+    #[serde(rename = "passwordSkipped", default)]
+    pub password_skipped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

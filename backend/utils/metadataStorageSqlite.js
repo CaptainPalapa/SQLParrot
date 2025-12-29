@@ -472,7 +472,9 @@ class MetadataStorage {
         // Return default settings
         const defaultSettings = {
           maxHistoryEntries: 100,
-          defaultGroup: ''
+          defaultGroup: '',
+          passwordHash: null,
+          passwordSkipped: false
         };
         return { success: true, settings: defaultSettings };
       }
@@ -713,6 +715,95 @@ class MetadataStorage {
   async addGroup(group) {
     // Alias for createGroup
     return this.createGroup(group);
+  }
+
+  /**
+   * Get password status
+   * @returns {Object} Password status
+   */
+  async getPasswordStatus() {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+      const passwordHash = settings.passwordHash || null;
+      const passwordSkipped = settings.passwordSkipped || false;
+
+      let status = 'not-set';
+      if (passwordHash) {
+        status = 'set';
+      } else if (passwordSkipped) {
+        status = 'skipped';
+      }
+
+      return {
+        success: true,
+        status,
+        passwordSet: !!passwordHash,
+        passwordSkipped
+      };
+    } catch (error) {
+      console.error(`❌ Failed to get password status: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Set password hash in settings
+   * @param {string} passwordHash Bcrypt hash of password
+   * @returns {Object} Result
+   */
+  async setPasswordHash(passwordHash) {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+
+      settings.passwordHash = passwordHash;
+      settings.passwordSkipped = false; // Clear skip flag when setting password
+
+      return await this.updateSettings(settings);
+    } catch (error) {
+      console.error(`❌ Failed to set password hash: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Remove password protection
+   * @returns {Object} Result
+   */
+  async removePassword() {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+
+
+      settings.passwordHash = null;
+      settings.passwordSkipped = true; // Mark as explicitly skipped
+
+      return await this.updateSettings(settings);
+    } catch (error) {
+      console.error(`❌ Failed to remove password: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Skip password protection (first launch only)
+   * @returns {Object} Result
+   */
+  async skipPassword() {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+
+      settings.passwordHash = null;
+      settings.passwordSkipped = true;
+
+      return await this.updateSettings(settings);
+    } catch (error) {
+      console.error(`❌ Failed to skip password: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 }
 

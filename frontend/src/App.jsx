@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
-import { Database, Settings, History, Palette, Info } from 'lucide-react';
+import { Database, Settings, History, Palette, Info, LogOut } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { PasswordProvider, usePassword } from './contexts/PasswordContext';
 import ThemeSelector from './components/ThemeSelector';
 import GroupsManager from './components/GroupsManager';
 import SettingsPanel from './components/SettingsPanel';
 import HistoryView from './components/HistoryView';
 import AboutPanel from './components/AboutPanel';
+import PasswordGate from './components/PasswordGate';
+import PasswordSetup from './components/PasswordSetup';
 
-function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState('groups');
   const [isThemeSelectorOpen, setIsThemeSelectorOpen] = useState(false);
+  const { passwordStatus, isAuthenticated, isLoading, logout } = usePassword();
+  const [setupComplete, setSetupComplete] = useState(false);
 
   const tabs = [
     { id: 'groups', name: 'Groups', icon: Database },
@@ -18,6 +23,39 @@ function App() {
     { id: 'about', name: 'About', icon: Info },
   ];
 
+  // Show loading while checking password status
+  if (isLoading) {
+    return (
+      <ThemeProvider>
+        <div className="min-h-screen bg-secondary-50 dark:bg-secondary-900 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+            <p className="text-secondary-600 dark:text-secondary-400">Loading...</p>
+          </div>
+        </div>
+      </ThemeProvider>
+    );
+  }
+
+  // Show password setup on first launch
+  if (passwordStatus?.status === 'not-set' && !setupComplete) {
+    return (
+      <ThemeProvider>
+        <PasswordSetup onComplete={() => setSetupComplete(true)} />
+      </ThemeProvider>
+    );
+  }
+
+  // Show password gate if password is set and user not authenticated
+  if (passwordStatus?.status === 'set' && !isAuthenticated) {
+    return (
+      <ThemeProvider>
+        <PasswordGate />
+      </ThemeProvider>
+    );
+  }
+
+  // Show main app
   return (
     <ThemeProvider>
       <div className="min-h-screen bg-secondary-50 dark:bg-secondary-900">
@@ -40,6 +78,15 @@ function App() {
                 </div>
 
                 <div className="flex items-center space-x-2">
+                  {passwordStatus?.status === 'set' && isAuthenticated && (
+                    <button
+                      onClick={logout}
+                      className="p-2 hover:bg-secondary-100 dark:hover:bg-secondary-700 rounded-lg transition-colors"
+                      title="Logout"
+                    >
+                      <LogOut className="w-5 h-5 text-secondary-600 dark:text-secondary-400" />
+                    </button>
+                  )}
                   <button
                     onClick={() => setIsThemeSelectorOpen(true)}
                     className="p-2 hover:bg-secondary-100 dark:hover:bg-secondary-700 rounded-lg transition-colors"
@@ -93,6 +140,14 @@ function App() {
         </div>
       </ThemeProvider>
     );
-  }
+}
+
+function App() {
+  return (
+    <PasswordProvider>
+      <AppContent />
+    </PasswordProvider>
+  );
+}
 
 export default App;

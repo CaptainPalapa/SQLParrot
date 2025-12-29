@@ -775,17 +775,32 @@ const GroupsManager = ({ onNavigateSettings }) => {
       for (const group of groups) {
         const response = await api.post('/api/snapshots/verify', { groupId: group.id });
         console.log('Verify response for group', group.id, ':', JSON.stringify(response));
-        const result = response.data || response;
+        // Backend returns { success, verified, issues, orphanedInSQL, missingInSQL, inaccessibleSnapshots }
+        // The response is already the parsed JSON, fields are at top level
+        const result = response;
         console.log('Verify result:', JSON.stringify(result));
+        console.log('Verify result fields:', {
+          verified: result.verified,
+          issues: result.issues,
+          orphanedInSQL: result.orphanedInSQL,
+          missingInSQL: result.missingInSQL
+        });
 
         if (!result.verified) {
           allVerified = false;
         }
-        // Map Rust field names: orphanedSnapshots -> orphanedInSQL, staleMetadata -> missingInSQL
-        if (result.orphanedSnapshots?.length > 0) {
+        // Backend returns orphanedInSQL and missingInSQL
+        // Also check for Rust field names: orphanedSnapshots -> orphanedInSQL, staleMetadata -> missingInSQL
+        if (result.orphanedInSQL?.length > 0) {
+          allOrphaned.push(...result.orphanedInSQL);
+        } else if (result.orphanedSnapshots?.length > 0) {
+          // Fallback for Rust/Tauri field names
           allOrphaned.push(...result.orphanedSnapshots);
         }
-        if (result.staleMetadata?.length > 0) {
+        if (result.missingInSQL?.length > 0) {
+          allStale.push(...result.missingInSQL);
+        } else if (result.staleMetadata?.length > 0) {
+          // Fallback for Rust/Tauri field names
           allStale.push(...result.staleMetadata);
         }
       }
@@ -1412,16 +1427,29 @@ const GroupsManager = ({ onNavigateSettings }) => {
 
             <div className="space-y-4">
               {/* Issues Summary */}
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-                <h4 className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
-                  Issues Detected
-                </h4>
-                <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700 dark:text-yellow-300">
-                  {verificationResults.data?.issues?.map((issue, index) => (
-                    <li key={index}>{issue}</li>
-                  ))}
-                </ul>
-              </div>
+              {verificationResults.data?.issues && verificationResults.data.issues.length > 0 && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                  <h4 className="font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                    Issues Detected
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700 dark:text-yellow-300">
+                    {verificationResults.data.issues.map((issue, index) => (
+                      <li key={index}>{issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Show message if no issues but modal is open (shouldn't happen, but handle gracefully) */}
+              {(!verificationResults.data?.issues || verificationResults.data.issues.length === 0) &&
+               (!verificationResults.data?.orphanedInSQL || verificationResults.data.orphanedInSQL.length === 0) &&
+               (!verificationResults.data?.missingInSQL || verificationResults.data.missingInSQL.length === 0) && (
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    No issues detected. All snapshots are consistent.
+                  </p>
+                </div>
+              )}
 
               {/* Detailed Issues */}
               {verificationResults.data?.orphanedInSQL && verificationResults.data.orphanedInSQL.length > 0 && (

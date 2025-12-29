@@ -197,3 +197,13 @@ test-results/
 
 # Docker compose with user credentials (keep example file)
 docker-compose.yml
+
+# Development helper scripts (local only)
+stop-servers.bat
+stop-servers.sh
+backend.log
+frontend.log
+server_pids.txt
+
+# Private documentation (not for public repo)
+docs/private/

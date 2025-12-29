@@ -88,6 +88,12 @@ const normalizeResponse = (endpoint, response) => {
     return response;
   }
 
+  // Auth endpoints (password status, check, set, change, remove, skip)
+  if (path.startsWith('auth/')) {
+    // Both Express and Tauri return standard format
+    return response;
+  }
+
   // Connection endpoint
   if (path === 'connection') {
     // Express: direct connection object or null
@@ -158,6 +164,14 @@ const endpointToCommand = (endpoint, method) => {
   if (path === 'settings') {
     return method === 'PUT' ? 'update_settings' : 'get_settings';
   }
+
+  // Auth endpoints (UI Security)
+  if (path === 'auth/password-status') return 'get_password_status';
+  if (path === 'auth/check-password') return 'check_password';
+  if (path === 'auth/set-password') return 'set_password';
+  if (path === 'auth/change-password') return 'change_password';
+  if (path === 'auth/remove-password') return 'remove_password';
+  if (path === 'auth/skip-password') return 'skip_password';
 
   // History
   if (path === 'history') {
@@ -278,13 +292,42 @@ export async function apiCall(endpoint, options = {}) {
       headers: {}
     };
 
+    // Add session token if available (for password-protected routes)
+    const sessionToken = sessionStorage.getItem('sessionToken');
+    if (sessionToken) {
+      fetchOptions.headers['X-Session-Token'] = sessionToken;
+    }
+
     if (body) {
       fetchOptions.headers['Content-Type'] = 'application/json';
       fetchOptions.body = JSON.stringify(body);
     }
 
     const response = await fetch(endpoint, fetchOptions);
+
+    // Handle 401 Unauthorized - password required
+    if (response.status === 401) {
+      return {
+        success: false,
+        data: null,
+        messages: {
+          error: ['Authentication required'],
+          warning: [],
+          info: [],
+          success: []
+        },
+        timestamp: new Date().toISOString(),
+        requiresAuth: true
+      };
+    }
+
     const result = await response.json();
+
+    // Store session token if provided
+    if (result.data?.sessionToken) {
+      sessionStorage.setItem('sessionToken', result.data.sessionToken);
+    }
+
     return normalizeResponse(endpoint, result);
   }
 }

@@ -56,3 +56,6 @@ dirs = "5.0"
 
 # System information
 whoami = "1.5"
+
+# Password hashing (UI Security)
+bcrypt = "0.15"

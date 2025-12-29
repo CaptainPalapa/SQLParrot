@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
 const sql = require('mssql');
+const bcrypt = require('bcryptjs');
 
 // Standardized API response utility
 const createApiResponse = (success, data = null, messages = {}) => {
@@ -57,6 +58,75 @@ const PORT = process.env.PORT || (process.env.npm_lifecycle_event === 'dev' ? 30
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Session storage for authenticated users (in-memory, cleared on server restart)
+// Key: session token (random UUID), Value: { authenticated: true, timestamp: Date }
+const authenticatedSessions = new Map();
+const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
+
+// Generate session token
+function generateSessionToken() {
+  return require('crypto').randomUUID();
+}
+
+// Clean up expired sessions
+function cleanupExpiredSessions() {
+  const now = Date.now();
+  for (const [token, session] of authenticatedSessions.entries()) {
+    if (now - session.timestamp > SESSION_TIMEOUT) {
+      authenticatedSessions.delete(token);
+    }
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
+
+// Password check middleware (UI Security - protects access to SQL Parrot UI)
+async function requirePasswordAuth(req, res, next) {
+  // Skip auth for auth endpoints and health check
+  if (req.path.startsWith('/api/auth/') || req.path === '/api/health') {
+    return next();
+  }
+
+  // Skip auth for static files
+  if (!req.path.startsWith('/api/')) {
+    return next();
+  }
+
+  try {
+    // Check password status
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+
+    // If password not set or skipped, allow access
+    if (!passwordStatus.success || passwordStatus.status === 'not-set' || passwordStatus.status === 'skipped') {
+      return next();
+    }
+
+    // Check for session token
+    const sessionToken = req.headers['x-session-token'] || req.cookies?.sessionToken;
+
+    if (sessionToken && authenticatedSessions.has(sessionToken)) {
+      const session = authenticatedSessions.get(sessionToken);
+      // Check if session expired
+      if (Date.now() - session.timestamp < SESSION_TIMEOUT) {
+        // Update timestamp
+        session.timestamp = Date.now();
+        return next();
+      } else {
+        authenticatedSessions.delete(sessionToken);
+      }
+    }
+
+    // No valid session - require password
+    return res.status(401).json(createErrorResponse('Authentication required', 401));
+  } catch (error) {
+    console.error('Error in password auth middleware:', error);
+    return res.status(500).json(createErrorResponse('Authentication check failed', 500));
+  }
+}
+
+app.use(requirePasswordAuth);
 
 // API routes will be defined here
 
@@ -675,6 +745,277 @@ app.get('/api/health', async (req, res) => {
   });
 });
 
+// ===== UI Security Authentication Endpoints =====
+// These endpoints protect access to SQL Parrot UI (NOT database profile passwords)
+
+// Get password status
+app.get('/api/auth/password-status', async (req, res) => {
+  try {
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+
+    if (!passwordStatus.success) {
+      return res.status(500).json(createErrorResponse('Failed to get password status', 500));
+    }
+
+    // Check if UI_PASSWORD env var is being ignored
+    let envVarIgnored = false;
+    if (process.env.UI_PASSWORD && passwordStatus.passwordSet) {
+      // Compare env var password with stored hash
+      try {
+        const settingsResult = await metadataStorage.getSettings();
+        const settings = settingsResult.success ? settingsResult.settings : {};
+        const storedHash = settings.passwordHash;
+
+        if (storedHash) {
+          const envVarMatches = await bcrypt.compare(process.env.UI_PASSWORD, storedHash);
+          if (!envVarMatches) {
+            envVarIgnored = true;
+          }
+        }
+      } catch (error) {
+        console.error('Error checking env var password:', error);
+      }
+    }
+
+    const response = {
+      status: passwordStatus.status,
+      passwordSet: passwordStatus.passwordSet,
+      passwordSkipped: passwordStatus.passwordSkipped,
+      envVarIgnored
+    };
+
+    const messages = {};
+    if (envVarIgnored) {
+      messages.warning = ['UI_PASSWORD in environment variables is being ignored because a password was already set via the UI. Remove UI_PASSWORD from your .env/docker-compose.yml or reset the SQLite database to use it.'];
+    }
+
+    res.json(createApiResponse(true, response, messages));
+  } catch (error) {
+    console.error('Error getting password status:', error);
+    res.status(500).json(createErrorResponse('Failed to get password status', 500));
+  }
+});
+
+// Check password (verify and create session)
+app.post('/api/auth/check-password', async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json(createErrorResponse('Password is required', 400));
+    }
+
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+
+    if (!passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password not set', 400));
+    }
+
+    // Get stored hash
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success ? settingsResult.settings : {};
+    const storedHash = settings.passwordHash;
+
+    if (!storedHash) {
+      return res.status(500).json(createErrorResponse('Password hash not found', 500));
+    }
+
+    // Verify password
+    const isValid = await bcrypt.compare(password, storedHash);
+
+    if (!isValid) {
+      return res.status(401).json(createErrorResponse('Invalid password', 401));
+    }
+
+    // Create session token
+    const sessionToken = generateSessionToken();
+    authenticatedSessions.set(sessionToken, {
+      authenticated: true,
+      timestamp: Date.now()
+    });
+
+    res.json(createSuccessResponse(
+      { authenticated: true, sessionToken },
+      ['Password verified']
+    ));
+  } catch (error) {
+    console.error('Error checking password:', error);
+    res.status(500).json(createErrorResponse('Password verification failed', 500));
+  }
+});
+
+// Set password (initial setup only)
+app.post('/api/auth/set-password', async (req, res) => {
+  try {
+    const { password, confirm } = req.body;
+
+    if (!password || !confirm) {
+      return res.status(400).json(createErrorResponse('Password and confirmation are required', 400));
+    }
+
+    if (password !== confirm) {
+      return res.status(400).json(createErrorResponse('Passwords do not match', 400));
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json(createErrorResponse('Password must be at least 6 characters', 400));
+    }
+
+    // Check if password already exists
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password already set. Use change-password endpoint instead.', 400));
+    }
+
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    // Store hash
+    const result = await metadataStorage.setPasswordHash(passwordHash);
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to set password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { passwordSet: true },
+      ['Password set successfully']
+    ));
+  } catch (error) {
+    console.error('Error setting password:', error);
+    res.status(500).json(createErrorResponse('Failed to set password', 500));
+  }
+});
+
+// Change password (requires current password)
+app.post('/api/auth/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirm } = req.body;
+
+    if (!currentPassword || !newPassword || !confirm) {
+      return res.status(400).json(createErrorResponse('Current password, new password, and confirmation are required', 400));
+    }
+
+    if (newPassword !== confirm) {
+      return res.status(400).json(createErrorResponse('New passwords do not match', 400));
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json(createErrorResponse('Password must be at least 6 characters', 400));
+    }
+
+    // Verify current password
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (!passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password not set. Use set-password endpoint instead.', 400));
+    }
+
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success ? settingsResult.settings : {};
+    const storedHash = settings.passwordHash;
+
+    if (!storedHash) {
+      return res.status(500).json(createErrorResponse('Password hash not found', 500));
+    }
+
+    const currentPasswordValid = await bcrypt.compare(currentPassword, storedHash);
+    if (!currentPasswordValid) {
+      return res.status(401).json(createErrorResponse('Current password is incorrect', 401));
+    }
+
+    // Hash new password
+    const saltRounds = 10;
+    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update hash
+    const result = await metadataStorage.setPasswordHash(newPasswordHash);
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to change password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { passwordChanged: true },
+      ['Password changed successfully']
+    ));
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json(createErrorResponse('Failed to change password', 500));
+  }
+});
+
+// Remove password protection (requires current password)
+app.post('/api/auth/remove-password', async (req, res) => {
+  try {
+    const { currentPassword } = req.body;
+
+    if (!currentPassword) {
+      return res.status(400).json(createErrorResponse('Current password is required', 400));
+    }
+
+    // Verify current password
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (!passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password not set', 400));
+    }
+
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success ? settingsResult.settings : {};
+    const storedHash = settings.passwordHash;
+
+    if (!storedHash) {
+      return res.status(500).json(createErrorResponse('Password hash not found', 500));
+    }
+
+    const currentPasswordValid = await bcrypt.compare(currentPassword, storedHash);
+    if (!currentPasswordValid) {
+      return res.status(401).json(createErrorResponse('Current password is incorrect', 401));
+    }
+
+    // Remove password
+    const result = await metadataStorage.removePassword();
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to remove password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { passwordRemoved: true },
+      ['Password protection removed']
+    ));
+  } catch (error) {
+    console.error('Error removing password:', error);
+    res.status(500).json(createErrorResponse('Failed to remove password', 500));
+  }
+});
+
+// Skip password protection (first launch only)
+app.post('/api/auth/skip-password', async (req, res) => {
+  try {
+    // Check if password already exists
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password already set. Cannot skip.', 400));
+    }
+
+    // Skip password
+    const result = await metadataStorage.skipPassword();
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to skip password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { skipped: true },
+      ['Password protection skipped']
+    ));
+  } catch (error) {
+    console.error('Error skipping password:', error);
+    res.status(500).json(createErrorResponse('Failed to skip password', 500));
+  }
+});
+
 // Get all groups
 app.get('/api/groups', async (req, res) => {
   try {
@@ -1054,17 +1395,21 @@ app.put('/api/settings', async (req, res) => {
     if (metadataMode === 'sql') {
       // Use database-based settings
       try {
-        // Get current settings to check for maxHistoryEntries change
+        // Get current settings to check for maxHistoryEntries change and preserve password fields
         const currentDbResult = await metadataStorage.getSettings();
-        const oldMaxHistoryEntries = currentDbResult.settings?.maxHistoryEntries || 100;
+        const currentSettings = currentDbResult.settings || {};
+        const oldMaxHistoryEntries = currentSettings.maxHistoryEntries || 100;
         const newMaxHistoryEntries = settings.preferences?.maxHistoryEntries || 100;
 
-        // Convert settings to database format
+        // Convert settings to database format, preserving password fields
         const dbSettings = {
           maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100,
           defaultGroup: settings.preferences?.defaultGroup || '',
           autoVerificationEnabled: settings.autoVerification?.enabled || false,
-          autoVerificationIntervalMinutes: settings.autoVerification?.intervalMinutes || 15
+          autoVerificationIntervalMinutes: settings.autoVerification?.intervalMinutes || 15,
+          // Preserve password fields (not updated through this endpoint)
+          passwordHash: currentSettings.passwordHash || null,
+          passwordSkipped: currentSettings.passwordSkipped || false
         };
 
         const dbResult = await metadataStorage.updateSettings(dbSettings);
@@ -2543,6 +2888,36 @@ if (process.env.NODE_ENV !== 'test') {
     // Initialize SQLite metadata storage (local, should always work)
     try {
       await initializeMetadataStorage();
+
+      // Handle UI_PASSWORD environment variable
+      if (process.env.UI_PASSWORD) {
+        try {
+          const passwordStatus = await metadataStorage.getPasswordStatus();
+
+          if (!passwordStatus.passwordSet) {
+            // No password set - hash and store env var password
+            const saltRounds = 10;
+            const passwordHash = await bcrypt.hash(process.env.UI_PASSWORD, saltRounds);
+            await metadataStorage.setPasswordHash(passwordHash);
+            console.log('✅ Password set from UI_PASSWORD environment variable');
+          } else {
+            // Password already exists - check if env var matches
+            const settingsResult = await metadataStorage.getSettings();
+            const settings = settingsResult.success ? settingsResult.settings : {};
+            const storedHash = settings.passwordHash;
+
+            if (storedHash) {
+              const envVarMatches = await bcrypt.compare(process.env.UI_PASSWORD, storedHash);
+              if (!envVarMatches) {
+                console.warn('⚠️ UI_PASSWORD in environment variables is being ignored because a password was already set via the UI.');
+                console.warn('   The stored password takes precedence. Remove UI_PASSWORD from your .env/docker-compose.yml or reset the SQLite database to use it.');
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error handling UI_PASSWORD:', error.message);
+        }
+      }
 
       // Run orphan cleanup on startup
       try {

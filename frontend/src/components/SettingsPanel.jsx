@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Plug, Eye, EyeOff, Loader2, HelpCircle, Copy, Check } from 'lucide-react';
+import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Plug, Eye, EyeOff, Loader2, HelpCircle, Copy, Check, Lock } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
 import { useFormValidation, validators } from '../utils/validation';
 import { api, isTauri } from '../api';
+import { usePassword } from '../contexts/PasswordContext';
+import PasswordManagementModal from './PasswordManagementModal';
 
 const SettingsPanel = ({ onNavigateGroups }) => {
   const [settings, setSettings] = useState({
@@ -22,6 +24,8 @@ const SettingsPanel = ({ onNavigateGroups }) => {
   const [snapshotPath, setSnapshotPath] = useState('');
   const [metadataStatus, setMetadataStatus] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const { passwordStatus } = usePassword();
 
   // Connection settings state (for Tauri desktop app)
   const [connection, setConnection] = useState({
@@ -518,6 +522,49 @@ FROM sys.master_files;`;
         </div>
       </div>
 
+      {/* Password Protection */}
+      <div className="card p-6">
+        <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4 flex items-center space-x-2">
+          <Lock className="w-5 h-5" />
+          <span>Password Protection</span>
+        </h3>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-secondary-700 dark:text-secondary-300">
+                Status: <span className="font-medium">
+                  {passwordStatus?.status === 'set' ? 'Enabled' :
+                   passwordStatus?.status === 'skipped' ? 'Disabled' :
+                   'Not Configured'}
+                </span>
+              </p>
+              <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                Protect SQL Parrot UI with a password (optional)
+              </p>
+            </div>
+            <button
+              onClick={() => setIsPasswordModalOpen(true)}
+              className="btn btn-secondary"
+            >
+              Manage Password
+            </button>
+          </div>
+
+          {passwordStatus?.envVarIgnored && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-yellow-800 dark:text-yellow-300">
+                  UI_PASSWORD in your Docker configuration is being ignored because a password was already set via the UI.
+                  Remove UI_PASSWORD from your .env file or reset the SQLite database to use it.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Metadata Storage Status */}
       <div className="card p-6">
         <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
@@ -618,6 +665,12 @@ FROM sys.master_files;`;
         type={notification.type}
         isVisible={notification.isVisible}
         onClose={hideNotification}
+      />
+
+      {/* Password Management Modal */}
+      <PasswordManagementModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => setIsPasswordModalOpen(false)}
       />
     </div>
   );

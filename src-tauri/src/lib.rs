@@ -112,6 +112,13 @@ pub fn run() {
             commands::clear_history,
             commands::trim_history,
             commands::get_metadata_status,
+            // UI Security password commands
+            commands::get_password_status,
+            commands::check_password,
+            commands::set_password,
+            commands::change_password,
+            commands::remove_password,
+            commands::skip_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
