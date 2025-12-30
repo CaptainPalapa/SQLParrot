@@ -54,9 +54,17 @@ export const PasswordProvider = ({ children }) => {
     try {
       const response = await api.post('/api/auth/check-password', { password });
 
-      if (response.success && response.data?.authenticated) {
-        // Store session token if provided
-        if (response.data.sessionToken) {
+      // Handle both formats:
+      // - Node.js: { success: true, data: { authenticated: true, sessionToken: "..." } }
+      // - Tauri: { success: true, data: true } (just a boolean)
+      const isAuthenticated = response.success && (
+        response.data?.authenticated === true ||
+        response.data === true
+      );
+
+      if (isAuthenticated) {
+        // Store session token if provided (Node.js only, Tauri doesn't use sessions)
+        if (response.data?.sessionToken) {
           sessionStorage.setItem('sessionToken', response.data.sessionToken);
         }
         setIsAuthenticated(true);
