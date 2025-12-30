@@ -267,8 +267,8 @@ pub async fn change_password(
     // Verify current password
     match store.get_settings() {
         Ok(settings) => {
-            let password_hash = match settings.password_hash {
-                Some(hash) => hash,
+            let password_hash = match settings.password_hash.as_ref() {
+                Some(hash) => hash.clone(),
                 None => return ApiResponse::error("Password not set. Use set_password instead.".to_string()),
             };
 
@@ -312,8 +312,8 @@ pub async fn remove_password(current_password: String) -> ApiResponse<()> {
     // Verify current password
     match store.get_settings() {
         Ok(settings) => {
-            let password_hash = match settings.password_hash {
-                Some(hash) => hash,
+            let password_hash = match settings.password_hash.as_ref() {
+                Some(hash) => hash.clone(),
                 None => return ApiResponse::error("Password not set".to_string()),
             };
 
