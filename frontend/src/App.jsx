@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Database, Settings, History, Palette, Info, LogOut } from 'lucide-react';
+import { Database, Settings, History, Palette, Info, LogOut, Server } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PasswordProvider, usePassword } from './contexts/PasswordContext';
 import ThemeSelector from './components/ThemeSelector';
 import GroupsManager from './components/GroupsManager';
+import ProfilesPanel from './components/ProfilesPanel';
 import SettingsPanel from './components/SettingsPanel';
 import HistoryView from './components/HistoryView';
 import AboutPanel from './components/AboutPanel';
@@ -18,6 +19,7 @@ function AppContent() {
 
   const tabs = [
     { id: 'groups', name: 'Groups', icon: Database },
+    { id: 'profiles', name: 'Profiles', icon: Server },
     { id: 'settings', name: 'Settings', icon: Settings },
     { id: 'history', name: 'History', icon: History },
     { id: 'about', name: 'About', icon: Info },
@@ -127,6 +129,7 @@ function AppContent() {
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {activeTab === 'groups' && <GroupsManager onNavigateSettings={() => setActiveTab('settings')} />}
+          {activeTab === 'profiles' && <ProfilesPanel />}
           {activeTab === 'settings' && <SettingsPanel onNavigateGroups={() => setActiveTab('groups')} />}
           {activeTab === 'history' && <HistoryView />}
           {activeTab === 'about' && <AboutPanel />}

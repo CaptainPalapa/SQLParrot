@@ -213,6 +213,16 @@ const endpointToCommand = (endpoint, method) => {
     if (method === 'DELETE') return 'delete_snapshot';
   }
 
+  // Profile operations: profiles
+  if (segments[0] === 'profiles') {
+    if (segments.length === 1 && method === 'GET') return 'get_profiles';
+    if (segments.length === 2 && method === 'GET') return 'get_profile';
+    if (segments.length === 1 && method === 'POST') return 'create_profile';
+    if (segments.length === 2 && method === 'PUT') return 'update_profile';
+    if (segments.length === 2 && method === 'DELETE') return 'delete_profile';
+    if (segments[2] === 'activate' && method === 'POST') return 'set_active_profile';
+  }
+
   // Fallback - convert path to snake_case command
   console.warn(`Unknown endpoint mapping: ${method} ${endpoint}`);
   return path.replace(/[/-]/g, '_').replace(/:(\w+)/g, '');
@@ -321,6 +331,22 @@ export async function apiCall(endpoint, options = {}) {
       };
     }
 
+    // Handle other error status codes (400, 500, etc.)
+    if (!response.ok) {
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      return {
+        success: false,
+        error: errorData.error || errorData.messages?.error?.[0] || `HTTP ${response.status}`,
+        messages: errorData.messages || { error: [errorData.error || `HTTP ${response.status}`], warning: [], info: [], success: [] },
+        timestamp: new Date().toISOString()
+      };
+    }
+
     const result = await response.json();
 
     // Store session token if provided
@@ -337,7 +363,25 @@ export const api = {
   get: (endpoint) => apiCall(endpoint, { method: 'GET' }),
   post: (endpoint, body) => apiCall(endpoint, { method: 'POST', body }),
   put: (endpoint, body) => apiCall(endpoint, { method: 'PUT', body }),
-  delete: (endpoint, body) => apiCall(endpoint, { method: 'DELETE', body })
+  delete: (endpoint, body) => apiCall(endpoint, { method: 'DELETE', body }),
+
+  // Profile management
+  getProfiles: () => apiCall('/api/profiles'),
+  getProfile: (id) => apiCall(`/api/profiles/${id}`),
+  createProfile: (profileData) => apiCall('/api/profiles', {
+    method: 'POST',
+    body: profileData
+  }),
+  updateProfile: (id, profileData) => apiCall(`/api/profiles/${id}`, {
+    method: 'PUT',
+    body: profileData
+  }),
+  deleteProfile: (id) => apiCall(`/api/profiles/${id}`, {
+    method: 'DELETE'
+  }),
+  setActiveProfile: (id) => apiCall(`/api/profiles/${id}/activate`, {
+    method: 'POST'
+  }),
 };
 
 // Export isTauri for components that need to know

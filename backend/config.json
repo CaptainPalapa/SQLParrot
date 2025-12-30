@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "active_profile": "default",
+  "profiles": {
+    "default": {
+      "name": "Default",
+      "type": "sqlserver",
+      "host": "host.docker.internal",
+      "port": 1433,
+      "username": "sa",
+      "password": "SuperTest99!",
+      "trust_certificate": true,
+      "snapshot_path": "/var/opt/mssql/snapshots"
+    }
+  },
+  "preferences": {
+    "theme": "dark",
+    "max_history_entries": 100
+  }
+}

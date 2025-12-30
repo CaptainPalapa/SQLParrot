@@ -136,6 +136,61 @@ pub struct DatabaseInfo {
     pub create_date: DateTime<Utc>,
 }
 
+/// Connection profile for database servers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Profile {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "platformType")]
+    pub platform_type: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    // Password is NOT serialized for security (only stored in DB)
+    #[serde(skip_serializing)]
+    pub password: String,
+    #[serde(rename = "trustCertificate")]
+    pub trust_certificate: bool,
+    #[serde(rename = "snapshotPath")]
+    pub snapshot_path: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(rename = "isActive")]
+    pub is_active: bool,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Public profile (without password) for API responses
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfilePublic {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "platformType")]
+    pub platform_type: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    #[serde(rename = "trustCertificate")]
+    pub trust_certificate: bool,
+    #[serde(rename = "snapshotPath")]
+    pub snapshot_path: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(rename = "isActive")]
+    pub is_active: bool,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {

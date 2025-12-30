@@ -614,26 +614,39 @@ let sqlConfig = null;
 
 async function getSqlConfig() {
   if (!sqlConfig) {
-    // Use environment variables for sensitive data, fallback to SQL Server metadata storage for non-sensitive
     try {
-      const settingsResult = await metadataStorage.getSettings();
-      const settings = settingsResult.success ? settingsResult.settings : {};
+      // Try to get active profile from SQLite first
+      const profile = metadataStorage.getActiveProfile();
 
-      sqlConfig = {
-        server: process.env.SQL_SERVER || settings?.connection?.server || 'localhost',
-        port: parseInt(process.env.SQL_PORT) || settings?.connection?.port || 1433,
-        user: process.env.SQL_USERNAME || settings?.connection?.username || '',
-        password: process.env.SQL_PASSWORD || settings?.connection?.password || '',
-        database: 'master',
-        options: {
-          encrypt: false,
-          trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' ||
-                                  settings?.connection?.trustServerCertificate || true
-        }
-      };
+      if (profile) {
+        sqlConfig = {
+          server: profile.host,
+          port: profile.port,
+          user: profile.username,
+          password: profile.password,
+          database: 'master',
+          options: {
+            encrypt: false,
+            trustServerCertificate: profile.trustCertificate
+          }
+        };
+      } else {
+        // Fallback to environment variables (for backward compatibility)
+        sqlConfig = {
+          server: process.env.SQL_SERVER || 'localhost',
+          port: parseInt(process.env.SQL_PORT) || 1433,
+          user: process.env.SQL_USERNAME || '',
+          password: process.env.SQL_PASSWORD || '',
+          database: 'master',
+          options: {
+            encrypt: false,
+            trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || true
+          }
+        };
+      }
     } catch (error) {
-      console.error('Error getting settings from metadata storage:', error);
-      // Fallback to environment variables only
+      console.error('Error getting SQL config:', error);
+      // Final fallback to environment variables only
       sqlConfig = {
         server: process.env.SQL_SERVER || 'localhost',
         port: parseInt(process.env.SQL_PORT) || 1433,
@@ -652,26 +665,39 @@ async function getSqlConfig() {
 
 // Force fresh SQL config for unmanaged snapshots
 async function getFreshSqlConfig() {
-  // Get settings from SQL Server metadata storage
   try {
-    const settingsResult = await metadataStorage.getSettings();
-    const settings = settingsResult.success ? settingsResult.settings : {};
+    // Get active profile from SQLite
+    const profile = metadataStorage.getActiveProfile();
 
-    return {
-      server: process.env.SQL_SERVER || settings?.connection?.server || 'localhost',
-      port: parseInt(process.env.SQL_PORT) || settings?.connection?.port || 1433,
-      user: process.env.SQL_USERNAME || settings?.connection?.username || '',
-      password: process.env.SQL_PASSWORD || settings?.connection?.password || '',
-      database: 'master',
-      options: {
-        encrypt: false,
-        trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' ||
-                                settings?.connection?.trustServerCertificate || true
-      }
-    };
+    if (profile) {
+      return {
+        server: profile.host,
+        port: profile.port,
+        user: profile.username,
+        password: profile.password,
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: profile.trustCertificate
+        }
+      };
+    } else {
+      // Fallback to environment variables
+      return {
+        server: process.env.SQL_SERVER || 'localhost',
+        port: parseInt(process.env.SQL_PORT) || 1433,
+        user: process.env.SQL_USERNAME || '',
+        password: process.env.SQL_PASSWORD || '',
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || true
+        }
+      };
+    }
   } catch (error) {
-    console.error('Error getting settings from metadata storage:', error);
-    // Fallback to environment variables only
+    console.error('Error getting fresh SQL config:', error);
+    // Final fallback to environment variables only
     return {
       server: process.env.SQL_SERVER || 'localhost',
       port: parseInt(process.env.SQL_PORT) || 1433,
@@ -1461,17 +1487,128 @@ app.put('/api/settings', async (req, res) => {
 });
 
 // Test SQL Server connection
+// Accepts connection parameters from request body, or uses active profile if password is empty
 app.post('/api/test-connection', async (req, res) => {
   try {
-    const config = await getSqlConfig();
+    const { host, port, username, password, trustCertificate, profileId } = req.body;
+
+    let config;
+
+    // If password is empty or whitespace, try to use saved password from profile (either active or the one being edited)
+    // Check for empty string, null, undefined, or whitespace-only
+    const isEmptyPassword = !password || (typeof password === 'string' && password.trim() === '');
+
+    if (isEmptyPassword && host && port && username) {
+      // If profileId is provided (editing mode), prioritize that profile
+      if (profileId) {
+        const profile = metadataStorage.getProfile(profileId);
+        if (profile && profile.password) {
+          // When editing, use saved password from the profile being edited
+          config = {
+            server: host,
+            port: parseInt(port) || 1433,
+            user: username,
+            password: profile.password, // Use saved password from the profile being edited
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: trustCertificate !== false
+            }
+          };
+        } else {
+          // Profile not found - allow test without password
+          config = {
+            server: host,
+            port: parseInt(port) || 1433,
+            user: username,
+            password: '', // Empty password - let SQL Server handle it
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: trustCertificate !== false
+            }
+          };
+        }
+      } else {
+        // No profileId - try active profile
+        const profile = metadataStorage.getActiveProfile();
+        if (profile && profile.host === host && profile.port === port && profile.username === username) {
+          // Use saved password from active profile if connection details match
+          config = {
+            server: profile.host,
+            port: profile.port,
+            user: profile.username,
+            password: profile.password,
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: profile.trustCertificate
+            }
+          };
+        } else {
+          // No matching profile found - allow test without password (maybe no password needed)
+          config = {
+            server: host,
+            port: parseInt(port) || 1433,
+            user: username,
+            password: '', // Empty password - let SQL Server handle it
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: trustCertificate !== false
+            }
+          };
+        }
+      }
+    } else if (host && port && username && password) {
+      // Use provided credentials
+      config = {
+        server: host,
+        port: parseInt(port) || 1433,
+        user: username,
+        password: password,
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: trustCertificate !== false
+        }
+      };
+    } else {
+      // Fallback to active profile
+      const profile = metadataStorage.getActiveProfile();
+      if (!profile) {
+        return res.status(400).json({
+          success: false,
+          error: 'No connection profile configured. Please provide connection details or configure a profile.'
+        });
+      }
+      config = {
+        server: profile.host,
+        port: profile.port,
+        user: profile.username,
+        password: profile.password,
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: profile.trustCertificate
+        }
+      };
+    }
+
+    // Allow empty password - SQL Server might not require it (Windows auth, etc.)
+    // Only require password if we're not using a saved profile
     if (!config) {
-      return res.status(400).json({ error: 'No SQL Server configuration found' });
+      return res.status(400).json({
+        success: false,
+        error: 'Connection configuration is required.'
+      });
     }
 
     const pool = await sql.connect(config);
 
-    // Test basic connection
-    await pool.request().query('SELECT 1 as test');
+    // Test basic connection and get SQL Server version
+    const versionResult = await pool.request().query('SELECT @@VERSION as version');
+    const version = versionResult.recordset[0].version.split('\n')[0]; // First line
 
     // Get database count (user databases only, excluding snapshots)
     let databaseCount = 0;
@@ -1493,13 +1630,17 @@ app.post('/api/test-connection', async (req, res) => {
 
     res.json({
       success: true,
+      data: version, // Match Tauri format (returns version string)
       message: databaseCount > 0 ?
         `Connection successful - ${databaseCount} databases found` :
         'Connection successful',
       databaseCount: databaseCount
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -2787,17 +2928,29 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
 // Test snapshot path configuration (shows configured path only)
 app.get('/api/test-snapshot-path', async (req, res) => {
   try {
-    const snapshotBasePath = process.env.SNAPSHOT_PATH || 'C:\\Snapshots';
+    // Get active profile from SQLite
+    const profile = metadataStorage.getActiveProfile();
 
-    res.json({
-      success: true,
-      snapshotPath: snapshotBasePath,
-      message: 'Snapshot path configured for SQL Server queries',
-      note: 'This path will be used in CREATE DATABASE statements for SQL Server snapshots'
-    });
-
+    if (profile) {
+      res.json({
+        success: true,
+        snapshotPath: profile.snapshotPath,
+        configured: true
+      });
+    } else {
+      // Fallback to environment variable
+      const snapshotBasePath = process.env.SNAPSHOT_PATH || '/var/opt/mssql/snapshots';
+      res.json({
+        success: true,
+        snapshotPath: snapshotBasePath,
+        configured: false
+      });
+    }
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -2862,18 +3015,185 @@ app.get('/api/snapshots/unmanaged', async (req, res) => {
 
 // Note: N8N API health check endpoint removed - external file API no longer supported
 
+// ===== Profile Management Routes =====
 
+// Get all profiles (without passwords)
+app.get('/api/profiles', async (req, res) => {
+  try {
+    const profiles = metadataStorage.getProfiles();
+    res.json({ success: true, data: profiles });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
-// Serve static files from frontend build (before catch-all route)
-app.use(express.static(path.join(__dirname, '..', 'frontend', 'dist')));
+// Get a single profile by ID (without password)
+app.get('/api/profiles/:id', async (req, res) => {
+  try {
+    const profile = metadataStorage.getProfile(req.params.id);
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Profile not found' });
+    }
+    // Don't return password for security (frontend should never receive passwords)
+    const { password, ...profileWithoutPassword } = profile;
+    res.json({ success: true, data: profileWithoutPassword });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
-// Catch-all handler: send back React's index.html file for any non-API routes
-app.get('*', (req, res) => {
-  // Only serve index.html for non-API routes
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'));
-  } else {
-    res.status(404).json({ error: 'API endpoint not found' });
+// Create a new profile
+app.post('/api/profiles', async (req, res) => {
+  try {
+    const result = metadataStorage.createProfile(req.body);
+    if (result.success) {
+      res.json({ success: true, data: result.profile });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update an existing profile
+app.put('/api/profiles/:id', async (req, res) => {
+  try {
+    const result = metadataStorage.updateProfile(req.params.id, req.body);
+    if (result.success) {
+      res.json({ success: true, data: result.profile });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete a profile
+app.delete('/api/profiles/:id', async (req, res) => {
+  try {
+    const result = metadataStorage.deleteProfile(req.params.id);
+    if (result.success) {
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Set a profile as active
+app.post('/api/profiles/:id/activate', async (req, res) => {
+  try {
+    const result = metadataStorage.setActiveProfile(req.params.id);
+    if (result.success) {
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get current connection profile (without password) - for backward compatibility
+app.get('/api/connection', async (req, res) => {
+  try {
+    const profile = metadataStorage.getActiveProfile();
+
+    if (!profile) {
+      return res.json({ success: true, data: null });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        name: profile.name,
+        host: profile.host,
+        port: profile.port,
+        username: profile.username,
+        trust_certificate: profile.trustCertificate,
+        snapshot_path: profile.snapshotPath
+        // Note: password is not returned for security
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Save connection profile (DEPRECATED - use create_profile or update_profile instead)
+// Kept for backward compatibility
+app.post('/api/save-connection', async (req, res) => {
+  try {
+    const { host, port, username, password, trustCertificate, snapshotPath } = req.body;
+
+    if (!host || !port || !username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Host, port, username, and password are required'
+      });
+    }
+
+    // Try to find existing profile by host/port/username
+    const profiles = metadataStorage.getProfiles();
+    const existingProfile = profiles.find(p =>
+      p.host === host && p.port === port && p.username === username
+    );
+
+    if (existingProfile) {
+      // Update existing profile
+      const result = metadataStorage.updateProfile(existingProfile.id, {
+        host,
+        port: parseInt(port) || 1433,
+        username,
+        password,
+        trustCertificate: trustCertificate !== false,
+        snapshotPath: snapshotPath || '/var/opt/mssql/snapshots',
+        isActive: true
+      });
+
+      if (result.success) {
+        res.json({ success: true });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || 'Failed to update profile'
+        });
+      }
+    } else {
+      // Create new profile
+      const result = metadataStorage.createProfile({
+        name: 'Migrated',
+        platformType: 'Microsoft SQL Server',
+        host,
+        port: parseInt(port) || 1433,
+        username,
+        password,
+        trustCertificate: trustCertificate !== false,
+        snapshotPath: snapshotPath || '/var/opt/mssql/snapshots',
+        isActive: true
+      });
+
+      if (result.success) {
+        res.json({ success: true });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || 'Failed to create profile'
+        });
+      }
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 

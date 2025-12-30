@@ -119,6 +119,13 @@ pub fn run() {
             commands::change_password,
             commands::remove_password,
             commands::skip_password,
+            // Profile management commands
+            commands::get_profiles,
+            commands::get_profile,
+            commands::create_profile,
+            commands::update_profile,
+            commands::delete_profile,
+            commands::set_active_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

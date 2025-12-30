@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 
 const FormInput = ({
+  id,
   label,
   type = 'text',
   value,
@@ -15,7 +16,7 @@ const FormInput = ({
   className = '',
   ...props
 }) => {
-  const inputId = `input-${label?.toLowerCase().replace(/\s+/g, '-')}`;
+  const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : `input-${Math.random().toString(36).substr(2, 9)}`);
 
   return (
     <div className={`space-y-2 ${className}`}>
@@ -38,16 +39,16 @@ const FormInput = ({
         placeholder={placeholder}
         disabled={disabled}
         className={`input w-full ${
-          error && touched
+          error && (touched !== false)
             ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
             : ''
         } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        aria-invalid={error && touched ? 'true' : 'false'}
-        aria-describedby={error && touched ? `${inputId}-error` : undefined}
+        aria-invalid={error && (touched !== false) ? 'true' : 'false'}
+        aria-describedby={error && (touched !== false) ? `${inputId}-error` : undefined}
         {...props}
       />
 
-      {error && touched && (
+      {error && (touched !== false) && (
         <p
           id={`${inputId}-error`}
           className="text-sm text-red-600 dark:text-red-400"

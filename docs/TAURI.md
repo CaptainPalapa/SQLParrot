@@ -44,13 +44,15 @@ Linux builds (`.AppImage`, `.deb`) are planned for a future release. For now, Li
 
 ## Configuration Storage
 
-Settings are stored in the standard app data location:
+Settings and metadata are stored in the standard app data locations:
 
-| Platform | Location |
-|----------|----------|
-| Windows | `%APPDATA%\SQL Parrot\config.json` |
-| macOS | `~/Library/Application Support/SQL Parrot/config.json` |
-| Linux | `~/.config/sql-parrot/config.json` |
+| Platform | Config Location | Database Location |
+|----------|----------------|-------------------|
+| Windows | `%APPDATA%\SQL Parrot\config.json` | `%LOCALAPPDATA%\SQL Parrot\sqlparrot.db` |
+| macOS | `~/Library/Application Support/SQL Parrot/config.json` | `~/Library/Application Support/SQL Parrot/sqlparrot.db` |
+| Linux | `~/.config/sql-parrot/config.json` | `~/.local/share/sql-parrot/sqlparrot.db` |
+
+**Note:** The SQLite database (`sqlparrot.db`) is created at runtime and may not be removed by the uninstaller. You can manually delete the database folder if needed.
 
 ### Configuration Format
 
@@ -208,6 +210,9 @@ SQLParrot/
 - Check logs in app data directory
 - Windows: `%APPDATA%\SQL Parrot\logs\`
 - Try running from command line to see error output
+
+### Uninstallation Note
+Due to installer limitations, the SQLite database file (`sqlparrot.db`) may remain in `%LOCALAPPDATA%\SQL Parrot\` after uninstallation. You can manually delete this folder if you want to completely remove all application data.
 
 ---
 

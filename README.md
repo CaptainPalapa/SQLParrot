@@ -7,6 +7,8 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3.3+-38bdf8.svg)
 
+> **📝 Note:** SQL Parrot works best for individual developers managing SQL Server databases where you're the primary person modifying data. Rollbacks revert *all* changes since the snapshot was created—if multiple users are modifying data, a rollback might unexpectedly undo someone else's work.
+
 > **⚠️ Using Full-Text Search?** Database snapshots do NOT include full-text catalogs. If your databases use full-text indexes, read the [Full-Text Search Warning](docs/SNAPSHOT_BEHAVIOR.md#full-text-search-warning) before using SQL Parrot.
 
 ## ✨ Features

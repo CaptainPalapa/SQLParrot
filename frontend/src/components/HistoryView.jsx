@@ -95,6 +95,8 @@ const HistoryView = () => {
         return RotateCcw;
       case 'trim_history':
         return Scissors;
+      case 'migrate_config_to_profiles':
+        return Database;
       default:
         return Clock;
     }
@@ -118,6 +120,8 @@ const HistoryView = () => {
         return 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900';
       case 'trim_history':
         return 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900';
+      case 'migrate_config_to_profiles':
+        return 'text-teal-600 bg-teal-100 dark:bg-teal-900';
       default:
         return 'text-secondary-600 bg-secondary-100 dark:bg-secondary-700';
     }
@@ -151,6 +155,19 @@ const HistoryView = () => {
         return `Deleted snapshot "${getProperty('snapshotName') || getProperty('displayName')}" from group "${getProperty('groupName')}"`;
       case 'trim_history':
         return `${getProperty('removedCount')} history entries removed by changing max from ${getProperty('previousCount')} to ${getProperty('newMaxEntries')}`;
+      case 'migrate_config_to_profiles': {
+        const migratedProfiles = getProperty('migratedProfiles') || [];
+        const profileCount = Array.isArray(migratedProfiles) ? migratedProfiles.length : 0;
+        if (profileCount === 0) {
+          return getProperty('message') || 'Migrated connection from config.json to SQLite';
+        }
+        const profileNames = migratedProfiles.map(p => p.name || p).join(', ');
+        if (profileCount === 1) {
+          return `Migrated connection in config.json to profile "${profileNames}"`;
+        } else {
+          return `Migrated ${profileCount} connections in config.json to profiles (${profileNames})`;
+        }
+      }
       default:
         return `Unknown operation: ${operation.type}`;
     }
