@@ -80,6 +80,9 @@ export const PasswordProvider = ({ children }) => {
       const response = await api.post('/api/auth/set-password', { password, confirm });
 
       if (response.success) {
+        // After setting password, user needs to authenticate
+        setIsAuthenticated(false);
+        sessionStorage.removeItem('sessionToken');
         await checkPasswordStatus();
         return { success: true };
       } else {

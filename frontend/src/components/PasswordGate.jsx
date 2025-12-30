@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, AlertCircle } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import FormInput from './ui/FormInput';
 import { usePassword } from '../contexts/PasswordContext';
 
@@ -57,13 +57,6 @@ const PasswordGate = () => {
               disabled={isLoading}
               autoFocus
             />
-
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-                <AlertCircle className="w-4 h-4" />
-                <span>{error}</span>
-              </div>
-            )}
 
             <button
               type="submit"
