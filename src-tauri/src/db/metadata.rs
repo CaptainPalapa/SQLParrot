@@ -98,14 +98,16 @@ impl MetadataStore {
 
         conn.execute_batch(
             r#"
-            -- Groups table
+            -- Groups table (profile_id links groups to connection profiles)
             CREATE TABLE IF NOT EXISTS groups (
                 id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
                 databases TEXT NOT NULL,
+                profile_id TEXT,
                 created_by TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                UNIQUE(name, profile_id)
             );
 
             -- Snapshots table
@@ -165,6 +167,7 @@ impl MetadataStore {
             CREATE INDEX IF NOT EXISTS idx_snapshots_group ON snapshots(group_id);
             CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
             CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(is_active);
+            CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id);
             "#,
         )?;
 
@@ -224,8 +227,64 @@ impl MetadataStore {
             }
         }
 
+        // Migration from versions < 1.4.0: Add profile_id to groups table
+        if self.compare_versions(&last_version, "1.4.0") < 0 {
+            if let Err(e) = self.migrate_groups_add_profile_id() {
+                eprintln!("Warning: Failed to add profile_id to groups: {}", e);
+                // Continue anyway - migration failures shouldn't prevent app from starting
+            }
+        }
+
         // Update version after migrations
         self.update_last_version_seen(current_version)?;
+
+        Ok(())
+    }
+
+    /// Migration: Add profile_id column to groups table
+    fn migrate_groups_add_profile_id(&self) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+
+        // Check if column already exists
+        let mut stmt = conn.prepare("PRAGMA table_info('groups')")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if columns.contains(&"profile_id".to_string()) {
+            // Column already exists
+            return Ok(());
+        }
+
+        // Add the column
+        conn.execute("ALTER TABLE groups ADD COLUMN profile_id TEXT", [])?;
+
+        // Get the active profile (or first profile if none active)
+        let active_profile_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .or_else(|_| {
+                conn.query_row("SELECT id FROM profiles LIMIT 1", [], |row| row.get(0))
+            })
+            .ok();
+
+        if let Some(profile_id) = active_profile_id {
+            // Assign existing groups to the active profile
+            conn.execute(
+                "UPDATE groups SET profile_id = ? WHERE profile_id IS NULL",
+                params![profile_id],
+            )?;
+        }
+
+        // Create index for profile_id
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)",
+            [],
+        )?;
 
         Ok(())
     }
@@ -401,15 +460,25 @@ impl MetadataStore {
 
     // ===== Groups =====
 
-    /// Get all groups
+    /// Get all groups (filtered by active profile)
     pub fn get_groups(&self) -> Result<Vec<Group>, MetadataError> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, databases, created_by, created_at, updated_at FROM groups ORDER BY name",
-        )?;
 
-        let groups = stmt
-            .query_map([], |row| {
+        // Get active profile ID
+        let active_profile_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let groups = if let Some(profile_id) = active_profile_id {
+            let mut stmt = conn.prepare(
+                "SELECT id, name, databases, profile_id, created_by, created_at, updated_at FROM groups WHERE profile_id = ? ORDER BY name",
+            )?;
+
+            let rows = stmt.query_map(params![profile_id], |row| {
                 let databases_json: String = row.get(2)?;
                 let databases: Vec<String> =
                     serde_json::from_str(&databases_json).unwrap_or_default();
@@ -418,31 +487,93 @@ impl MetadataStore {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     databases,
-                    created_by: row.get(3)?,
+                    profile_id: row.get(3)?,
+                    created_by: row.get(4)?,
                     created_at: row
-                        .get::<_, String>(4)?
-                        .parse()
-                        .unwrap_or_else(|_| Utc::now()),
-                    updated_at: row
                         .get::<_, String>(5)?
                         .parse()
                         .unwrap_or_else(|_| Utc::now()),
+                    updated_at: row
+                        .get::<_, String>(6)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
                 })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        } else {
+            // No active profile, return all groups
+            let mut stmt = conn.prepare(
+                "SELECT id, name, databases, profile_id, created_by, created_at, updated_at FROM groups ORDER BY name",
+            )?;
+
+            let rows = stmt.query_map([], |row| {
+                let databases_json: String = row.get(2)?;
+                let databases: Vec<String> =
+                    serde_json::from_str(&databases_json).unwrap_or_default();
+
+                Ok(Group {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    databases,
+                    profile_id: row.get(3)?,
+                    created_by: row.get(4)?,
+                    created_at: row
+                        .get::<_, String>(5)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    updated_at: row
+                        .get::<_, String>(6)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
 
         Ok(groups)
+    }
+
+    /// Get group counts per profile
+    pub fn get_group_counts_by_profile(&self) -> Result<std::collections::HashMap<String, u32>, MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT profile_id, COUNT(*) as count FROM groups WHERE profile_id IS NOT NULL GROUP BY profile_id",
+        )?;
+
+        let mut counts = std::collections::HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+        })?;
+
+        for row in rows {
+            let (profile_id, count) = row?;
+            counts.insert(profile_id, count);
+        }
+
+        Ok(counts)
     }
 
     /// Create a new group
     pub fn create_group(&self, group: &Group) -> Result<(), MetadataError> {
         let conn = self.conn.lock().unwrap();
+
+        // Get profile_id - use provided one or get from active profile
+        let profile_id = group.profile_id.clone().or_else(|| {
+            conn.query_row(
+                "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+        });
+
         conn.execute(
-            "INSERT INTO groups (id, name, databases, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO groups (id, name, databases, profile_id, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
                 group.id,
                 group.name,
                 serde_json::to_string(&group.databases)?,
+                profile_id,
                 group.created_by,
                 group.created_at.to_rfc3339(),
                 group.updated_at.to_rfc3339(),
@@ -716,6 +847,43 @@ impl MetadataStore {
         )?;
 
         match stmt.query_row([], |row| {
+            Ok(Profile {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                platform_type: row.get(2)?,
+                host: row.get(3)?,
+                port: row.get(4)?,
+                username: row.get(5)?,
+                password: row.get(6)?,
+                trust_certificate: row.get::<_, i32>(7)? == 1,
+                snapshot_path: row.get(8)?,
+                description: row.get(9)?,
+                notes: row.get(10)?,
+                is_active: row.get::<_, i32>(11)? == 1,
+                created_at: row
+                    .get::<_, String>(12)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+                updated_at: row
+                    .get::<_, String>(13)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        }) {
+            Ok(profile) => Ok(Some(profile)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get a single profile by ID
+    pub fn get_profile(&self, profile_id: &str) -> Result<Option<Profile>, MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles WHERE id = ? LIMIT 1",
+        )?;
+
+        match stmt.query_row(params![profile_id], |row| {
             Ok(Profile {
                 id: row.get(0)?,
                 name: row.get(1)?,

@@ -42,7 +42,7 @@ const createSuccessResponse = (data, successMessages = []) => {
 
 // Load environment variables from .env file
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-console.log('📁 Loaded environment variables from .env file');
+// Environment variables loaded from .env file
 
 // Import metadata storage (SQLite-based, local storage)
 const MetadataStorage = require('./utils/metadataStorageSqlite');
@@ -141,12 +141,8 @@ async function initializeMetadataStorage() {
   if (isInitialized) return true;
 
   try {
-    console.log('🚀 Initializing SQLite metadata storage...');
-
     // Initialize SQLite database and tables
     await metadataStorage.initialize();
-
-    console.log('✅ SQLite metadata storage ready');
     isInitialized = true;
     initializationError = null;
     return true;
@@ -181,61 +177,9 @@ async function addToHistory(operation) {
     };
 
     // Add to SQL Server metadata storage
-    const result = await metadataStorage.addHistoryEntry(historyEntry);
-    if (result.success) {
-      console.log('✅ Added history entry to metadata database');
-    }
-
-    // Also log to console in user-friendly format
-    logOperationToConsole(operation);
+    await metadataStorage.addHistoryEntry(historyEntry);
   } catch (error) {
-    console.error('❌ Failed to add history to metadata database:', error.message);
-  }
-}
-
-function logOperationToConsole(operation) {
-  const timestamp = new Date().toLocaleString();
-
-  switch (operation.type) {
-    case 'create_group':
-      console.log(`📁 [${timestamp}] Created group "${operation.groupName}" with ${operation.databaseCount} databases`);
-      break;
-    case 'update_group':
-      console.log(`📁 [${timestamp}] Updated group "${operation.groupName}" with ${operation.databaseCount} databases`);
-      break;
-    case 'delete_group':
-      console.log(`🗑️ [${timestamp}] Deleted group "${operation.groupName}"`);
-      break;
-    case 'create_snapshots': {
-      const successCount = operation.results?.filter(r => r.success).length || 0;
-      const totalCount = operation.results?.length || 0;
-      const snapshotName = operation.snapshotName ? ` "${operation.snapshotName}"` : '';
-      console.log(`📸 [${timestamp}] Created snapshot${snapshotName} for group "${operation.groupName}" (${successCount}/${totalCount} successful)`);
-      break;
-    }
-    case 'create_automatic_checkpoint': {
-      const successCount = operation.results?.filter(r => r.success).length || 0;
-      const totalCount = operation.results?.length || 0;
-      console.log(`⏰ [${timestamp}] Created automatic checkpoint for group "${operation.groupName}" (${successCount}/${totalCount} successful)`);
-      break;
-    }
-    case 'restore_snapshot':
-      console.log(`🔄 [${timestamp}] Restored snapshot "${operation.snapshotName}" for group "${operation.groupName}"`);
-      if (operation.rolledBackDatabases?.length > 0) {
-        console.log(`   └─ Restored databases: ${operation.rolledBackDatabases.join(', ')}`);
-      }
-      if (operation.droppedSnapshots > 0) {
-        console.log(`   └─ Cleaned up ${operation.droppedSnapshots} old snapshots`);
-      }
-      break;
-    case 'cleanup_snapshots':
-      console.log(`🧹 [${timestamp}] Cleaned up ${operation.deletedCount} snapshots`);
-      break;
-    case 'trim_history':
-      console.log(`✂️ [${timestamp}] ${operation.removedCount} history entries removed (max changed from ${operation.previousCount} to ${operation.newMaxEntries})`);
-      break;
-    default:
-      console.log(`ℹ️ [${timestamp}] ${operation.type}: ${JSON.stringify(operation)}`);
+    console.error('Failed to add history entry:', error.message);
   }
 }
 
@@ -352,7 +296,6 @@ async function cleanupStaleSqlMetadata() {
     const verification = await verifySnapshotConsistency();
 
     if (verification.verified) {
-      console.log('✅ SQL metadata is consistent with SQL Server');
       return { cleaned: 0, staleSnapshots: [] };
     }
 
@@ -362,7 +305,6 @@ async function cleanupStaleSqlMetadata() {
 
     // Clean up stale metadata entries (snapshots in metadata that don't exist in SQL Server)
     if (verification.missingInSQL && verification.missingInSQL.length > 0) {
-      console.log(`🧹 Cleaning up ${verification.missingInSQL.length} stale metadata entries...`);
 
       // Get all snapshots from metadata to find the snapshot IDs
       const snapshotsData = await getSnapshotsData();
@@ -377,39 +319,24 @@ async function cleanupStaleSqlMetadata() {
         });
       });
 
-      console.log(`📋 Snapshot ID mapping:`, Array.from(snapshotIdMap.entries()));
-
       for (const snapshotName of verification.missingInSQL) {
         try {
-          // Get the snapshot ID from the full snapshot name
           const snapshotId = snapshotIdMap.get(snapshotName);
-          console.log(`🔍 Looking for snapshot ID for ${snapshotName}: ${snapshotId || 'NOT FOUND'}`);
-
           if (snapshotId) {
-            console.log(`🗑️ Attempting to delete snapshot ID: ${snapshotId}`);
             const deleteResult = await metadataStorage.deleteSnapshot(snapshotId);
-            console.log(`📊 Delete result:`, deleteResult);
-
             if (deleteResult.success) {
               cleanedCount++;
               cleanedSnapshots.push(snapshotName);
-              console.log(`✅ Removed stale snapshot entry: ${snapshotName} (ID: ${snapshotId})`);
-            } else {
-              console.log(`❌ Delete failed for ${snapshotName}:`, deleteResult);
             }
-          } else {
-            console.log(`⚠️ Could not find snapshot ID for ${snapshotName}`);
           }
         } catch (error) {
-          console.error(`❌ Failed to remove stale snapshot entry ${snapshotName}:`, error.message);
+          console.error(`Failed to remove stale snapshot entry ${snapshotName}:`, error.message);
         }
       }
     }
 
     // Clean up inaccessible snapshots (snapshots that exist in SQL Server but are broken)
     if (verification.inaccessibleSnapshots && verification.inaccessibleSnapshots.length > 0) {
-      console.log(`🧹 Cleaning up ${verification.inaccessibleSnapshots.length} inaccessible snapshots...`);
-
       const config = await getFreshSqlConfig();
       if (config) {
         const pool = await sql.connect(config);
@@ -419,9 +346,8 @@ async function cleanupStaleSqlMetadata() {
             await pool.request().query(`DROP DATABASE [${snapshotName}]`);
             cleanedCount++;
             cleanedSnapshots.push(snapshotName);
-            console.log(`✅ Dropped inaccessible snapshot: ${snapshotName}`);
           } catch (error) {
-            console.error(`❌ Failed to drop inaccessible snapshot ${snapshotName}:`, error.message);
+            console.error(`Failed to drop inaccessible snapshot ${snapshotName}:`, error.message);
           }
         }
 
@@ -448,7 +374,6 @@ async function verifySnapshotConsistency() {
   try {
     const config = await getFreshSqlConfig();
     if (!config) {
-      console.log('No SQL Server configuration found, skipping snapshot verification');
       return { verified: true, issues: [] };
     }
 
@@ -490,7 +415,6 @@ async function verifySnapshotConsistency() {
     // Check 2: Find snapshots in SQL metadata that don't exist in SQL Server - AUTO CLEANUP
     const missingInSQL = metadataSnapshotNames.filter(name => !sqlSnapshotNames.includes(name));
     if (missingInSQL.length > 0) {
-      console.log(`🧹 Auto-cleaning ${missingInSQL.length} stale metadata entries that don't exist in SQL Server...`);
 
       // Get all snapshots from metadata to find the snapshot IDs
       const snapshotIdMap = new Map();
@@ -510,7 +434,6 @@ async function verifySnapshotConsistency() {
             const deleteResult = await metadataStorage.deleteSnapshot(snapshotId);
             if (deleteResult.success) {
               autoCleanedCount++;
-              console.log(`✅ Auto-removed stale snapshot entry: ${snapshotName} (ID: ${snapshotId})`);
             }
           }
         } catch (error) {
@@ -535,10 +458,8 @@ async function verifySnapshotConsistency() {
     await pool.close();
 
     if (needsCleanup || autoCleanedCount > 0) {
-      console.log('⚠️ Snapshot consistency issues detected:', issues);
       return { verified: false, issues, orphanedInSQL, missingInSQL: [], inaccessibleSnapshots };
     } else {
-      console.log('✅ All snapshots are consistent between SQL Server and SQL metadata');
       return { verified: true, issues: [] };
     }
 
@@ -554,13 +475,11 @@ async function cleanupOrphanedSnapshots() {
     const verification = await verifySnapshotConsistency();
 
     if (verification.verified) {
-      console.log('✅ No orphaned snapshots found');
       return { cleaned: 0, orphans: [] };
     }
 
     const config = await getFreshSqlConfig();
     if (!config) {
-      console.log('No SQL Server configuration found, skipping orphan cleanup');
       return { cleaned: 0, orphans: [] };
     }
 
@@ -571,17 +490,14 @@ async function cleanupOrphanedSnapshots() {
     // Track orphaned snapshots (snapshots in SQL Server not tracked in metadata)
     if (verification.orphanedInSQL && verification.orphanedInSQL.length > 0) {
       orphanedSnapshots.push(...verification.orphanedInSQL);
-      console.log(`📝 Found ${verification.orphanedInSQL.length} snapshots in SQL Server not tracked in metadata`);
     }
 
     // Clean up inaccessible snapshots
     if (verification.inaccessibleSnapshots && verification.inaccessibleSnapshots.length > 0) {
-      console.log(`🧹 Cleaning up ${verification.inaccessibleSnapshots.length} inaccessible snapshots...`);
       for (const snapshotName of verification.inaccessibleSnapshots) {
         try {
           await pool.request().query(`DROP DATABASE [${snapshotName}]`);
           cleanedSnapshots.push(snapshotName);
-          console.log(`✅ Dropped inaccessible snapshot: ${snapshotName}`);
         } catch (error) {
           console.error(`❌ Failed to drop inaccessible snapshot ${snapshotName}:`, error.message);
         }
@@ -672,7 +588,7 @@ async function getFreshSqlConfig() {
     if (profile) {
       return {
         server: profile.host,
-        port: profile.port,
+        port: parseInt(profile.port) || 1433,
         user: profile.username,
         password: profile.password,
         database: 'master',
@@ -718,10 +634,8 @@ async function getFreshSqlConfig() {
 
 // Health check endpoint - checks both metadata storage and SQL Server connection
 app.get('/api/health', async (req, res) => {
-  const status = getInitializationStatus();
-
   // If not initialized, try to initialize now
-  if (!status.initialized) {
+  if (!isInitialized) {
     try {
       await initializeMetadataStorage();
     } catch (error) {
@@ -734,12 +648,13 @@ app.get('/api/health', async (req, res) => {
     }
   }
 
-  if (!status.initialized) {
+  // Re-check after initialization attempt
+  if (!isInitialized) {
     return res.status(503).json({
       status: 'error',
       initialized: false,
       connected: false,
-      message: status.error || 'Metadata storage not available'
+      message: initializationError || 'Metadata storage not available'
     });
   }
 
@@ -753,8 +668,11 @@ app.get('/api/health', async (req, res) => {
       await pool.request().query('SELECT 1 as test');
       await pool.close();
       sqlConnected = true;
+    } else {
+      sqlError = 'No active profile with username configured';
     }
   } catch (error) {
+    console.error('[/api/health] SQL connection error:', error.message);
     sqlError = error.message;
   }
 
@@ -1444,7 +1362,6 @@ app.put('/api/settings', async (req, res) => {
           if (newMaxHistoryEntries < oldMaxHistoryEntries) {
             const trimResult = await metadataStorage.trimHistoryEntries(newMaxHistoryEntries);
             if (trimResult.success && trimResult.trimmed > 0) {
-              console.log(`✂️ Trimmed ${trimResult.trimmed} history entries from database`);
             }
           }
 
@@ -1622,7 +1539,6 @@ app.post('/api/test-connection', async (req, res) => {
       `);
       databaseCount = dbResult.recordset[0].database_count;
     } catch (dbError) {
-      console.log('Could not get database count:', dbError.message);
       // Continue without database count
     }
 
@@ -1739,7 +1655,6 @@ app.get('/api/metadata/test', async (req, res) => {
       `);
       canCreateDatabase = permResult.recordset[0].can_create_db === 1;
     } catch (permError) {
-      console.log('Could not check CREATE DATABASE permission:', permError.message);
     }
 
     // Check if sqlparrot database exists
@@ -1750,7 +1665,6 @@ app.get('/api/metadata/test', async (req, res) => {
       `);
       sqlparrotExists = dbCheck.recordset.length > 0;
     } catch (dbError) {
-      console.log('Could not check sqlparrot database:', dbError.message);
     }
 
     await pool.close();
@@ -1776,7 +1690,6 @@ app.get('/api/metadata/test', async (req, res) => {
 // Initialize metadata storage system manually
 app.post('/api/metadata/initialize', async (req, res) => {
   try {
-    console.log('🔄 Manual metadata initialization requested...');
     const initResult = await metadataStorage.initialize();
 
     if (initResult.success) {
@@ -1995,7 +1908,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
     `);
 
     const snapshots = dbResult.recordset.map(db => db.name);
-    console.log(`Running DBCC CHECKDB against ${snapshots.length} snapshots...`);
 
     const results = {
       totalSnapshots: snapshots.length,
@@ -2009,7 +1921,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
 
     for (const snapshotName of snapshots) {
       const snapshotStartTime = Date.now();
-      console.log(`Running DBCC CHECKDB on ${snapshotName}...`);
 
       try {
         await pool.request().query(`DBCC CHECKDB('${snapshotName}') WITH NO_INFOMSGS`);
@@ -2023,8 +1934,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
           duration: duration,
           message: 'DBCC CHECKDB succeeded'
         });
-
-        console.log(`✅ ${snapshotName}: ${duration}ms`);
       } catch (error) {
         const snapshotEndTime = Date.now();
         const duration = snapshotEndTime - snapshotStartTime;
@@ -2036,8 +1945,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
           duration: duration,
           message: error.message
         });
-
-        console.log(`❌ ${snapshotName}: ${duration}ms - ${error.message}`);
       }
     }
 
@@ -2048,11 +1955,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
     results.dbccDuration = totalDbccTime;
     results.averageDuration = Math.round(totalDbccTime / snapshots.length);
     results.endTime = new Date().toISOString();
-
-    console.log(`\n📊 DBCC Summary:`);
-    console.log(`Total time: ${results.totalDuration}ms`);
-    console.log(`DBCC time: ${results.dbccDuration}ms`);
-    console.log(`Average per snapshot: ${results.averageDuration}ms`);
 
     res.json(results);
 
@@ -2084,9 +1986,8 @@ app.delete('/api/snapshots/:snapshotId', async (req, res) => {
         try {
           await pool.request().query(`DROP DATABASE [${dbSnapshot.snapshotName}]`);
           droppedDatabases.push(dbSnapshot.snapshotName);
-          console.log(`✅ Dropped snapshot database: ${dbSnapshot.snapshotName}`);
         } catch (error) {
-          console.log(`❌ Failed to drop snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
+          console.error(`Failed to drop snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
         }
       }
     }
@@ -2259,7 +2160,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       const cleanGroupName = snapshotGroup?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || '';
       const snapshotPattern = cleanGroupName ? `${cleanGroupName}_%` : 'sf_%';
 
-      console.log(`🔍 Looking for snapshots matching pattern: ${snapshotPattern}`);
 
       const groupSnapshotsResult = await pool.request().query(`
         SELECT name, source_database_id
@@ -2269,7 +2169,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         AND (${sourceDatabaseNames.map(db => `source_database_id = DB_ID('${db}')`).join(' OR ')})
       `);
 
-      console.log(`Found ${groupSnapshotsResult.recordset.length} snapshot databases for our group and source databases to clean up`);
 
       // Get target snapshot names to preserve them
       const targetSnapshotNames = new Set();
@@ -2285,16 +2184,14 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           try {
             await pool.request().query(`DROP DATABASE [${snapshotDb.name}]`);
             droppedSnapshots.push(snapshotDb.name);
-            console.log(`✅ Dropped group+source snapshot database: ${snapshotDb.name}`);
           } catch (error) {
-            console.log(`❌ Failed to drop group+source snapshot database ${snapshotDb.name}: ${error.message}`);
+            console.error(`Failed to drop group+source snapshot database ${snapshotDb.name}: ${error.message}`);
           }
         } else {
-          console.log(`⏭️ Preserving target snapshot database: ${snapshotDb.name}`);
         }
       }
     } catch (error) {
-      console.log(`❌ Error getting group+source snapshot databases: ${error.message}`);
+      console.error(`Error getting group+source snapshot databases: ${error.message}`);
     }
 
     // Step 2: Restore each database to the target snapshot state
@@ -2317,7 +2214,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           }
 
           // Comprehensive connection cleanup and restore
-          console.log(`🔄 Starting comprehensive rollback for database: ${sourceDbName}`);
 
           // Step 1: Kill all active connections to the database
           try {
@@ -2328,9 +2224,8 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
               WHERE database_id = DB_ID('${sourceDbName}') AND session_id != @@SPID;
               IF @sql != '' EXEC sp_executesql @sql;
             `);
-            console.log(`✅ Killed all active connections to database: ${sourceDbName}`);
           } catch (killError) {
-            console.log(`⚠️ Could not kill connections to ${sourceDbName}: ${killError.message}`);
+            console.warn(`Could not kill connections to ${sourceDbName}: ${killError.message}`);
           }
 
           // Step 2: Set database to single user mode with immediate rollback
@@ -2338,9 +2233,8 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
             await pool.request().query(`
               ALTER DATABASE [${sourceDbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
             `);
-            console.log(`✅ Set database to single user mode: ${sourceDbName}`);
           } catch (singleUserError) {
-            console.log(`⚠️ Could not set single user mode for ${sourceDbName}: ${singleUserError.message}`);
+            console.warn(`Could not set single user mode for ${sourceDbName}: ${singleUserError.message}`);
           }
 
           // Step 3: Check database state before restore
@@ -2349,36 +2243,31 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
               SELECT state_desc FROM sys.databases WHERE name = '${sourceDbName}'
             `);
             const dbState = dbStateResult.recordset[0]?.state_desc;
-            console.log(`📊 Database state before restore: ${dbState}`);
 
             // If database is in RESTORING state, try to recover it first
             if (dbState === 'RESTORING') {
-              console.log(`⚠️ Database is in RESTORING state, attempting recovery...`);
               try {
                 await pool.request().query(`RESTORE DATABASE [${sourceDbName}] WITH RECOVERY`);
-                console.log(`✅ Recovered database from RESTORING state: ${sourceDbName}`);
               } catch (recoveryError) {
-                console.log(`⚠️ Could not recover database: ${recoveryError.message}`);
+                console.warn(`Could not recover database: ${recoveryError.message}`);
               }
             }
           } catch (stateError) {
-            console.log(`⚠️ Could not check database state: ${stateError.message}`);
+            console.warn(`Could not check database state: ${stateError.message}`);
           }
 
           // Step 4: Restore database from snapshot using proper SQL Server command
           // This restores the ENTIRE database state (all tables, schema, procedures, etc.)
           // Note: SQL Server automatically deletes the snapshot after successful restore
           try {
-            console.log(`🔄 Restoring database from snapshot: ${dbSnapshot.snapshotName}`);
 
             await pool.request().query(`
               RESTORE DATABASE [${sourceDbName}] FROM DATABASE_SNAPSHOT = '${dbSnapshot.snapshotName}'
             `);
 
-            console.log(`✅ Successfully restored database ${sourceDbName} from snapshot`);
 
           } catch (restoreError) {
-            console.log(`❌ Failed to restore database from snapshot: ${restoreError.message}`);
+            console.error(`Failed to restore database from snapshot: ${restoreError.message}`);
             throw restoreError;
           }
 
@@ -2387,15 +2276,13 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
             await pool.request().query(`
               ALTER DATABASE [${sourceDbName}] SET MULTI_USER
             `);
-            console.log(`✅ Restored multi-user access to database: ${sourceDbName}`);
           } catch (multiUserError) {
-            console.log(`⚠️ Could not restore multi-user access to ${sourceDbName}: ${multiUserError.message}`);
+            console.warn(`Could not restore multi-user access to ${sourceDbName}: ${multiUserError.message}`);
           }
 
           rolledBackDatabases.push(sourceDbName);
-          console.log(`✅ Rolled back database: ${sourceDbName} from snapshot: ${dbSnapshot.snapshotName}`);
         } catch (error) {
-          console.log(`❌ Failed to rollback database ${dbSnapshot.database}: ${error.message}`);
+          console.error(`Failed to rollback database ${dbSnapshot.database}: ${error.message}`);
           failedRollbacks.push({
             database: dbSnapshot.database,
             snapshotName: dbSnapshot.snapshotName,
@@ -2438,48 +2325,40 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       `);
 
       if (remainingGroupSnapshotsResult.recordset.length > 0) {
-        console.log(`Found ${remainingGroupSnapshotsResult.recordset.length} remaining group+source snapshot databases after restore - cleaning up`);
 
         for (const remainingSnapshot of remainingGroupSnapshotsResult.recordset) {
           try {
             await pool.request().query(`DROP DATABASE [${remainingSnapshot.name}]`);
             droppedSnapshots.push(remainingSnapshot.name);
-            console.log(`✅ Cleaned up remaining group+source snapshot database: ${remainingSnapshot.name}`);
           } catch (error) {
-            console.log(`❌ Failed to cleanup remaining group+source snapshot database ${remainingSnapshot.name}: ${error.message}`);
+            console.error(`Failed to cleanup remaining group+source snapshot database ${remainingSnapshot.name}: ${error.message}`);
           }
         }
       } else {
-        console.log(`✅ No remaining group+source snapshot databases found after restore`);
       }
     } catch (error) {
-      console.log(`❌ Error checking for remaining group+source snapshots: ${error.message}`);
+      console.error(`Error checking for remaining group+source snapshots: ${error.message}`);
     }
 
     await pool.close();
 
     // Step 4: Remove all snapshots from metadata (all snapshots have been cleaned up)
     // Delete all snapshots for this group from SQL metadata storage
-    console.log(`🗑️ Cleaning up metadata for group: ${snapshot.groupId}`);
     const allSnapshots = await metadataStorage.getAllSnapshots();
     const groupSnapshots = allSnapshots.filter(s => s.groupId === snapshot.groupId);
-    console.log(`🗑️ Found ${groupSnapshots.length} snapshots to delete from metadata`);
 
     for (const groupSnapshot of groupSnapshots) {
-      console.log(`🗑️ Deleting snapshot from metadata: ${groupSnapshot.id} (${groupSnapshot.displayName})`);
       const deleteResult = await metadataStorage.deleteSnapshot(groupSnapshot.id);
-      console.log(`🗑️ Delete result: ${JSON.stringify(deleteResult)}`);
     }
 
     // Step 4: Create a new checkpoint snapshot after restore
-    console.log(`🔄 Creating checkpoint snapshot after restore...`);
 
     // Get the group details for creating the checkpoint
     const groups = await metadataStorage.getAllGroups();
     const group = groups.find(g => g.id === snapshot.groupId);
 
     if (!group) {
-      console.log(`❌ Group not found for checkpoint creation`);
+      console.error('Group not found for checkpoint creation');
       return res.json({
         success: true,
         message: `Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
@@ -2538,7 +2417,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         });
 
         checkpointResults.push({ database, snapshotName: fullSnapshotName, success: true });
-        console.log(`✅ Created checkpoint snapshot database: ${fullSnapshotName}`);
       } catch (dbError) {
         checkpointDatabaseSnapshots.push({
           database,
@@ -2546,7 +2424,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           success: false
         });
         checkpointResults.push({ database, error: dbError.message, success: false });
-        console.log(`❌ Failed to create checkpoint snapshot for database ${database}: ${dbError.message}`);
+        console.error(`Failed to create checkpoint snapshot for database ${database}: ${dbError.message}`);
       }
     }
 
@@ -2593,7 +2471,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    console.log(`✅ Checkpoint snapshot "${checkpointDisplayName}" created successfully`);
 
     res.json(createSuccessResponse({
       rolledBackDatabases: rolledBackDatabases.length,
@@ -2636,9 +2513,8 @@ app.post('/api/snapshots/:snapshotId/cleanup', async (req, res) => {
         try {
           await pool.request().query(`DROP DATABASE [${dbSnapshot.snapshotName}]`);
           droppedDatabases.push(dbSnapshot.snapshotName);
-          console.log(`✅ Cleaned up snapshot database: ${dbSnapshot.snapshotName}`);
         } catch (error) {
-          console.log(`❌ Failed to cleanup snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
+          console.error(`Failed to cleanup snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
         }
       }
     }
@@ -2730,7 +2606,6 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
         );
 
         if (orphanedCheckpoints.length > 0) {
-          console.log(`Found ${orphanedCheckpoints.length} orphaned checkpoint snapshots for group ${id}`);
 
           // Group orphaned snapshots by checkpoint ID
           const checkpointGroups = {};
@@ -2765,12 +2640,11 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
             };
 
             groupSnapshots.unshift(checkpointSnapshot); // Add at beginning
-            console.log(`Added orphaned checkpoint: ${checkpointId} with ${databases.length} databases`);
           });
         }
       }
     } catch (error) {
-      console.log('Error checking for orphaned checkpoints:', error.message);
+      console.error('Error checking for orphaned checkpoints:', error.message);
       // Continue with normal operation if checkpoint detection fails
     }
 
@@ -2883,9 +2757,7 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
       try {
         const result = await metadataStorage.addSnapshot(newSnapshot);
         if (result.success && result.mode === 'sql') {
-          console.log('✅ Added snapshot to metadata database');
         } else if (result.fallback) {
-          console.log('⚠️ Fell back to JSON storage for snapshot');
         }
       } catch (error) {
         console.error('❌ Failed to add snapshot to metadata database:', error.message);
@@ -3017,11 +2889,19 @@ app.get('/api/snapshots/unmanaged', async (req, res) => {
 
 // ===== Profile Management Routes =====
 
-// Get all profiles (without passwords)
+// Get all profiles (without passwords) with group counts
 app.get('/api/profiles', async (req, res) => {
   try {
     const profiles = metadataStorage.getProfiles();
-    res.json({ success: true, data: profiles });
+    const groupCounts = metadataStorage.getGroupCountsByProfile();
+
+    // Add group count to each profile
+    const profilesWithCounts = profiles.map(profile => ({
+      ...profile,
+      groupCount: groupCounts.counts?.[profile.id] || 0
+    }));
+
+    res.json({ success: true, data: profilesWithCounts });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -3219,7 +3099,6 @@ if (process.env.NODE_ENV !== 'test') {
             const saltRounds = 10;
             const passwordHash = await bcrypt.hash(process.env.UI_PASSWORD, saltRounds);
             await metadataStorage.setPasswordHash(passwordHash);
-            console.log('✅ Password set from UI_PASSWORD environment variable');
           } else {
             // Password already exists - check if env var matches
             const settingsResult = await metadataStorage.getSettings();
@@ -3241,14 +3120,9 @@ if (process.env.NODE_ENV !== 'test') {
 
       // Run orphan cleanup on startup
       try {
-        const cleanupResult = await cleanupOrphanedSnapshots();
-        if (cleanupResult.cleaned > 0) {
-          console.log(`✅ Startup cleanup: Removed ${cleanupResult.cleaned} orphaned snapshots`);
-        } else {
-          console.log('✅ Startup cleanup: No orphaned snapshots found');
-        }
+        await cleanupOrphanedSnapshots();
       } catch (error) {
-        console.error('❌ Startup cleanup failed:', error.message);
+        console.error('Startup cleanup failed:', error.message);
       }
     } catch (error) {
       console.error('❌ Failed to initialize SQLite metadata storage:', error.message);

@@ -108,28 +108,63 @@ pub async fn get_databases() -> ApiResponse<Vec<DatabaseInfo>> {
     }
 }
 
-/// Check overall health status - does NOT auto-connect to SQL Server
-/// Connection status is checked separately via test_connection when user requests it
+/// Check overall health status - tests connection to active profile's SQL Server
 #[tauri::command]
 pub async fn check_health() -> ApiResponse<HealthResponse> {
-    // Just return app health - don't try to connect to SQL Server automatically
-    // User must explicitly test/save connection first
-    let has_profile = match MetadataStore::open() {
-        Ok(store) => {
-            match store.get_active_profile() {
-                Ok(Some(p)) => !p.password.is_empty(),
-                _ => false,
-            }
+    // Get active profile and test actual SQL connectivity
+    let store = match MetadataStore::open() {
+        Ok(s) => s,
+        Err(_) => {
+            return ApiResponse::success(HealthResponse {
+                connected: false,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                platform: std::env::consts::OS.to_string(),
+                sql_server_version: None,
+            });
         }
-        Err(_) => false,
     };
 
-    ApiResponse::success(HealthResponse {
-        connected: has_profile, // Just indicates if a profile with password is configured
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        platform: std::env::consts::OS.to_string(),
-        sql_server_version: None, // Only set when user explicitly tests connection
-    })
+    let profile = match store.get_active_profile() {
+        Ok(Some(p)) if !p.password.is_empty() => p,
+        _ => {
+            return ApiResponse::success(HealthResponse {
+                connected: false,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                platform: std::env::consts::OS.to_string(),
+                sql_server_version: None,
+            });
+        }
+    };
+
+    // Actually test the SQL connection
+    let connection_profile = ConnectionProfile {
+        name: profile.name.clone(),
+        db_type: crate::config::DatabaseType::SqlServer,
+        host: profile.host.clone(),
+        port: profile.port,
+        username: profile.username.clone(),
+        password: profile.password.clone(),
+        trust_certificate: profile.trust_certificate,
+        snapshot_path: profile.snapshot_path.clone(),
+    };
+
+    match SqlServerConnection::connect(&connection_profile).await {
+        Ok(_) => ApiResponse::success(HealthResponse {
+            connected: true,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            platform: std::env::consts::OS.to_string(),
+            sql_server_version: Some("Connected".to_string()),
+        }),
+        Err(e) => {
+            eprintln!("[check_health] SQL connection failed for profile '{}': {}", profile.name, e);
+            ApiResponse::success(HealthResponse {
+                connected: false,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                platform: std::env::consts::OS.to_string(),
+                sql_server_version: Some(format!("Error: {}", e)),
+            })
+        }
+    }
 }
 
 /// Save connection profile (DEPRECATED - use create_profile or update_profile instead)

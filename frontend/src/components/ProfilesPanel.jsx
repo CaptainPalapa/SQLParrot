@@ -1,20 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, CheckCircle, Server, Loader2, AlertCircle } from 'lucide-react';
+import PropTypes from 'prop-types';
+import { Plus, Edit, Trash2, CheckCircle, Server, Loader2, AlertCircle, Database, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client';
 import { useNotification } from '../hooks/useNotification';
 import ProfileManagementModal from './ProfileManagementModal';
-import { Toast } from './ui/Modal';
+import { Toast, ConfirmationModal } from './ui/Modal';
 
-const ProfilesPanel = () => {
+const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
   const [profiles, setProfiles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, profile: null });
   const { notification, showSuccess, showError, hideNotification } = useNotification();
 
   useEffect(() => {
     fetchProfiles();
   }, []);
+
+  // Handle ESC key to close delete confirmation modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && deleteConfirm.isOpen) {
+        setDeleteConfirm({ isOpen: false, profile: null });
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [deleteConfirm.isOpen]);
 
   const fetchProfiles = async () => {
     setIsLoading(true);
@@ -42,16 +56,23 @@ const ProfilesPanel = () => {
     setIsModalOpen(true);
   };
 
-  const handleDeleteProfile = async (profileId) => {
-    if (!window.confirm('Are you sure you want to delete this profile? This action cannot be undone.')) {
-      return;
-    }
+  const handleDeleteProfile = (profile) => {
+    setDeleteConfirm({ isOpen: true, profile });
+  };
+
+  const confirmDeleteProfile = async () => {
+    const profile = deleteConfirm.profile;
+    if (!profile) return;
+
+    setDeleteConfirm({ isOpen: false, profile: null });
 
     try {
-      const response = await api.deleteProfile(profileId);
+      const response = await api.deleteProfile(profile.id);
       if (response.success) {
         showSuccess('Profile deleted successfully');
         await fetchProfiles();
+        // Notify parent to refresh header selector
+        onProfilesChanged?.();
       } else {
         showError(response.messages?.error?.[0] || 'Failed to delete profile');
       }
@@ -66,6 +87,10 @@ const ProfilesPanel = () => {
       if (response.success) {
         showSuccess('Active profile updated');
         await fetchProfiles();
+        // Notify parent component (header) to refresh
+        if (onProfileChange) {
+          onProfileChange(profileId);
+        }
       } else {
         showError(response.messages?.error?.[0] || 'Failed to set active profile');
       }
@@ -83,6 +108,8 @@ const ProfilesPanel = () => {
     await fetchProfiles();
     setIsModalOpen(false);
     setEditingProfile(null);
+    // Notify parent to refresh header selector (for renames, etc.)
+    onProfilesChanged?.();
   };
 
   if (isLoading) {
@@ -148,6 +175,12 @@ const ProfilesPanel = () => {
                       <span className="px-2 py-1 text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded-full flex items-center space-x-1">
                         <CheckCircle className="w-3 h-3" />
                         <span>Active</span>
+                      </span>
+                    )}
+                    {profile.groupCount > 0 && (
+                      <span className="px-2 py-1 text-xs bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-200 rounded-full flex items-center space-x-1">
+                        <Database className="w-3 h-3" />
+                        <span>{profile.groupCount} {profile.groupCount === 1 ? 'group' : 'groups'}</span>
                       </span>
                     )}
                   </div>
@@ -216,7 +249,7 @@ const ProfilesPanel = () => {
                     <Edit className="w-5 h-5 text-secondary-600 dark:text-secondary-400" />
                   </button>
                   <button
-                    onClick={() => handleDeleteProfile(profile.id)}
+                    onClick={() => handleDeleteProfile(profile)}
                     className="p-2 hover:bg-red-100 dark:hover:bg-red-900 rounded-lg transition-colors"
                     title="Delete Profile"
                   >
@@ -242,8 +275,69 @@ const ProfilesPanel = () => {
         isVisible={notification.isVisible}
         onClose={hideNotification}
       />
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm.isOpen && deleteConfirm.profile && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-secondary-900 dark:text-white">
+                Delete Profile
+              </h3>
+            </div>
+
+            <p className="text-secondary-700 dark:text-secondary-300 mb-4">
+              Are you sure you want to delete "<strong>{deleteConfirm.profile.name}</strong>"?
+            </p>
+
+            {deleteConfirm.profile.groupCount > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-4">
+                <div className="flex items-start space-x-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">
+                      This profile has {deleteConfirm.profile.groupCount} group{deleteConfirm.profile.groupCount !== 1 ? 's' : ''}
+                    </p>
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
+                      Consider removing snapshots from the Groups tab first. Deleting the profile will also delete all associated groups and their snapshots.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <p className="text-sm text-secondary-500 dark:text-secondary-400 mb-6">
+              This action cannot be undone.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeleteConfirm({ isOpen: false, profile: null })}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteProfile}
+                className="btn-danger flex items-center space-x-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Profile</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+};
+
+ProfilesPanel.propTypes = {
+  onProfileChange: PropTypes.func,
+  onProfilesChanged: PropTypes.func,
 };
 
 export default ProfilesPanel;

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield } from 'lucide-react';
+import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield, WifiOff, Settings } from 'lucide-react';
 import { Toast, ConfirmationModal, InputModal } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import DatabaseSelector from './DatabaseSelector';
 import { LoadingButton, LoadingPage, LoadingSpinner } from './ui/Loading';
-import ConnectionOverlay from './ui/ConnectionOverlay';
+import ProfileManagementModal from './ProfileManagementModal';
 import TimeAgo from './ui/TimeAgo';
 import { format as formatTimeAgo } from 'timeago.js';
 import { useNotification } from '../hooks/useNotification';
@@ -13,39 +13,8 @@ import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
 import { api, isTauri } from '../api';
 
-const MAX_RETRIES = 5;
-const RETRY_DELAYS = [1000, 2000, 3000, 4000, 5000]; // Exponential backoff - give SQL Server time to fully initialize
 
-// Detect if an error message indicates SQL Server is still starting up vs a real error
-const isStartupError = (errorMessage) => {
-  const startupPatterns = [
-    /cannot open database/i,
-    /login failed/i,
-    /network-related/i,
-    /instance-specific error/i,
-    /server was not found/i,
-    /not accessible/i,
-    /connection refused/i,
-    /ECONNREFUSED/i,
-    /timeout/i,
-    /failed to connect/i,
-  ];
-  return startupPatterns.some(pattern => pattern.test(errorMessage));
-};
-
-// Get a friendly error message for display
-const getFriendlyErrorMessage = (errorMessage) => {
-  if (isStartupError(errorMessage)) {
-    return 'Waiting for SQL Server to be ready...';
-  }
-  // For other errors, show something more user-friendly than raw error
-  if (errorMessage.includes('500')) {
-    return 'Server error - retrying...';
-  }
-  return errorMessage;
-};
-
-const GroupsManager = ({ onNavigateSettings }) => {
+const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
   const [groups, setGroups] = useState([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
@@ -62,10 +31,12 @@ const GroupsManager = ({ onNavigateSettings }) => {
   const [settings, setSettings] = useState({});
 
   // Connection state management
-  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected', 'connecting', 'reconnecting', 'error', 'needs_config'
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected', 'connecting', 'error', 'needs_config'
   const [connectionError, setConnectionError] = useState('');
-  const [retryCount, setRetryCount] = useState(0);
-  const retryTimeoutRef = useRef(null);
+  const [activeProfileName, setActiveProfileName] = useState('');
+  const [activeProfileId, setActiveProfileId] = useState(null);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editingProfileData, setEditingProfileData] = useState(null);
   const isTauriApp = isTauri();
 
   // Separate loading states for different operations
@@ -103,39 +74,51 @@ const GroupsManager = ({ onNavigateSettings }) => {
   }, []);
 
   // Load data with connection handling
-  const loadData = useCallback(async (isRetry = false) => {
-    // First check if we have a configured connection (both Tauri and Docker modes)
+  const loadData = useCallback(async () => {
+    // First check if there are ANY profiles configured
     try {
-      const healthData = await api.get('/api/health');
-      // Check if connected (handle both response formats)
-      const isConnected = healthData.connected || healthData.data?.connected;
-      // Check if there's a connection error (vs just no config)
-      const hasConnectionError = healthData.sqlError || healthData.data?.sqlError;
+      const profilesResponse = await api.getProfiles();
+      const profiles = profilesResponse.data || [];
 
-      if (!isConnected && !hasConnectionError) {
-        // No credentials configured - show setup screen
+      if (profiles.length === 0) {
+        // No profiles exist - show setup screen to create one
         setConnectionStatus('needs_config');
+        setActiveProfileName('');
+        setActiveProfileId(null);
         setIsInitialLoading(false);
         setIsLoading(false);
         return;
       }
+
+      // Check if any profile is active and store its info
+      const activeProfile = profiles.find(p => p.isActive);
+      if (!activeProfile) {
+        // Profiles exist but none are active - show setup screen
+        setConnectionStatus('needs_config');
+        setActiveProfileName('');
+        setActiveProfileId(null);
+        setIsInitialLoading(false);
+        setIsLoading(false);
+        return;
+      }
+
+      // Store active profile info for connection status messages and edit button
+      setActiveProfileName(activeProfile.name);
+      setActiveProfileId(activeProfile.id);
     } catch (e) {
-      // If health check fails entirely in Tauri mode, need config
+      // If profiles check fails in Tauri mode, assume no config
       if (isTauriApp) {
         setConnectionStatus('needs_config');
+        setActiveProfileName('');
+        setActiveProfileId(null);
         setIsInitialLoading(false);
         setIsLoading(false);
         return;
       }
-      // In Docker mode, a failed health check is a server error - continue to retry logic
+      // In Docker mode, continue - backend may not be fully ready
     }
 
-    if (isRetry) {
-      setConnectionStatus('reconnecting');
-    } else if (connectionStatus !== 'connected') {
-      setConnectionStatus('connecting');
-    }
-
+    setConnectionStatus('connecting');
     setIsLoading(true);
 
     try {
@@ -159,7 +142,6 @@ const GroupsManager = ({ onNavigateSettings }) => {
       // Connection successful
       setConnectionStatus('connected');
       setConnectionError('');
-      setRetryCount(0);
 
       // Also fetch settings
       try {
@@ -171,57 +153,75 @@ const GroupsManager = ({ onNavigateSettings }) => {
       }
     } catch (error) {
       console.error('Error loading data:', error);
-      const friendlyMessage = getFriendlyErrorMessage(error.message);
-      setConnectionError(friendlyMessage);
-
-      // If we haven't exceeded max retries, schedule a retry
-      // For startup errors, always retry (SQL Server is coming up)
-      const shouldRetry = retryCount < MAX_RETRIES || isStartupError(error.message);
-
-      if (shouldRetry && retryCount < MAX_RETRIES) {
-        const nextRetry = retryCount + 1;
-        setRetryCount(nextRetry);
-        setConnectionStatus('reconnecting');
-
-        const delay = RETRY_DELAYS[Math.min(nextRetry - 1, RETRY_DELAYS.length - 1)];
-        retryTimeoutRef.current = setTimeout(() => {
-          loadData(true);
-        }, delay);
-      } else {
-        // Max retries exceeded, show error state
-        setConnectionStatus('error');
-      }
+      // Show error immediately - no auto-retry, user can click Retry button
+      setConnectionError(error.message);
+      setConnectionStatus('error');
     } finally {
       setIsLoading(false);
       setIsInitialLoading(false);
     }
-  }, [checkConnection, connectionStatus, retryCount]);
+  }, [checkConnection]);
 
   // Manual reconnect handler
   const handleReconnect = useCallback(() => {
-    // Clear any pending retry
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
-    setRetryCount(0);
     setConnectionError('');
-    loadData(true);
+    loadData();
   }, [loadData]);
+
+  // Open profile edit modal for the active profile
+  const handleEditActiveProfile = useCallback(async () => {
+    if (!activeProfileId) return;
+
+    try {
+      // Fetch full profile data
+      const response = await api.getProfiles();
+      if (response.success) {
+        const profile = response.data?.find(p => p.id === activeProfileId);
+        if (profile) {
+          setEditingProfileData(profile);
+          setIsEditingProfile(true);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch profile for editing:', error);
+      showError('Failed to load profile data');
+    }
+  }, [activeProfileId, showError]);
+
+  // Handle profile edit save - close modal and retry connection
+  const handleProfileEditSave = useCallback(() => {
+    setIsEditingProfile(false);
+    setEditingProfileData(null);
+    // Refresh header selector (group counts may have changed)
+    onGroupsChanged?.();
+    // Retry connection with updated profile
+    handleReconnect();
+  }, [onGroupsChanged, handleReconnect]);
 
   // Initial load
   useEffect(() => {
     loadData();
   }, []);
 
-  // Cleanup on unmount
+  // Handle ESC key to close modals
   useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (isCreatingGroup) {
+          setIsCreatingGroup(false);
+          groupForm.reset();
+          setSelectedDatabases([]);
+        } else if (editingGroup) {
+          setEditingGroup(null);
+          groupForm.reset();
+          setSelectedDatabases([]);
+        }
       }
     };
-  }, []);
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isCreatingGroup, editingGroup, groupForm]);
 
   // Refresh snapshots when groups change (new group created)
   useEffect(() => {
@@ -324,6 +324,8 @@ const GroupsManager = ({ onNavigateSettings }) => {
         groupForm.reset();
         setSelectedDatabases([]);
         setIsCreatingGroup(false);
+        // Notify parent to refresh header profile selector (group counts)
+        onGroupsChanged?.();
       } else {
         // Handle error messages from API
         const errorMessage = responseData.messages?.error?.[0] || 'Failed to create group. Please try again.';
@@ -461,6 +463,8 @@ const GroupsManager = ({ onNavigateSettings }) => {
           if (responseData.success) {
             showSuccess(responseData.messages.success?.[0] || 'Group deleted successfully!');
             await fetchGroups();
+            // Notify parent to refresh header profile selector (group counts)
+            onGroupsChanged?.();
           } else {
             // Handle error messages from API
             const errorMessage = responseData.messages?.error?.[0] || 'Failed to delete group. Please try again.';
@@ -939,57 +943,104 @@ const GroupsManager = ({ onNavigateSettings }) => {
     }
   };
 
-  // Determine connection overlay status
-  const overlayStatus = isInitialLoading
-    ? (connectionStatus === 'error' ? 'error' : connectionStatus)
-    : (connectionStatus === 'connected' ? 'connected' : connectionStatus);
-
   return (
     <div className="space-y-6">
-      {isInitialLoading && connectionStatus !== 'error' && connectionStatus !== 'reconnecting' ? (
-        <LoadingPage message="Loading database groups..." />
-      ) : (
-        <ConnectionOverlay
-          status={overlayStatus}
-          message={connectionError}
-          onRetry={handleReconnect}
-          onNavigateSettings={onNavigateSettings}
-          retryCount={retryCount}
-          maxRetries={MAX_RETRIES}
+      {/* Connection Status Banner - shown inline, doesn't block UI */}
+      {connectionStatus === 'needs_config' && (
+        <div
+          onClick={onNavigateSettings}
+          className="bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 rounded-lg p-6 text-center cursor-pointer hover:bg-primary-100 dark:hover:bg-primary-900/50 transition-colors"
         >
-          {/* Header */}
+          <Settings className="w-12 h-12 text-primary-500 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-primary-800 dark:text-primary-200 mb-2">
+            Setup Required
+          </h3>
+          <p className="text-primary-600 dark:text-primary-300">
+            Click here to configure your first connection profile
+          </p>
+        </div>
+      )}
+
+      {connectionStatus === 'connecting' && (
+        <div className="bg-secondary-100 dark:bg-secondary-800 border border-secondary-200 dark:border-secondary-700 rounded-lg p-4 flex items-center justify-center space-x-3">
+          <LoadingSpinner size="sm" />
+          <span className="text-secondary-700 dark:text-secondary-300">
+            Connecting to {activeProfileName || 'SQL Server'}...
+          </span>
+        </div>
+      )}
+
+      {connectionStatus === 'error' && (
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-secondary-900 dark:text-white">
-                Database Groups
-              </h2>
-              <p className="text-secondary-600 dark:text-secondary-400">
-                Organize your databases and manage snapshots
-              </p>
-            </div>
             <div className="flex items-center space-x-3">
-              <LoadingButton
-                onClick={runVerification}
-                className="btn-secondary flex items-center space-x-2"
-                aria-label="Verify snapshot consistency"
-                loading={isVerifying}
-                loadingText="Verifying..."
-              >
-                <Shield className="w-4 h-4" aria-hidden="true" />
-                <span>Verify</span>
-              </LoadingButton>
-              <LoadingButton
-                onClick={() => setIsCreatingGroup(true)}
+              <WifiOff className="w-6 h-6 text-red-500" />
+              <div>
+                <h3 className="font-semibold text-red-800 dark:text-red-200">
+                  Connection unavailable{activeProfileName ? ` for "${activeProfileName}"` : ''}
+                </h3>
+                <p className="text-sm text-red-600 dark:text-red-300">
+                  {connectionError || 'Unable to connect to SQL Server'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              {activeProfileId && (
+                <button
+                  onClick={handleEditActiveProfile}
+                  className="btn-secondary flex items-center space-x-2"
+                >
+                  <Edit className="w-4 h-4" />
+                  <span>Edit Profile</span>
+                </button>
+              )}
+              <button
+                onClick={handleReconnect}
                 className="btn-primary flex items-center space-x-2"
-                aria-label="Create new database group"
-                loading={isLoading}
-                loadingText="Loading..."
               >
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                <span>New Group</span>
-              </LoadingButton>
+                <RotateCcw className="w-4 h-4" />
+                <span>Retry</span>
+              </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Header - always visible */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-secondary-900 dark:text-white">
+            Database Groups
+          </h2>
+          <p className="text-secondary-600 dark:text-secondary-400">
+            Organize your databases and manage snapshots
+          </p>
+        </div>
+        <div className="flex items-center space-x-3">
+          <LoadingButton
+            onClick={runVerification}
+            className="btn-secondary flex items-center space-x-2"
+            aria-label="Verify snapshot consistency"
+            loading={isVerifying}
+            loadingText="Verifying..."
+            disabled={connectionStatus !== 'connected'}
+          >
+            <Shield className="w-4 h-4" aria-hidden="true" />
+            <span>Verify</span>
+          </LoadingButton>
+          <LoadingButton
+            onClick={() => setIsCreatingGroup(true)}
+            className="btn-primary flex items-center space-x-2"
+            aria-label="Create new database group"
+            loading={isLoading}
+            loadingText="Loading..."
+            disabled={connectionStatus !== 'connected'}
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            <span>New Group</span>
+          </LoadingButton>
+        </div>
+      </div>
 
       {/* Create Group Modal */}
       {isCreatingGroup && (
@@ -1121,7 +1172,22 @@ const GroupsManager = ({ onNavigateSettings }) => {
       )}
 
       {/* Groups List */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="relative">
+        {/* Blur overlay when connection is unavailable and there are groups */}
+        {connectionStatus === 'error' && groups.length > 0 && (
+          <div className="absolute inset-0 z-10 backdrop-blur-sm bg-white/60 dark:bg-secondary-900/60 rounded-lg flex items-center justify-center">
+            <div className="text-center p-6 bg-white dark:bg-secondary-800 rounded-xl shadow-lg">
+              <WifiOff className="w-12 h-12 text-red-400 mx-auto mb-3" />
+              <p className="text-secondary-700 dark:text-secondary-300 font-medium">
+                Connection unavailable
+              </p>
+              <p className="text-sm text-secondary-500 dark:text-secondary-400 mt-1">
+                Use the Retry button above or check your profile settings
+              </p>
+            </div>
+          </div>
+        )}
+        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 ${connectionStatus === 'error' ? 'pointer-events-none select-none' : ''}`}>
         {groups.map((group) => (
           <div key={group.id} className="card p-6">
             <div className="flex items-center justify-between mb-4">
@@ -1356,9 +1422,10 @@ const GroupsManager = ({ onNavigateSettings }) => {
             )}
           </div>
         ))}
+        </div>
       </div>
 
-      {groups.length === 0 && (
+      {groups.length === 0 && connectionStatus === 'connected' && (
         <div className="text-center py-12">
           <Database className="w-16 h-16 text-secondary-300 dark:text-secondary-600 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-secondary-900 dark:text-white mb-2">
@@ -1373,6 +1440,18 @@ const GroupsManager = ({ onNavigateSettings }) => {
           >
             Create Your First Group
           </button>
+        </div>
+      )}
+
+      {groups.length === 0 && connectionStatus === 'error' && (
+        <div className="text-center py-12">
+          <WifiOff className="w-16 h-16 text-red-300 dark:text-red-600 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-secondary-900 dark:text-white mb-2">
+            Connection unavailable
+          </h3>
+          <p className="text-secondary-600 dark:text-secondary-400 mb-4">
+            Restore your connection to your server to view and manage groups
+          </p>
         </div>
       )}
 
@@ -1570,14 +1649,24 @@ const GroupsManager = ({ onNavigateSettings }) => {
           </div>
         </div>
       )}
-        </ConnectionOverlay>
-      )}
+
+      {/* Profile Edit Modal - opens in-place when connection fails */}
+      <ProfileManagementModal
+        isOpen={isEditingProfile}
+        onClose={() => {
+          setIsEditingProfile(false);
+          setEditingProfileData(null);
+        }}
+        onSave={handleProfileEditSave}
+        editingProfile={editingProfileData}
+      />
     </div>
   );
 };
 
 GroupsManager.propTypes = {
-  onNavigateSettings: PropTypes.func
+  onNavigateSettings: PropTypes.func,
+  onGroupsChanged: PropTypes.func
 };
 
 export default GroupsManager;

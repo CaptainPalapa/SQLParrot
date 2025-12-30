@@ -74,6 +74,24 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
     }
   }, [isOpen, editingProfile]);
 
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isOpen && !isSaving && !isTesting) {
+        // If save confirmation is showing, close that first
+        if (showSaveConfirm) {
+          setShowSaveConfirm(false);
+          setTestFailedMessage('');
+        } else {
+          onClose();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isSaving, isTesting, showSaveConfirm, onClose]);
+
   const validateForm = () => {
     const newErrors = {};
 

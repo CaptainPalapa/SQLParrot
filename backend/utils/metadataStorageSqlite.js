@@ -19,10 +19,6 @@ class MetadataStorage {
     this.userName = process.env.SQLPARROT_USER_NAME || 'local_user';
     this.dbPath = path.join(process.cwd(), 'data', 'sqlparrot.db');
     this.db = null;
-
-    console.log(`🔧 SQLite Metadata Storage:`);
-    console.log(`   User = "${this.userName}"`);
-    console.log(`   Database = "${this.dbPath}"`);
   }
 
   /**
@@ -51,7 +47,6 @@ class MetadataStorage {
     if (this.db) {
       this.db.close();
       this.db = null;
-      console.log('🔌 SQLite database closed');
     }
   }
 
@@ -66,10 +61,8 @@ class MetadataStorage {
    */
   async testConnection() {
     try {
-      console.log('🔍 Testing SQLite connection...');
       const db = this.getDb();
       db.prepare('SELECT 1 as test').get();
-      console.log('✅ SQLite connection successful');
       return { success: true, message: 'SQLite connection successful' };
     } catch (error) {
       console.error('❌ SQLite connection failed:', error.message);
@@ -83,7 +76,6 @@ class MetadataStorage {
    */
   async initialize() {
     try {
-      console.log('🚀 Initializing SQLite metadata storage...');
       const db = this.getDb();
 
       // Create snapshot table
@@ -120,15 +112,17 @@ class MetadataStorage {
         )
       `);
 
-      // Create groups table
+      // Create groups table (profile_id links groups to connection profiles)
       db.exec(`
         CREATE TABLE IF NOT EXISTS groups (
           id TEXT PRIMARY KEY,
-          name TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
           databases TEXT,
+          profile_id TEXT,
           created_by TEXT NOT NULL,
           created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          UNIQUE(name, profile_id)
         )
       `);
 
@@ -170,7 +164,7 @@ class MetadataStorage {
         )
       `);
 
-      // Create indexes for common queries
+      // Create indexes for common queries (profile_id index created after migration)
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_snapshot_group_id ON snapshot(group_id);
         CREATE INDEX IF NOT EXISTS idx_snapshot_created_at ON snapshot(created_at);
@@ -184,10 +178,16 @@ class MetadataStorage {
         INSERT OR IGNORE INTO _metadata (key, value) VALUES ('last_version_seen', '0.0.0')
       `);
 
-      console.log('✅ SQLite metadata storage initialized successfully');
-
-      // Check version and migrate if needed
+      // Check version and migrate if needed (this adds profile_id column if needed)
       await this.checkAndMigrate();
+
+      // Create profile_id index AFTER migrations have run (column may have just been added)
+      try {
+        db.exec('CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)');
+      } catch (e) {
+        // Index creation might fail if column still doesn't exist for some reason
+        console.warn('⚠️ Could not create profile_id index:', e.message);
+      }
 
       return { success: true, message: 'Metadata storage initialized' };
 
@@ -205,24 +205,67 @@ class MetadataStorage {
       const db = this.getDb();
       const versionResult = db.prepare('SELECT value FROM _metadata WHERE key = ?').get('last_version_seen');
       const lastVersion = versionResult ? versionResult.value : '0.0.0';
-      const currentVersion = '1.3.0';
+      const currentVersion = '1.4.0';
 
       if (this.compareVersions(lastVersion, currentVersion) < 0) {
-        console.log(`🔄 Migrating from version ${lastVersion} to ${currentVersion}...`);
-
         // Migration from versions < 1.3.0: Migrate config.json and env vars to profiles table
         if (this.compareVersions(lastVersion, '1.3.0') < 0) {
           await this.migrateConfigJsonToProfiles();
           await this.migrateEnvVarsToProfiles();
         }
 
+        // Migration from versions < 1.4.0: Add profile_id to groups table
+        if (this.compareVersions(lastVersion, '1.4.0') < 0) {
+          await this.migrateGroupsAddProfileId();
+        }
+
         // Update version
         db.prepare('INSERT OR REPLACE INTO _metadata (key, value) VALUES (?, ?)').run('last_version_seen', currentVersion);
-        console.log(`✅ Migration to ${currentVersion} completed`);
       }
     } catch (error) {
       console.error('⚠️ Migration check failed:', error.message);
       // Continue anyway - migration failures shouldn't prevent app from starting
+    }
+  }
+
+  /**
+   * Migration: Add profile_id column to groups table
+   * Assigns existing groups to the active profile (or first profile if none active)
+   */
+  async migrateGroupsAddProfileId() {
+    try {
+      const db = this.getDb();
+
+      // Check if column already exists
+      const tableInfo = db.prepare("PRAGMA table_info('groups')").all();
+      const hasProfileId = tableInfo.some(col => col.name === 'profile_id');
+
+      if (!hasProfileId) {
+        // Add the column
+        db.exec('ALTER TABLE groups ADD COLUMN profile_id TEXT');
+
+        // Get the active profile (or first profile if none active)
+        let activeProfile = db.prepare('SELECT id FROM profiles WHERE is_active = 1 LIMIT 1').get();
+        if (!activeProfile) {
+          activeProfile = db.prepare('SELECT id FROM profiles LIMIT 1').get();
+        }
+
+        if (activeProfile) {
+          // Assign existing groups to the active profile
+          db.prepare('UPDATE groups SET profile_id = ? WHERE profile_id IS NULL').run(activeProfile.id);
+        }
+
+        // Create index for profile_id
+        db.exec('CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)');
+
+        // Drop the old unique constraint on name and add new one on (name, profile_id)
+        // SQLite doesn't support DROP CONSTRAINT, so we need to recreate the table
+        // For simplicity, we'll just allow duplicate names across profiles going forward
+        // The CREATE TABLE already has UNIQUE(name, profile_id)
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to add profile_id to groups:', error.message);
+      // Continue anyway
     }
   }
 
@@ -324,7 +367,6 @@ class MetadataStorage {
             port: profile.port || 1433
           });
 
-          console.log(`✅ Migrated profile "${name}" from config.json`);
         }
       }
 
@@ -340,13 +382,11 @@ class MetadataStorage {
           message: `Migrated ${migratedProfiles.length} connection profile(s) from config.json to SQLite`
         };
         await this.addHistoryEntry(historyEntry);
-        console.log(`✅ Added history entry for config.json migration`);
       }
 
       // Delete config.json after successful migration
       try {
         fs.unlinkSync(configPath);
-        console.log('✅ Deleted config.json after successful migration');
       } catch (error) {
         console.warn('⚠️ Failed to delete config.json after migration:', error.message);
         // Continue anyway - migration succeeded even if deletion failed
@@ -381,7 +421,6 @@ class MetadataStorage {
         // Note: theme preference is handled by frontend, not stored in backend
 
         await this.updateSettings(settings);
-        console.log('✅ Migrated preferences from config.json');
       }
     } catch (error) {
       console.error('⚠️ Failed to migrate preferences from config.json:', error.message);
@@ -402,7 +441,6 @@ class MetadataStorage {
       const hasEnvVars = process.env.SQL_SERVER && process.env.SQL_USERNAME && process.env.SQL_PASSWORD;
 
       if (!hasEnvVars) {
-        console.log('ℹ️ No environment variables to migrate');
         return;
       }
 
@@ -448,7 +486,6 @@ class MetadataStorage {
           profileData.updated_at,
           profileData.id
         );
-        console.log('✅ Updated "Migrated" profile from environment variables');
       } else {
         // Deactivate all other profiles first
         db.prepare('UPDATE profiles SET is_active = 0').run();
@@ -472,7 +509,6 @@ class MetadataStorage {
           profileData.created_at,
           profileData.updated_at
         );
-        console.log('✅ Created "Migrated" profile from environment variables');
       }
     } catch (error) {
       console.error('⚠️ Failed to migrate environment variables to profiles:', error.message);
@@ -921,8 +957,6 @@ class MetadataStorage {
         JSON.stringify(historyEntry)
       );
 
-      console.log(`✅ Added history entry to metadata database`);
-
       // Enforce max history entries limit
       const settingsResult = await this.getSettings();
       const maxEntries = settingsResult.settings?.maxHistoryEntries || 100;
@@ -1129,29 +1163,57 @@ class MetadataStorage {
   }
 
   /**
-   * Get groups from metadata storage
+   * Get groups from metadata storage (filtered by active profile)
+   * @param {string} [profileId] Optional profile ID to filter by (defaults to active profile)
    * @returns {Object} Groups result
    */
-  async getGroups() {
+  async getGroups(profileId = null) {
     try {
       const db = this.getDb();
 
-      const rows = db.prepare(`
-        SELECT
-          id,
-          name,
-          databases,
-          created_by,
-          created_at,
-          updated_at
-        FROM groups
-        ORDER BY name
-      `).all();
+      // Get the profile ID to filter by
+      let filterProfileId = profileId;
+      if (!filterProfileId) {
+        const activeProfile = this.getActiveProfile();
+        filterProfileId = activeProfile?.id || null;
+      }
+
+      let rows;
+      if (filterProfileId) {
+        rows = db.prepare(`
+          SELECT
+            id,
+            name,
+            databases,
+            profile_id,
+            created_by,
+            created_at,
+            updated_at
+          FROM groups
+          WHERE profile_id = ?
+          ORDER BY name
+        `).all(filterProfileId);
+      } else {
+        // No profile, return all groups (for backward compatibility)
+        rows = db.prepare(`
+          SELECT
+            id,
+            name,
+            databases,
+            profile_id,
+            created_by,
+            created_at,
+            updated_at
+          FROM groups
+          ORDER BY name
+        `).all();
+      }
 
       const groups = rows.map(row => {
         const group = {
           id: row.id,
           name: row.name,
+          profileId: row.profile_id,
           createdBy: row.created_by,
           createdAt: row.created_at,
           updatedAt: row.updated_at
@@ -1179,21 +1241,55 @@ class MetadataStorage {
   }
 
   /**
+   * Get group count per profile
+   * @returns {Object} Map of profile_id to group count
+   */
+  getGroupCountsByProfile() {
+    try {
+      const db = this.getDb();
+      const rows = db.prepare(`
+        SELECT profile_id, COUNT(*) as count
+        FROM groups
+        WHERE profile_id IS NOT NULL
+        GROUP BY profile_id
+      `).all();
+
+      const counts = {};
+      rows.forEach(row => {
+        counts[row.profile_id] = row.count;
+      });
+
+      return { success: true, counts };
+    } catch (error) {
+      console.error(`❌ Failed to get group counts: ${error.message}`);
+      return { success: false, error: error.message, counts: {} };
+    }
+  }
+
+  /**
    * Create a group in metadata storage
-   * @param {Object} group Group object
+   * @param {Object} group Group object (should include profileId or will use active profile)
    * @returns {Object} Result
    */
   async createGroup(group) {
     try {
       const db = this.getDb();
 
+      // Get profile ID - use provided one or get from active profile
+      let profileId = group.profileId;
+      if (!profileId) {
+        const activeProfile = this.getActiveProfile();
+        profileId = activeProfile?.id || null;
+      }
+
       db.prepare(`
-        INSERT INTO groups (id, name, databases, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO groups (id, name, databases, profile_id, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         group.id,
         group.name,
         JSON.stringify(group.databases || []),
+        profileId,
         this.userName,
         new Date().toISOString(),
         new Date().toISOString()

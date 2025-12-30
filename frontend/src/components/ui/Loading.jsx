@@ -27,11 +27,12 @@ const LoadingButton = ({
   className = '',
   ...props
 }) => {
+  const isDisabled = disabled || loading;
   return (
     <button
       {...props}
-      disabled={disabled || loading}
-      className={`${className} ${loading ? 'opacity-75 cursor-not-allowed' : ''}`}
+      disabled={isDisabled}
+      className={`${className} ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       {loading ? (
         <div className="flex items-center justify-center space-x-2">

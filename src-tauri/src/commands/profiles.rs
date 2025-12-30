@@ -8,7 +8,7 @@ use crate::db::MetadataStore;
 use crate::models::Profile;
 use crate::ApiResponse;
 
-/// Get all profiles (without passwords for security)
+/// Get all profiles (without passwords for security) with group counts
 #[tauri::command]
 pub async fn get_profiles() -> ApiResponse<Vec<crate::models::ProfilePublic>> {
     let store = match MetadataStore::open() {
@@ -16,25 +16,32 @@ pub async fn get_profiles() -> ApiResponse<Vec<crate::models::ProfilePublic>> {
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
+    // Get group counts per profile
+    let group_counts = store.get_group_counts_by_profile().unwrap_or_default();
+
     match store.get_profiles() {
         Ok(profiles) => {
-            // Convert to public profiles (without passwords)
+            // Convert to public profiles (without passwords) with group counts
             let public_profiles: Vec<crate::models::ProfilePublic> = profiles
                 .into_iter()
-                .map(|p| crate::models::ProfilePublic {
-                    id: p.id,
-                    name: p.name,
-                    platform_type: p.platform_type,
-                    host: p.host,
-                    port: p.port,
-                    username: p.username,
-                    trust_certificate: p.trust_certificate,
-                    snapshot_path: p.snapshot_path,
-                    description: p.description,
-                    notes: p.notes,
-                    is_active: p.is_active,
-                    created_at: p.created_at,
-                    updated_at: p.updated_at,
+                .map(|p| {
+                    let group_count = group_counts.get(&p.id).copied().unwrap_or(0);
+                    crate::models::ProfilePublic {
+                        id: p.id.clone(),
+                        name: p.name,
+                        platform_type: p.platform_type,
+                        host: p.host,
+                        port: p.port,
+                        username: p.username,
+                        trust_certificate: p.trust_certificate,
+                        snapshot_path: p.snapshot_path,
+                        description: p.description,
+                        notes: p.notes,
+                        is_active: p.is_active,
+                        group_count,
+                        created_at: p.created_at,
+                        updated_at: p.updated_at,
+                    }
                 })
                 .collect();
             ApiResponse::success(public_profiles)
@@ -51,13 +58,17 @@ pub async fn get_profile(profile_id: String) -> ApiResponse<Option<crate::models
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
+    // Get group counts per profile
+    let group_counts = store.get_group_counts_by_profile().unwrap_or_default();
+
     match store.get_profiles() {
         Ok(profiles) => {
             let profile = profiles.into_iter().find(|p| p.id == profile_id);
             match profile {
                 Some(p) => {
+                    let group_count = group_counts.get(&p.id).copied().unwrap_or(0);
                     let public_profile = crate::models::ProfilePublic {
-                        id: p.id,
+                        id: p.id.clone(),
                         name: p.name,
                         platform_type: p.platform_type,
                         host: p.host,
@@ -68,6 +79,7 @@ pub async fn get_profile(profile_id: String) -> ApiResponse<Option<crate::models
                         description: p.description,
                         notes: p.notes,
                         is_active: p.is_active,
+                        group_count,
                         created_at: p.created_at,
                         updated_at: p.updated_at,
                     };
@@ -133,6 +145,7 @@ pub async fn create_profile(
                 description: profile.description,
                 notes: profile.notes,
                 is_active: profile.is_active,
+                group_count: 0, // New profile has no groups yet
                 created_at: profile.created_at,
                 updated_at: profile.updated_at,
             };
@@ -194,6 +207,10 @@ pub async fn update_profile(
         updated_at: Utc::now(),
     };
 
+    // Get group count for this profile
+    let group_counts = store.get_group_counts_by_profile().unwrap_or_default();
+    let group_count = group_counts.get(&profile.id).copied().unwrap_or(0);
+
     match store.update_profile(&profile) {
         Ok(_) => {
             let public_profile = crate::models::ProfilePublic {
@@ -208,6 +225,7 @@ pub async fn update_profile(
                 description: profile.description,
                 notes: profile.notes,
                 is_active: profile.is_active,
+                group_count,
                 created_at: profile.created_at,
                 updated_at: profile.updated_at,
             };

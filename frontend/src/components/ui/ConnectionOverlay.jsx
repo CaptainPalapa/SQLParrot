@@ -46,7 +46,7 @@ const ConnectionOverlay = ({
         return {
           icon: <Settings className="w-12 h-12 text-primary-400" />,
           title: 'Setup Required',
-          defaultMessage: 'Click here to configure your SQL Server connection',
+          defaultMessage: 'Click here to configure your connection profile',
           showRetry: false,
           showSettings: true,
           clickable: true

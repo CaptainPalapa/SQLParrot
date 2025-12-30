@@ -10,6 +10,8 @@ pub struct Group {
     pub id: String,
     pub name: String,
     pub databases: Vec<String>,
+    #[serde(rename = "profileId", default)]
+    pub profile_id: Option<String>,
     #[serde(rename = "createdBy", default)]
     pub created_by: Option<String>,
     #[serde(rename = "createdAt")]
@@ -185,6 +187,8 @@ pub struct ProfilePublic {
     pub notes: Option<String>,
     #[serde(rename = "isActive")]
     pub is_active: bool,
+    #[serde(rename = "groupCount", default)]
+    pub group_count: u32,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]

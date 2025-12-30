@@ -136,3 +136,11 @@ See `docs/RELEASE_STRATEGY.md` for full details.
 - Tiberius (Rust SQL Server): https://docs.rs/tiberius/
 - Desktop app docs: `docs/TAURI.md`
 - Snapshot behavior: `docs/SNAPSHOT_BEHAVIOR.md`
+
+---
+
+## Future Enhancement Ideas
+
+Ideas for future development (not currently in scope):
+
+- [ ] **Proxy Profiles** - Allow profiles to connect through SSH tunnels or proxy servers for accessing remote/secured database servers

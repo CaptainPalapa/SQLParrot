@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Database, Settings, History, Palette, Info, LogOut, Server } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PasswordProvider, usePassword } from './contexts/PasswordContext';
 import ThemeSelector from './components/ThemeSelector';
+import ProfileSelector from './components/ProfileSelector';
 import GroupsManager from './components/GroupsManager';
 import ProfilesPanel from './components/ProfilesPanel';
 import SettingsPanel from './components/SettingsPanel';
@@ -16,6 +17,19 @@ function AppContent() {
   const [isThemeSelectorOpen, setIsThemeSelectorOpen] = useState(false);
   const { passwordStatus, isAuthenticated, isLoading, logout } = usePassword();
   const [setupComplete, setSetupComplete] = useState(false);
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
+  const profileSelectorRef = useRef(null);
+
+  // Called when active profile changes - forces re-render and switches to Groups tab
+  const handleProfileChange = useCallback(() => {
+    setProfileRefreshKey(prev => prev + 1);
+    setActiveTab('groups'); // Switch to Groups tab when profile changes
+  }, []);
+
+  // Called when groups are added/removed - refreshes the header profile selector counts
+  const handleGroupsChanged = useCallback(() => {
+    profileSelectorRef.current?.refresh();
+  }, []);
 
   const tabs = [
     { id: 'groups', name: 'Groups', icon: Database },
@@ -80,6 +94,7 @@ function AppContent() {
                 </div>
 
                 <div className="flex items-center space-x-2">
+                  <ProfileSelector ref={profileSelectorRef} onProfileChange={handleProfileChange} />
                   {passwordStatus?.status === 'set' && isAuthenticated && (
                     <button
                       onClick={logout}
@@ -128,8 +143,8 @@ function AppContent() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {activeTab === 'groups' && <GroupsManager onNavigateSettings={() => setActiveTab('settings')} />}
-          {activeTab === 'profiles' && <ProfilesPanel />}
+          {activeTab === 'groups' && <GroupsManager key={`groups-${profileRefreshKey}`} onNavigateSettings={() => setActiveTab('profiles')} onGroupsChanged={handleGroupsChanged} />}
+          {activeTab === 'profiles' && <ProfilesPanel key={`profiles-${profileRefreshKey}`} onProfileChange={handleProfileChange} onProfilesChanged={handleGroupsChanged} />}
           {activeTab === 'settings' && <SettingsPanel onNavigateGroups={() => setActiveTab('groups')} />}
           {activeTab === 'history' && <HistoryView />}
           {activeTab === 'about' && <AboutPanel />}
