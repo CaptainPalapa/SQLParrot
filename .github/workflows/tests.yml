@@ -24,10 +24,10 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-    
+
     - name: Check npm version
       run: npm --version
-    
+
     - name: Install root dependencies
       run: |
         echo "Installing root dependencies..."
@@ -60,7 +60,7 @@ jobs:
           npm install
         fi
       timeout-minutes: 5
-    
+
     - name: Install backend dependencies
       run: |
         cd backend
