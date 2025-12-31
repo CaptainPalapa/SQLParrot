@@ -44,36 +44,37 @@ Linux builds (`.AppImage`, `.deb`) are planned for a future release. For now, Li
 
 ## Configuration Storage
 
-Settings are stored in the standard app data location:
+Settings and metadata are stored in the standard app data locations:
 
-| Platform | Location |
-|----------|----------|
-| Windows | `%APPDATA%\SQL Parrot\config.json` |
-| macOS | `~/Library/Application Support/SQL Parrot/config.json` |
-| Linux | `~/.config/sql-parrot/config.json` |
+| Platform | Config Location | Database Location |
+|----------|----------------|-------------------|
+| Windows | `%APPDATA%\SQL Parrot\config.json` | `%LOCALAPPDATA%\SQL Parrot\sqlparrot.db` |
+| macOS | `~/Library/Application Support/SQL Parrot/config.json` | `~/Library/Application Support/SQL Parrot/sqlparrot.db` |
+| Linux | `~/.config/sql-parrot/config.json` | `~/.local/share/sql-parrot/sqlparrot.db` |
+
+**Note:** The SQLite database (`sqlparrot.db`) is created at runtime. During uninstallation, you will be prompted whether to delete all application data. If you choose "Yes", the database and all settings will be removed.
 
 ### Configuration Format
 
+As of v1.3.0, profiles are stored in the SQLite database (`sqlparrot.db`) rather than a JSON config file. The database contains:
+
+- **profiles** table - Connection profiles with credentials (password encrypted at rest)
+- **groups** table - Database groups linked to profiles via `profile_id`
+- **snapshots** table - Snapshot metadata
+- **settings** table - App preferences (theme, max history entries, auto-checkpoint, password hash)
+- **history** table - Operation history
+
+Settings structure (stored as JSON in settings table):
 ```json
 {
-  "version": 1,
-  "activeProfile": "default",
-  "profiles": {
-    "default": {
-      "name": "Default",
-      "type": "sqlserver",
-      "host": "localhost",
-      "port": 1433,
-      "username": "sql_parrot_service",
-      "password": "...",
-      "trustCertificate": true,
-      "snapshotPath": "C:\\Snapshots"
-    }
-  },
   "preferences": {
-    "theme": "blue",
+    "defaultGroup": "",
     "maxHistoryEntries": 100,
     "autoCreateCheckpoint": true
+  },
+  "autoVerification": {
+    "enabled": false,
+    "intervalMinutes": 15
   }
 }
 ```
@@ -208,6 +209,14 @@ SQLParrot/
 - Check logs in app data directory
 - Windows: `%APPDATA%\SQL Parrot\logs\`
 - Try running from command line to see error output
+
+### Uninstallation
+When uninstalling SQL Parrot, you will be prompted whether to delete all application data. If you choose "Yes", the following will be deleted:
+- Database file (`sqlparrot.db`) containing groups, snapshots, and history
+- Settings and preferences
+- Configuration files
+
+If you choose "No", the application data will be preserved and will be available if you reinstall the application later.
 
 ---
 

@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
 const sql = require('mssql');
+const bcrypt = require('bcryptjs');
 
 // Standardized API response utility
 const createApiResponse = (success, data = null, messages = {}) => {
@@ -41,7 +42,7 @@ const createSuccessResponse = (data, successMessages = []) => {
 
 // Load environment variables from .env file
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-console.log('📁 Loaded environment variables from .env file');
+// Environment variables loaded from .env file
 
 // Import metadata storage (SQLite-based, local storage)
 const MetadataStorage = require('./utils/metadataStorageSqlite');
@@ -58,6 +59,75 @@ const PORT = process.env.PORT || (process.env.npm_lifecycle_event === 'dev' ? 30
 app.use(cors());
 app.use(express.json());
 
+// Session storage for authenticated users (in-memory, cleared on server restart)
+// Key: session token (random UUID), Value: { authenticated: true, timestamp: Date }
+const authenticatedSessions = new Map();
+const SESSION_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours
+
+// Generate session token
+function generateSessionToken() {
+  return require('crypto').randomUUID();
+}
+
+// Clean up expired sessions
+function cleanupExpiredSessions() {
+  const now = Date.now();
+  for (const [token, session] of authenticatedSessions.entries()) {
+    if (now - session.timestamp > SESSION_TIMEOUT) {
+      authenticatedSessions.delete(token);
+    }
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
+
+// Password check middleware (UI Security - protects access to SQL Parrot UI)
+async function requirePasswordAuth(req, res, next) {
+  // Skip auth for auth endpoints and health check
+  if (req.path.startsWith('/api/auth/') || req.path === '/api/health') {
+    return next();
+  }
+
+  // Skip auth for static files
+  if (!req.path.startsWith('/api/')) {
+    return next();
+  }
+
+  try {
+    // Check password status
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+
+    // If password not set or skipped, allow access
+    if (!passwordStatus.success || passwordStatus.status === 'not-set' || passwordStatus.status === 'skipped') {
+      return next();
+    }
+
+    // Check for session token
+    const sessionToken = req.headers['x-session-token'] || req.cookies?.sessionToken;
+
+    if (sessionToken && authenticatedSessions.has(sessionToken)) {
+      const session = authenticatedSessions.get(sessionToken);
+      // Check if session expired
+      if (Date.now() - session.timestamp < SESSION_TIMEOUT) {
+        // Update timestamp
+        session.timestamp = Date.now();
+        return next();
+      } else {
+        authenticatedSessions.delete(sessionToken);
+      }
+    }
+
+    // No valid session - require password
+    return res.status(401).json(createErrorResponse('Authentication required', 401));
+  } catch (error) {
+    console.error('Error in password auth middleware:', error);
+    return res.status(500).json(createErrorResponse('Authentication check failed', 500));
+  }
+}
+
+app.use(requirePasswordAuth);
+
 // API routes will be defined here
 
 // Data file paths - REMOVED: No longer using JSON files
@@ -71,12 +141,8 @@ async function initializeMetadataStorage() {
   if (isInitialized) return true;
 
   try {
-    console.log('🚀 Initializing SQLite metadata storage...');
-
     // Initialize SQLite database and tables
     await metadataStorage.initialize();
-
-    console.log('✅ SQLite metadata storage ready');
     isInitialized = true;
     initializationError = null;
     return true;
@@ -111,61 +177,9 @@ async function addToHistory(operation) {
     };
 
     // Add to SQL Server metadata storage
-    const result = await metadataStorage.addHistoryEntry(historyEntry);
-    if (result.success) {
-      console.log('✅ Added history entry to metadata database');
-    }
-
-    // Also log to console in user-friendly format
-    logOperationToConsole(operation);
+    await metadataStorage.addHistoryEntry(historyEntry);
   } catch (error) {
-    console.error('❌ Failed to add history to metadata database:', error.message);
-  }
-}
-
-function logOperationToConsole(operation) {
-  const timestamp = new Date().toLocaleString();
-
-  switch (operation.type) {
-    case 'create_group':
-      console.log(`📁 [${timestamp}] Created group "${operation.groupName}" with ${operation.databaseCount} databases`);
-      break;
-    case 'update_group':
-      console.log(`📁 [${timestamp}] Updated group "${operation.groupName}" with ${operation.databaseCount} databases`);
-      break;
-    case 'delete_group':
-      console.log(`🗑️ [${timestamp}] Deleted group "${operation.groupName}"`);
-      break;
-    case 'create_snapshots': {
-      const successCount = operation.results?.filter(r => r.success).length || 0;
-      const totalCount = operation.results?.length || 0;
-      const snapshotName = operation.snapshotName ? ` "${operation.snapshotName}"` : '';
-      console.log(`📸 [${timestamp}] Created snapshot${snapshotName} for group "${operation.groupName}" (${successCount}/${totalCount} successful)`);
-      break;
-    }
-    case 'create_automatic_checkpoint': {
-      const successCount = operation.results?.filter(r => r.success).length || 0;
-      const totalCount = operation.results?.length || 0;
-      console.log(`⏰ [${timestamp}] Created automatic checkpoint for group "${operation.groupName}" (${successCount}/${totalCount} successful)`);
-      break;
-    }
-    case 'restore_snapshot':
-      console.log(`🔄 [${timestamp}] Restored snapshot "${operation.snapshotName}" for group "${operation.groupName}"`);
-      if (operation.rolledBackDatabases?.length > 0) {
-        console.log(`   └─ Restored databases: ${operation.rolledBackDatabases.join(', ')}`);
-      }
-      if (operation.droppedSnapshots > 0) {
-        console.log(`   └─ Cleaned up ${operation.droppedSnapshots} old snapshots`);
-      }
-      break;
-    case 'cleanup_snapshots':
-      console.log(`🧹 [${timestamp}] Cleaned up ${operation.deletedCount} snapshots`);
-      break;
-    case 'trim_history':
-      console.log(`✂️ [${timestamp}] ${operation.removedCount} history entries removed (max changed from ${operation.previousCount} to ${operation.newMaxEntries})`);
-      break;
-    default:
-      console.log(`ℹ️ [${timestamp}] ${operation.type}: ${JSON.stringify(operation)}`);
+    console.error('Failed to add history entry:', error.message);
   }
 }
 
@@ -282,7 +296,6 @@ async function cleanupStaleSqlMetadata() {
     const verification = await verifySnapshotConsistency();
 
     if (verification.verified) {
-      console.log('✅ SQL metadata is consistent with SQL Server');
       return { cleaned: 0, staleSnapshots: [] };
     }
 
@@ -292,7 +305,6 @@ async function cleanupStaleSqlMetadata() {
 
     // Clean up stale metadata entries (snapshots in metadata that don't exist in SQL Server)
     if (verification.missingInSQL && verification.missingInSQL.length > 0) {
-      console.log(`🧹 Cleaning up ${verification.missingInSQL.length} stale metadata entries...`);
 
       // Get all snapshots from metadata to find the snapshot IDs
       const snapshotsData = await getSnapshotsData();
@@ -307,39 +319,24 @@ async function cleanupStaleSqlMetadata() {
         });
       });
 
-      console.log(`📋 Snapshot ID mapping:`, Array.from(snapshotIdMap.entries()));
-
       for (const snapshotName of verification.missingInSQL) {
         try {
-          // Get the snapshot ID from the full snapshot name
           const snapshotId = snapshotIdMap.get(snapshotName);
-          console.log(`🔍 Looking for snapshot ID for ${snapshotName}: ${snapshotId || 'NOT FOUND'}`);
-
           if (snapshotId) {
-            console.log(`🗑️ Attempting to delete snapshot ID: ${snapshotId}`);
             const deleteResult = await metadataStorage.deleteSnapshot(snapshotId);
-            console.log(`📊 Delete result:`, deleteResult);
-
             if (deleteResult.success) {
               cleanedCount++;
               cleanedSnapshots.push(snapshotName);
-              console.log(`✅ Removed stale snapshot entry: ${snapshotName} (ID: ${snapshotId})`);
-            } else {
-              console.log(`❌ Delete failed for ${snapshotName}:`, deleteResult);
             }
-          } else {
-            console.log(`⚠️ Could not find snapshot ID for ${snapshotName}`);
           }
         } catch (error) {
-          console.error(`❌ Failed to remove stale snapshot entry ${snapshotName}:`, error.message);
+          console.error(`Failed to remove stale snapshot entry ${snapshotName}:`, error.message);
         }
       }
     }
 
     // Clean up inaccessible snapshots (snapshots that exist in SQL Server but are broken)
     if (verification.inaccessibleSnapshots && verification.inaccessibleSnapshots.length > 0) {
-      console.log(`🧹 Cleaning up ${verification.inaccessibleSnapshots.length} inaccessible snapshots...`);
-
       const config = await getFreshSqlConfig();
       if (config) {
         const pool = await sql.connect(config);
@@ -349,9 +346,8 @@ async function cleanupStaleSqlMetadata() {
             await pool.request().query(`DROP DATABASE [${snapshotName}]`);
             cleanedCount++;
             cleanedSnapshots.push(snapshotName);
-            console.log(`✅ Dropped inaccessible snapshot: ${snapshotName}`);
           } catch (error) {
-            console.error(`❌ Failed to drop inaccessible snapshot ${snapshotName}:`, error.message);
+            console.error(`Failed to drop inaccessible snapshot ${snapshotName}:`, error.message);
           }
         }
 
@@ -378,7 +374,6 @@ async function verifySnapshotConsistency() {
   try {
     const config = await getFreshSqlConfig();
     if (!config) {
-      console.log('No SQL Server configuration found, skipping snapshot verification');
       return { verified: true, issues: [] };
     }
 
@@ -420,7 +415,6 @@ async function verifySnapshotConsistency() {
     // Check 2: Find snapshots in SQL metadata that don't exist in SQL Server - AUTO CLEANUP
     const missingInSQL = metadataSnapshotNames.filter(name => !sqlSnapshotNames.includes(name));
     if (missingInSQL.length > 0) {
-      console.log(`🧹 Auto-cleaning ${missingInSQL.length} stale metadata entries that don't exist in SQL Server...`);
 
       // Get all snapshots from metadata to find the snapshot IDs
       const snapshotIdMap = new Map();
@@ -440,7 +434,6 @@ async function verifySnapshotConsistency() {
             const deleteResult = await metadataStorage.deleteSnapshot(snapshotId);
             if (deleteResult.success) {
               autoCleanedCount++;
-              console.log(`✅ Auto-removed stale snapshot entry: ${snapshotName} (ID: ${snapshotId})`);
             }
           }
         } catch (error) {
@@ -465,10 +458,8 @@ async function verifySnapshotConsistency() {
     await pool.close();
 
     if (needsCleanup || autoCleanedCount > 0) {
-      console.log('⚠️ Snapshot consistency issues detected:', issues);
       return { verified: false, issues, orphanedInSQL, missingInSQL: [], inaccessibleSnapshots };
     } else {
-      console.log('✅ All snapshots are consistent between SQL Server and SQL metadata');
       return { verified: true, issues: [] };
     }
 
@@ -484,13 +475,11 @@ async function cleanupOrphanedSnapshots() {
     const verification = await verifySnapshotConsistency();
 
     if (verification.verified) {
-      console.log('✅ No orphaned snapshots found');
       return { cleaned: 0, orphans: [] };
     }
 
     const config = await getFreshSqlConfig();
     if (!config) {
-      console.log('No SQL Server configuration found, skipping orphan cleanup');
       return { cleaned: 0, orphans: [] };
     }
 
@@ -501,17 +490,14 @@ async function cleanupOrphanedSnapshots() {
     // Track orphaned snapshots (snapshots in SQL Server not tracked in metadata)
     if (verification.orphanedInSQL && verification.orphanedInSQL.length > 0) {
       orphanedSnapshots.push(...verification.orphanedInSQL);
-      console.log(`📝 Found ${verification.orphanedInSQL.length} snapshots in SQL Server not tracked in metadata`);
     }
 
     // Clean up inaccessible snapshots
     if (verification.inaccessibleSnapshots && verification.inaccessibleSnapshots.length > 0) {
-      console.log(`🧹 Cleaning up ${verification.inaccessibleSnapshots.length} inaccessible snapshots...`);
       for (const snapshotName of verification.inaccessibleSnapshots) {
         try {
           await pool.request().query(`DROP DATABASE [${snapshotName}]`);
           cleanedSnapshots.push(snapshotName);
-          console.log(`✅ Dropped inaccessible snapshot: ${snapshotName}`);
         } catch (error) {
           console.error(`❌ Failed to drop inaccessible snapshot ${snapshotName}:`, error.message);
         }
@@ -544,26 +530,39 @@ let sqlConfig = null;
 
 async function getSqlConfig() {
   if (!sqlConfig) {
-    // Use environment variables for sensitive data, fallback to SQL Server metadata storage for non-sensitive
     try {
-      const settingsResult = await metadataStorage.getSettings();
-      const settings = settingsResult.success ? settingsResult.settings : {};
+      // Try to get active profile from SQLite first
+      const profile = metadataStorage.getActiveProfile();
 
-      sqlConfig = {
-        server: process.env.SQL_SERVER || settings?.connection?.server || 'localhost',
-        port: parseInt(process.env.SQL_PORT) || settings?.connection?.port || 1433,
-        user: process.env.SQL_USERNAME || settings?.connection?.username || '',
-        password: process.env.SQL_PASSWORD || settings?.connection?.password || '',
-        database: 'master',
-        options: {
-          encrypt: false,
-          trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' ||
-                                  settings?.connection?.trustServerCertificate || true
-        }
-      };
+      if (profile) {
+        sqlConfig = {
+          server: profile.host,
+          port: profile.port,
+          user: profile.username,
+          password: profile.password,
+          database: 'master',
+          options: {
+            encrypt: false,
+            trustServerCertificate: profile.trustCertificate
+          }
+        };
+      } else {
+        // Fallback to environment variables (for backward compatibility)
+        sqlConfig = {
+          server: process.env.SQL_SERVER || 'localhost',
+          port: parseInt(process.env.SQL_PORT) || 1433,
+          user: process.env.SQL_USERNAME || '',
+          password: process.env.SQL_PASSWORD || '',
+          database: 'master',
+          options: {
+            encrypt: false,
+            trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || true
+          }
+        };
+      }
     } catch (error) {
-      console.error('Error getting settings from metadata storage:', error);
-      // Fallback to environment variables only
+      console.error('Error getting SQL config:', error);
+      // Final fallback to environment variables only
       sqlConfig = {
         server: process.env.SQL_SERVER || 'localhost',
         port: parseInt(process.env.SQL_PORT) || 1433,
@@ -582,26 +581,39 @@ async function getSqlConfig() {
 
 // Force fresh SQL config for unmanaged snapshots
 async function getFreshSqlConfig() {
-  // Get settings from SQL Server metadata storage
   try {
-    const settingsResult = await metadataStorage.getSettings();
-    const settings = settingsResult.success ? settingsResult.settings : {};
+    // Get active profile from SQLite
+    const profile = metadataStorage.getActiveProfile();
 
-    return {
-      server: process.env.SQL_SERVER || settings?.connection?.server || 'localhost',
-      port: parseInt(process.env.SQL_PORT) || settings?.connection?.port || 1433,
-      user: process.env.SQL_USERNAME || settings?.connection?.username || '',
-      password: process.env.SQL_PASSWORD || settings?.connection?.password || '',
-      database: 'master',
-      options: {
-        encrypt: false,
-        trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' ||
-                                settings?.connection?.trustServerCertificate || true
-      }
-    };
+    if (profile) {
+      return {
+        server: profile.host,
+        port: parseInt(profile.port) || 1433,
+        user: profile.username,
+        password: profile.password,
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: profile.trustCertificate
+        }
+      };
+    } else {
+      // Fallback to environment variables
+      return {
+        server: process.env.SQL_SERVER || 'localhost',
+        port: parseInt(process.env.SQL_PORT) || 1433,
+        user: process.env.SQL_USERNAME || '',
+        password: process.env.SQL_PASSWORD || '',
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || true
+        }
+      };
+    }
   } catch (error) {
-    console.error('Error getting settings from metadata storage:', error);
-    // Fallback to environment variables only
+    console.error('Error getting fresh SQL config:', error);
+    // Final fallback to environment variables only
     return {
       server: process.env.SQL_SERVER || 'localhost',
       port: parseInt(process.env.SQL_PORT) || 1433,
@@ -622,10 +634,8 @@ async function getFreshSqlConfig() {
 
 // Health check endpoint - checks both metadata storage and SQL Server connection
 app.get('/api/health', async (req, res) => {
-  const status = getInitializationStatus();
-
   // If not initialized, try to initialize now
-  if (!status.initialized) {
+  if (!isInitialized) {
     try {
       await initializeMetadataStorage();
     } catch (error) {
@@ -638,12 +648,13 @@ app.get('/api/health', async (req, res) => {
     }
   }
 
-  if (!status.initialized) {
+  // Re-check after initialization attempt
+  if (!isInitialized) {
     return res.status(503).json({
       status: 'error',
       initialized: false,
       connected: false,
-      message: status.error || 'Metadata storage not available'
+      message: initializationError || 'Metadata storage not available'
     });
   }
 
@@ -657,8 +668,11 @@ app.get('/api/health', async (req, res) => {
       await pool.request().query('SELECT 1 as test');
       await pool.close();
       sqlConnected = true;
+    } else {
+      sqlError = 'No active profile with username configured';
     }
   } catch (error) {
+    console.error('[/api/health] SQL connection error:', error.message);
     sqlError = error.message;
   }
 
@@ -673,6 +687,277 @@ app.get('/api/health', async (req, res) => {
       ? 'All systems operational'
       : 'SQL Server not configured or unreachable - configure in Settings'
   });
+});
+
+// ===== UI Security Authentication Endpoints =====
+// These endpoints protect access to SQL Parrot UI (NOT database profile passwords)
+
+// Get password status
+app.get('/api/auth/password-status', async (req, res) => {
+  try {
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+
+    if (!passwordStatus.success) {
+      return res.status(500).json(createErrorResponse('Failed to get password status', 500));
+    }
+
+    // Check if UI_PASSWORD env var is being ignored
+    let envVarIgnored = false;
+    if (process.env.UI_PASSWORD && passwordStatus.passwordSet) {
+      // Compare env var password with stored hash
+      try {
+        const settingsResult = await metadataStorage.getSettings();
+        const settings = settingsResult.success ? settingsResult.settings : {};
+        const storedHash = settings.passwordHash;
+
+        if (storedHash) {
+          const envVarMatches = await bcrypt.compare(process.env.UI_PASSWORD, storedHash);
+          if (!envVarMatches) {
+            envVarIgnored = true;
+          }
+        }
+      } catch (error) {
+        console.error('Error checking env var password:', error);
+      }
+    }
+
+    const response = {
+      status: passwordStatus.status,
+      passwordSet: passwordStatus.passwordSet,
+      passwordSkipped: passwordStatus.passwordSkipped,
+      envVarIgnored
+    };
+
+    const messages = {};
+    if (envVarIgnored) {
+      messages.warning = ['UI_PASSWORD in environment variables is being ignored because a password was already set via the UI. Remove UI_PASSWORD from your .env/docker-compose.yml or reset the SQLite database to use it.'];
+    }
+
+    res.json(createApiResponse(true, response, messages));
+  } catch (error) {
+    console.error('Error getting password status:', error);
+    res.status(500).json(createErrorResponse('Failed to get password status', 500));
+  }
+});
+
+// Check password (verify and create session)
+app.post('/api/auth/check-password', async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json(createErrorResponse('Password is required', 400));
+    }
+
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+
+    if (!passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password not set', 400));
+    }
+
+    // Get stored hash
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success ? settingsResult.settings : {};
+    const storedHash = settings.passwordHash;
+
+    if (!storedHash) {
+      return res.status(500).json(createErrorResponse('Password hash not found', 500));
+    }
+
+    // Verify password
+    const isValid = await bcrypt.compare(password, storedHash);
+
+    if (!isValid) {
+      return res.status(401).json(createErrorResponse('Invalid password', 401));
+    }
+
+    // Create session token
+    const sessionToken = generateSessionToken();
+    authenticatedSessions.set(sessionToken, {
+      authenticated: true,
+      timestamp: Date.now()
+    });
+
+    res.json(createSuccessResponse(
+      { authenticated: true, sessionToken },
+      ['Password verified']
+    ));
+  } catch (error) {
+    console.error('Error checking password:', error);
+    res.status(500).json(createErrorResponse('Password verification failed', 500));
+  }
+});
+
+// Set password (initial setup only)
+app.post('/api/auth/set-password', async (req, res) => {
+  try {
+    const { password, confirm } = req.body;
+
+    if (!password || !confirm) {
+      return res.status(400).json(createErrorResponse('Password and confirmation are required', 400));
+    }
+
+    if (password !== confirm) {
+      return res.status(400).json(createErrorResponse('Passwords do not match', 400));
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json(createErrorResponse('Password must be at least 6 characters', 400));
+    }
+
+    // Check if password already exists
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password already set. Use change-password endpoint instead.', 400));
+    }
+
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    // Store hash
+    const result = await metadataStorage.setPasswordHash(passwordHash);
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to set password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { passwordSet: true },
+      ['Password set successfully']
+    ));
+  } catch (error) {
+    console.error('Error setting password:', error);
+    res.status(500).json(createErrorResponse('Failed to set password', 500));
+  }
+});
+
+// Change password (requires current password)
+app.post('/api/auth/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirm } = req.body;
+
+    if (!currentPassword || !newPassword || !confirm) {
+      return res.status(400).json(createErrorResponse('Current password, new password, and confirmation are required', 400));
+    }
+
+    if (newPassword !== confirm) {
+      return res.status(400).json(createErrorResponse('New passwords do not match', 400));
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json(createErrorResponse('Password must be at least 6 characters', 400));
+    }
+
+    // Verify current password
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (!passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password not set. Use set-password endpoint instead.', 400));
+    }
+
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success ? settingsResult.settings : {};
+    const storedHash = settings.passwordHash;
+
+    if (!storedHash) {
+      return res.status(500).json(createErrorResponse('Password hash not found', 500));
+    }
+
+    const currentPasswordValid = await bcrypt.compare(currentPassword, storedHash);
+    if (!currentPasswordValid) {
+      return res.status(401).json(createErrorResponse('Current password is incorrect', 401));
+    }
+
+    // Hash new password
+    const saltRounds = 10;
+    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update hash
+    const result = await metadataStorage.setPasswordHash(newPasswordHash);
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to change password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { passwordChanged: true },
+      ['Password changed successfully']
+    ));
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json(createErrorResponse('Failed to change password', 500));
+  }
+});
+
+// Remove password protection (requires current password)
+app.post('/api/auth/remove-password', async (req, res) => {
+  try {
+    const { currentPassword } = req.body;
+
+    if (!currentPassword) {
+      return res.status(400).json(createErrorResponse('Current password is required', 400));
+    }
+
+    // Verify current password
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (!passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password not set', 400));
+    }
+
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success ? settingsResult.settings : {};
+    const storedHash = settings.passwordHash;
+
+    if (!storedHash) {
+      return res.status(500).json(createErrorResponse('Password hash not found', 500));
+    }
+
+    const currentPasswordValid = await bcrypt.compare(currentPassword, storedHash);
+    if (!currentPasswordValid) {
+      return res.status(401).json(createErrorResponse('Current password is incorrect', 401));
+    }
+
+    // Remove password
+    const result = await metadataStorage.removePassword();
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to remove password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { passwordRemoved: true },
+      ['Password protection removed']
+    ));
+  } catch (error) {
+    console.error('Error removing password:', error);
+    res.status(500).json(createErrorResponse('Failed to remove password', 500));
+  }
+});
+
+// Skip password protection (first launch only)
+app.post('/api/auth/skip-password', async (req, res) => {
+  try {
+    // Check if password already exists
+    const passwordStatus = await metadataStorage.getPasswordStatus();
+    if (passwordStatus.passwordSet) {
+      return res.status(400).json(createErrorResponse('Password already set. Cannot skip.', 400));
+    }
+
+    // Skip password
+    const result = await metadataStorage.skipPassword();
+
+    if (!result.success) {
+      return res.status(500).json(createErrorResponse('Failed to skip password', 500));
+    }
+
+    res.json(createSuccessResponse(
+      { skipped: true },
+      ['Password protection skipped']
+    ));
+  } catch (error) {
+    console.error('Error skipping password:', error);
+    res.status(500).json(createErrorResponse('Failed to skip password', 500));
+  }
 });
 
 // Get all groups
@@ -1054,17 +1339,21 @@ app.put('/api/settings', async (req, res) => {
     if (metadataMode === 'sql') {
       // Use database-based settings
       try {
-        // Get current settings to check for maxHistoryEntries change
+        // Get current settings to check for maxHistoryEntries change and preserve password fields
         const currentDbResult = await metadataStorage.getSettings();
-        const oldMaxHistoryEntries = currentDbResult.settings?.maxHistoryEntries || 100;
+        const currentSettings = currentDbResult.settings || {};
+        const oldMaxHistoryEntries = currentSettings.maxHistoryEntries || 100;
         const newMaxHistoryEntries = settings.preferences?.maxHistoryEntries || 100;
 
-        // Convert settings to database format
+        // Convert settings to database format, preserving password fields
         const dbSettings = {
           maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100,
           defaultGroup: settings.preferences?.defaultGroup || '',
           autoVerificationEnabled: settings.autoVerification?.enabled || false,
-          autoVerificationIntervalMinutes: settings.autoVerification?.intervalMinutes || 15
+          autoVerificationIntervalMinutes: settings.autoVerification?.intervalMinutes || 15,
+          // Preserve password fields (not updated through this endpoint)
+          passwordHash: currentSettings.passwordHash || null,
+          passwordSkipped: currentSettings.passwordSkipped || false
         };
 
         const dbResult = await metadataStorage.updateSettings(dbSettings);
@@ -1073,7 +1362,6 @@ app.put('/api/settings', async (req, res) => {
           if (newMaxHistoryEntries < oldMaxHistoryEntries) {
             const trimResult = await metadataStorage.trimHistoryEntries(newMaxHistoryEntries);
             if (trimResult.success && trimResult.trimmed > 0) {
-              console.log(`✂️ Trimmed ${trimResult.trimmed} history entries from database`);
             }
           }
 
@@ -1116,17 +1404,128 @@ app.put('/api/settings', async (req, res) => {
 });
 
 // Test SQL Server connection
+// Accepts connection parameters from request body, or uses active profile if password is empty
 app.post('/api/test-connection', async (req, res) => {
   try {
-    const config = await getSqlConfig();
+    const { host, port, username, password, trustCertificate, profileId } = req.body;
+
+    let config;
+
+    // If password is empty or whitespace, try to use saved password from profile (either active or the one being edited)
+    // Check for empty string, null, undefined, or whitespace-only
+    const isEmptyPassword = !password || (typeof password === 'string' && password.trim() === '');
+
+    if (isEmptyPassword && host && port && username) {
+      // If profileId is provided (editing mode), prioritize that profile
+      if (profileId) {
+        const profile = metadataStorage.getProfile(profileId);
+        if (profile && profile.password) {
+          // When editing, use saved password from the profile being edited
+          config = {
+            server: host,
+            port: parseInt(port) || 1433,
+            user: username,
+            password: profile.password, // Use saved password from the profile being edited
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: trustCertificate !== false
+            }
+          };
+        } else {
+          // Profile not found - allow test without password
+          config = {
+            server: host,
+            port: parseInt(port) || 1433,
+            user: username,
+            password: '', // Empty password - let SQL Server handle it
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: trustCertificate !== false
+            }
+          };
+        }
+      } else {
+        // No profileId - try active profile
+        const profile = metadataStorage.getActiveProfile();
+        if (profile && profile.host === host && profile.port === port && profile.username === username) {
+          // Use saved password from active profile if connection details match
+          config = {
+            server: profile.host,
+            port: profile.port,
+            user: profile.username,
+            password: profile.password,
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: profile.trustCertificate
+            }
+          };
+        } else {
+          // No matching profile found - allow test without password (maybe no password needed)
+          config = {
+            server: host,
+            port: parseInt(port) || 1433,
+            user: username,
+            password: '', // Empty password - let SQL Server handle it
+            database: 'master',
+            options: {
+              encrypt: false,
+              trustServerCertificate: trustCertificate !== false
+            }
+          };
+        }
+      }
+    } else if (host && port && username && password) {
+      // Use provided credentials
+      config = {
+        server: host,
+        port: parseInt(port) || 1433,
+        user: username,
+        password: password,
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: trustCertificate !== false
+        }
+      };
+    } else {
+      // Fallback to active profile
+      const profile = metadataStorage.getActiveProfile();
+      if (!profile) {
+        return res.status(400).json({
+          success: false,
+          error: 'No connection profile configured. Please provide connection details or configure a profile.'
+        });
+      }
+      config = {
+        server: profile.host,
+        port: profile.port,
+        user: profile.username,
+        password: profile.password,
+        database: 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: profile.trustCertificate
+        }
+      };
+    }
+
+    // Allow empty password - SQL Server might not require it (Windows auth, etc.)
+    // Only require password if we're not using a saved profile
     if (!config) {
-      return res.status(400).json({ error: 'No SQL Server configuration found' });
+      return res.status(400).json({
+        success: false,
+        error: 'Connection configuration is required.'
+      });
     }
 
     const pool = await sql.connect(config);
 
-    // Test basic connection
-    await pool.request().query('SELECT 1 as test');
+    // Test basic connection and get SQL Server version
+    const versionResult = await pool.request().query('SELECT @@VERSION as version');
+    const version = versionResult.recordset[0].version.split('\n')[0]; // First line
 
     // Get database count (user databases only, excluding snapshots)
     let databaseCount = 0;
@@ -1140,7 +1539,6 @@ app.post('/api/test-connection', async (req, res) => {
       `);
       databaseCount = dbResult.recordset[0].database_count;
     } catch (dbError) {
-      console.log('Could not get database count:', dbError.message);
       // Continue without database count
     }
 
@@ -1148,13 +1546,17 @@ app.post('/api/test-connection', async (req, res) => {
 
     res.json({
       success: true,
+      data: version, // Match Tauri format (returns version string)
       message: databaseCount > 0 ?
         `Connection successful - ${databaseCount} databases found` :
         'Connection successful',
       databaseCount: databaseCount
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -1253,7 +1655,6 @@ app.get('/api/metadata/test', async (req, res) => {
       `);
       canCreateDatabase = permResult.recordset[0].can_create_db === 1;
     } catch (permError) {
-      console.log('Could not check CREATE DATABASE permission:', permError.message);
     }
 
     // Check if sqlparrot database exists
@@ -1264,7 +1665,6 @@ app.get('/api/metadata/test', async (req, res) => {
       `);
       sqlparrotExists = dbCheck.recordset.length > 0;
     } catch (dbError) {
-      console.log('Could not check sqlparrot database:', dbError.message);
     }
 
     await pool.close();
@@ -1290,7 +1690,6 @@ app.get('/api/metadata/test', async (req, res) => {
 // Initialize metadata storage system manually
 app.post('/api/metadata/initialize', async (req, res) => {
   try {
-    console.log('🔄 Manual metadata initialization requested...');
     const initResult = await metadataStorage.initialize();
 
     if (initResult.success) {
@@ -1509,7 +1908,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
     `);
 
     const snapshots = dbResult.recordset.map(db => db.name);
-    console.log(`Running DBCC CHECKDB against ${snapshots.length} snapshots...`);
 
     const results = {
       totalSnapshots: snapshots.length,
@@ -1523,7 +1921,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
 
     for (const snapshotName of snapshots) {
       const snapshotStartTime = Date.now();
-      console.log(`Running DBCC CHECKDB on ${snapshotName}...`);
 
       try {
         await pool.request().query(`DBCC CHECKDB('${snapshotName}') WITH NO_INFOMSGS`);
@@ -1537,8 +1934,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
           duration: duration,
           message: 'DBCC CHECKDB succeeded'
         });
-
-        console.log(`✅ ${snapshotName}: ${duration}ms`);
       } catch (error) {
         const snapshotEndTime = Date.now();
         const duration = snapshotEndTime - snapshotStartTime;
@@ -1550,8 +1945,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
           duration: duration,
           message: error.message
         });
-
-        console.log(`❌ ${snapshotName}: ${duration}ms - ${error.message}`);
       }
     }
 
@@ -1562,11 +1955,6 @@ app.get('/api/test/dbcc-all-snapshots', async (req, res) => {
     results.dbccDuration = totalDbccTime;
     results.averageDuration = Math.round(totalDbccTime / snapshots.length);
     results.endTime = new Date().toISOString();
-
-    console.log(`\n📊 DBCC Summary:`);
-    console.log(`Total time: ${results.totalDuration}ms`);
-    console.log(`DBCC time: ${results.dbccDuration}ms`);
-    console.log(`Average per snapshot: ${results.averageDuration}ms`);
 
     res.json(results);
 
@@ -1598,9 +1986,8 @@ app.delete('/api/snapshots/:snapshotId', async (req, res) => {
         try {
           await pool.request().query(`DROP DATABASE [${dbSnapshot.snapshotName}]`);
           droppedDatabases.push(dbSnapshot.snapshotName);
-          console.log(`✅ Dropped snapshot database: ${dbSnapshot.snapshotName}`);
         } catch (error) {
-          console.log(`❌ Failed to drop snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
+          console.error(`Failed to drop snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
         }
       }
     }
@@ -1773,7 +2160,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       const cleanGroupName = snapshotGroup?.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || '';
       const snapshotPattern = cleanGroupName ? `${cleanGroupName}_%` : 'sf_%';
 
-      console.log(`🔍 Looking for snapshots matching pattern: ${snapshotPattern}`);
 
       const groupSnapshotsResult = await pool.request().query(`
         SELECT name, source_database_id
@@ -1783,7 +2169,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         AND (${sourceDatabaseNames.map(db => `source_database_id = DB_ID('${db}')`).join(' OR ')})
       `);
 
-      console.log(`Found ${groupSnapshotsResult.recordset.length} snapshot databases for our group and source databases to clean up`);
 
       // Get target snapshot names to preserve them
       const targetSnapshotNames = new Set();
@@ -1799,16 +2184,14 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           try {
             await pool.request().query(`DROP DATABASE [${snapshotDb.name}]`);
             droppedSnapshots.push(snapshotDb.name);
-            console.log(`✅ Dropped group+source snapshot database: ${snapshotDb.name}`);
           } catch (error) {
-            console.log(`❌ Failed to drop group+source snapshot database ${snapshotDb.name}: ${error.message}`);
+            console.error(`Failed to drop group+source snapshot database ${snapshotDb.name}: ${error.message}`);
           }
         } else {
-          console.log(`⏭️ Preserving target snapshot database: ${snapshotDb.name}`);
         }
       }
     } catch (error) {
-      console.log(`❌ Error getting group+source snapshot databases: ${error.message}`);
+      console.error(`Error getting group+source snapshot databases: ${error.message}`);
     }
 
     // Step 2: Restore each database to the target snapshot state
@@ -1831,7 +2214,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           }
 
           // Comprehensive connection cleanup and restore
-          console.log(`🔄 Starting comprehensive rollback for database: ${sourceDbName}`);
 
           // Step 1: Kill all active connections to the database
           try {
@@ -1842,9 +2224,8 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
               WHERE database_id = DB_ID('${sourceDbName}') AND session_id != @@SPID;
               IF @sql != '' EXEC sp_executesql @sql;
             `);
-            console.log(`✅ Killed all active connections to database: ${sourceDbName}`);
           } catch (killError) {
-            console.log(`⚠️ Could not kill connections to ${sourceDbName}: ${killError.message}`);
+            console.warn(`Could not kill connections to ${sourceDbName}: ${killError.message}`);
           }
 
           // Step 2: Set database to single user mode with immediate rollback
@@ -1852,9 +2233,8 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
             await pool.request().query(`
               ALTER DATABASE [${sourceDbName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
             `);
-            console.log(`✅ Set database to single user mode: ${sourceDbName}`);
           } catch (singleUserError) {
-            console.log(`⚠️ Could not set single user mode for ${sourceDbName}: ${singleUserError.message}`);
+            console.warn(`Could not set single user mode for ${sourceDbName}: ${singleUserError.message}`);
           }
 
           // Step 3: Check database state before restore
@@ -1863,36 +2243,31 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
               SELECT state_desc FROM sys.databases WHERE name = '${sourceDbName}'
             `);
             const dbState = dbStateResult.recordset[0]?.state_desc;
-            console.log(`📊 Database state before restore: ${dbState}`);
 
             // If database is in RESTORING state, try to recover it first
             if (dbState === 'RESTORING') {
-              console.log(`⚠️ Database is in RESTORING state, attempting recovery...`);
               try {
                 await pool.request().query(`RESTORE DATABASE [${sourceDbName}] WITH RECOVERY`);
-                console.log(`✅ Recovered database from RESTORING state: ${sourceDbName}`);
               } catch (recoveryError) {
-                console.log(`⚠️ Could not recover database: ${recoveryError.message}`);
+                console.warn(`Could not recover database: ${recoveryError.message}`);
               }
             }
           } catch (stateError) {
-            console.log(`⚠️ Could not check database state: ${stateError.message}`);
+            console.warn(`Could not check database state: ${stateError.message}`);
           }
 
           // Step 4: Restore database from snapshot using proper SQL Server command
           // This restores the ENTIRE database state (all tables, schema, procedures, etc.)
           // Note: SQL Server automatically deletes the snapshot after successful restore
           try {
-            console.log(`🔄 Restoring database from snapshot: ${dbSnapshot.snapshotName}`);
 
             await pool.request().query(`
               RESTORE DATABASE [${sourceDbName}] FROM DATABASE_SNAPSHOT = '${dbSnapshot.snapshotName}'
             `);
 
-            console.log(`✅ Successfully restored database ${sourceDbName} from snapshot`);
 
           } catch (restoreError) {
-            console.log(`❌ Failed to restore database from snapshot: ${restoreError.message}`);
+            console.error(`Failed to restore database from snapshot: ${restoreError.message}`);
             throw restoreError;
           }
 
@@ -1901,15 +2276,13 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
             await pool.request().query(`
               ALTER DATABASE [${sourceDbName}] SET MULTI_USER
             `);
-            console.log(`✅ Restored multi-user access to database: ${sourceDbName}`);
           } catch (multiUserError) {
-            console.log(`⚠️ Could not restore multi-user access to ${sourceDbName}: ${multiUserError.message}`);
+            console.warn(`Could not restore multi-user access to ${sourceDbName}: ${multiUserError.message}`);
           }
 
           rolledBackDatabases.push(sourceDbName);
-          console.log(`✅ Rolled back database: ${sourceDbName} from snapshot: ${dbSnapshot.snapshotName}`);
         } catch (error) {
-          console.log(`❌ Failed to rollback database ${dbSnapshot.database}: ${error.message}`);
+          console.error(`Failed to rollback database ${dbSnapshot.database}: ${error.message}`);
           failedRollbacks.push({
             database: dbSnapshot.database,
             snapshotName: dbSnapshot.snapshotName,
@@ -1952,48 +2325,40 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       `);
 
       if (remainingGroupSnapshotsResult.recordset.length > 0) {
-        console.log(`Found ${remainingGroupSnapshotsResult.recordset.length} remaining group+source snapshot databases after restore - cleaning up`);
 
         for (const remainingSnapshot of remainingGroupSnapshotsResult.recordset) {
           try {
             await pool.request().query(`DROP DATABASE [${remainingSnapshot.name}]`);
             droppedSnapshots.push(remainingSnapshot.name);
-            console.log(`✅ Cleaned up remaining group+source snapshot database: ${remainingSnapshot.name}`);
           } catch (error) {
-            console.log(`❌ Failed to cleanup remaining group+source snapshot database ${remainingSnapshot.name}: ${error.message}`);
+            console.error(`Failed to cleanup remaining group+source snapshot database ${remainingSnapshot.name}: ${error.message}`);
           }
         }
       } else {
-        console.log(`✅ No remaining group+source snapshot databases found after restore`);
       }
     } catch (error) {
-      console.log(`❌ Error checking for remaining group+source snapshots: ${error.message}`);
+      console.error(`Error checking for remaining group+source snapshots: ${error.message}`);
     }
 
     await pool.close();
 
     // Step 4: Remove all snapshots from metadata (all snapshots have been cleaned up)
     // Delete all snapshots for this group from SQL metadata storage
-    console.log(`🗑️ Cleaning up metadata for group: ${snapshot.groupId}`);
     const allSnapshots = await metadataStorage.getAllSnapshots();
     const groupSnapshots = allSnapshots.filter(s => s.groupId === snapshot.groupId);
-    console.log(`🗑️ Found ${groupSnapshots.length} snapshots to delete from metadata`);
 
     for (const groupSnapshot of groupSnapshots) {
-      console.log(`🗑️ Deleting snapshot from metadata: ${groupSnapshot.id} (${groupSnapshot.displayName})`);
       const deleteResult = await metadataStorage.deleteSnapshot(groupSnapshot.id);
-      console.log(`🗑️ Delete result: ${JSON.stringify(deleteResult)}`);
     }
 
     // Step 4: Create a new checkpoint snapshot after restore
-    console.log(`🔄 Creating checkpoint snapshot after restore...`);
 
     // Get the group details for creating the checkpoint
     const groups = await metadataStorage.getAllGroups();
     const group = groups.find(g => g.id === snapshot.groupId);
 
     if (!group) {
-      console.log(`❌ Group not found for checkpoint creation`);
+      console.error('Group not found for checkpoint creation');
       return res.json({
         success: true,
         message: `Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
@@ -2052,7 +2417,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         });
 
         checkpointResults.push({ database, snapshotName: fullSnapshotName, success: true });
-        console.log(`✅ Created checkpoint snapshot database: ${fullSnapshotName}`);
       } catch (dbError) {
         checkpointDatabaseSnapshots.push({
           database,
@@ -2060,7 +2424,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           success: false
         });
         checkpointResults.push({ database, error: dbError.message, success: false });
-        console.log(`❌ Failed to create checkpoint snapshot for database ${database}: ${dbError.message}`);
+        console.error(`Failed to create checkpoint snapshot for database ${database}: ${dbError.message}`);
       }
     }
 
@@ -2107,7 +2471,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    console.log(`✅ Checkpoint snapshot "${checkpointDisplayName}" created successfully`);
 
     res.json(createSuccessResponse({
       rolledBackDatabases: rolledBackDatabases.length,
@@ -2150,9 +2513,8 @@ app.post('/api/snapshots/:snapshotId/cleanup', async (req, res) => {
         try {
           await pool.request().query(`DROP DATABASE [${dbSnapshot.snapshotName}]`);
           droppedDatabases.push(dbSnapshot.snapshotName);
-          console.log(`✅ Cleaned up snapshot database: ${dbSnapshot.snapshotName}`);
         } catch (error) {
-          console.log(`❌ Failed to cleanup snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
+          console.error(`Failed to cleanup snapshot database ${dbSnapshot.snapshotName}: ${error.message}`);
         }
       }
     }
@@ -2244,7 +2606,6 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
         );
 
         if (orphanedCheckpoints.length > 0) {
-          console.log(`Found ${orphanedCheckpoints.length} orphaned checkpoint snapshots for group ${id}`);
 
           // Group orphaned snapshots by checkpoint ID
           const checkpointGroups = {};
@@ -2279,12 +2640,11 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
             };
 
             groupSnapshots.unshift(checkpointSnapshot); // Add at beginning
-            console.log(`Added orphaned checkpoint: ${checkpointId} with ${databases.length} databases`);
           });
         }
       }
     } catch (error) {
-      console.log('Error checking for orphaned checkpoints:', error.message);
+      console.error('Error checking for orphaned checkpoints:', error.message);
       // Continue with normal operation if checkpoint detection fails
     }
 
@@ -2397,9 +2757,7 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
       try {
         const result = await metadataStorage.addSnapshot(newSnapshot);
         if (result.success && result.mode === 'sql') {
-          console.log('✅ Added snapshot to metadata database');
         } else if (result.fallback) {
-          console.log('⚠️ Fell back to JSON storage for snapshot');
         }
       } catch (error) {
         console.error('❌ Failed to add snapshot to metadata database:', error.message);
@@ -2442,17 +2800,29 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
 // Test snapshot path configuration (shows configured path only)
 app.get('/api/test-snapshot-path', async (req, res) => {
   try {
-    const snapshotBasePath = process.env.SNAPSHOT_PATH || 'C:\\Snapshots';
+    // Get active profile from SQLite
+    const profile = metadataStorage.getActiveProfile();
 
-    res.json({
-      success: true,
-      snapshotPath: snapshotBasePath,
-      message: 'Snapshot path configured for SQL Server queries',
-      note: 'This path will be used in CREATE DATABASE statements for SQL Server snapshots'
-    });
-
+    if (profile) {
+      res.json({
+        success: true,
+        snapshotPath: profile.snapshotPath,
+        configured: true
+      });
+    } else {
+      // Fallback to environment variable
+      const snapshotBasePath = process.env.SNAPSHOT_PATH || '/var/opt/mssql/snapshots';
+      res.json({
+        success: true,
+        snapshotPath: snapshotBasePath,
+        configured: false
+      });
+    }
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -2517,18 +2887,193 @@ app.get('/api/snapshots/unmanaged', async (req, res) => {
 
 // Note: N8N API health check endpoint removed - external file API no longer supported
 
+// ===== Profile Management Routes =====
 
+// Get all profiles (without passwords) with group counts
+app.get('/api/profiles', async (req, res) => {
+  try {
+    const profiles = metadataStorage.getProfiles();
+    const groupCounts = metadataStorage.getGroupCountsByProfile();
 
-// Serve static files from frontend build (before catch-all route)
-app.use(express.static(path.join(__dirname, '..', 'frontend', 'dist')));
+    // Add group count to each profile
+    const profilesWithCounts = profiles.map(profile => ({
+      ...profile,
+      groupCount: groupCounts.counts?.[profile.id] || 0
+    }));
 
-// Catch-all handler: send back React's index.html file for any non-API routes
-app.get('*', (req, res) => {
-  // Only serve index.html for non-API routes
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'));
-  } else {
-    res.status(404).json({ error: 'API endpoint not found' });
+    res.json({ success: true, data: profilesWithCounts });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get a single profile by ID (without password)
+app.get('/api/profiles/:id', async (req, res) => {
+  try {
+    const profile = metadataStorage.getProfile(req.params.id);
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Profile not found' });
+    }
+    // Don't return password for security (frontend should never receive passwords)
+    const { password, ...profileWithoutPassword } = profile;
+    res.json({ success: true, data: profileWithoutPassword });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create a new profile
+app.post('/api/profiles', async (req, res) => {
+  try {
+    const result = metadataStorage.createProfile(req.body);
+    if (result.success) {
+      res.json({ success: true, data: result.profile });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update an existing profile
+app.put('/api/profiles/:id', async (req, res) => {
+  try {
+    const result = metadataStorage.updateProfile(req.params.id, req.body);
+    if (result.success) {
+      res.json({ success: true, data: result.profile });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete a profile
+app.delete('/api/profiles/:id', async (req, res) => {
+  try {
+    const result = metadataStorage.deleteProfile(req.params.id);
+    if (result.success) {
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Set a profile as active
+app.post('/api/profiles/:id/activate', async (req, res) => {
+  try {
+    const result = metadataStorage.setActiveProfile(req.params.id);
+    if (result.success) {
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get current connection profile (without password) - for backward compatibility
+app.get('/api/connection', async (req, res) => {
+  try {
+    const profile = metadataStorage.getActiveProfile();
+
+    if (!profile) {
+      return res.json({ success: true, data: null });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        name: profile.name,
+        host: profile.host,
+        port: profile.port,
+        username: profile.username,
+        trust_certificate: profile.trustCertificate,
+        snapshot_path: profile.snapshotPath
+        // Note: password is not returned for security
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Save connection profile (DEPRECATED - use create_profile or update_profile instead)
+// Kept for backward compatibility
+app.post('/api/save-connection', async (req, res) => {
+  try {
+    const { host, port, username, password, trustCertificate, snapshotPath } = req.body;
+
+    if (!host || !port || !username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Host, port, username, and password are required'
+      });
+    }
+
+    // Try to find existing profile by host/port/username
+    const profiles = metadataStorage.getProfiles();
+    const existingProfile = profiles.find(p =>
+      p.host === host && p.port === port && p.username === username
+    );
+
+    if (existingProfile) {
+      // Update existing profile
+      const result = metadataStorage.updateProfile(existingProfile.id, {
+        host,
+        port: parseInt(port) || 1433,
+        username,
+        password,
+        trustCertificate: trustCertificate !== false,
+        snapshotPath: snapshotPath || '/var/opt/mssql/snapshots',
+        isActive: true
+      });
+
+      if (result.success) {
+        res.json({ success: true });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || 'Failed to update profile'
+        });
+      }
+    } else {
+      // Create new profile
+      const result = metadataStorage.createProfile({
+        name: 'Migrated',
+        platformType: 'Microsoft SQL Server',
+        host,
+        port: parseInt(port) || 1433,
+        username,
+        password,
+        trustCertificate: trustCertificate !== false,
+        snapshotPath: snapshotPath || '/var/opt/mssql/snapshots',
+        isActive: true
+      });
+
+      if (result.success) {
+        res.json({ success: true });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || 'Failed to create profile'
+        });
+      }
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
@@ -2544,16 +3089,40 @@ if (process.env.NODE_ENV !== 'test') {
     try {
       await initializeMetadataStorage();
 
+      // Handle UI_PASSWORD environment variable
+      if (process.env.UI_PASSWORD) {
+        try {
+          const passwordStatus = await metadataStorage.getPasswordStatus();
+
+          if (!passwordStatus.passwordSet) {
+            // No password set - hash and store env var password
+            const saltRounds = 10;
+            const passwordHash = await bcrypt.hash(process.env.UI_PASSWORD, saltRounds);
+            await metadataStorage.setPasswordHash(passwordHash);
+          } else {
+            // Password already exists - check if env var matches
+            const settingsResult = await metadataStorage.getSettings();
+            const settings = settingsResult.success ? settingsResult.settings : {};
+            const storedHash = settings.passwordHash;
+
+            if (storedHash) {
+              const envVarMatches = await bcrypt.compare(process.env.UI_PASSWORD, storedHash);
+              if (!envVarMatches) {
+                console.warn('⚠️ UI_PASSWORD in environment variables is being ignored because a password was already set via the UI.');
+                console.warn('   The stored password takes precedence. Remove UI_PASSWORD from your .env/docker-compose.yml or reset the SQLite database to use it.');
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error handling UI_PASSWORD:', error.message);
+        }
+      }
+
       // Run orphan cleanup on startup
       try {
-        const cleanupResult = await cleanupOrphanedSnapshots();
-        if (cleanupResult.cleaned > 0) {
-          console.log(`✅ Startup cleanup: Removed ${cleanupResult.cleaned} orphaned snapshots`);
-        } else {
-          console.log('✅ Startup cleanup: No orphaned snapshots found');
-        }
+        await cleanupOrphanedSnapshots();
       } catch (error) {
-        console.error('❌ Startup cleanup failed:', error.message);
+        console.error('Startup cleanup failed:', error.message);
       }
     } catch (error) {
       console.error('❌ Failed to initialize SQLite metadata storage:', error.message);

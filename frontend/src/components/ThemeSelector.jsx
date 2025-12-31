@@ -96,7 +96,7 @@ const ThemeSelector = ({ isOpen, onClose }) => {
                 key={theme.id}
                 className={`relative border-2 rounded-lg p-4 cursor-pointer transition-all duration-200 ${
                   currentTheme === theme.id
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
+                    ? 'border-primary-500 bg-primary-50 dark:bg-secondary-700 dark:border-primary-400'
                     : 'border-secondary-200 dark:border-secondary-700 hover:border-primary-300 dark:hover:border-primary-600'
                 }`}
                 onClick={() => handleThemeSelect(theme.id)}
@@ -114,7 +114,7 @@ const ThemeSelector = ({ isOpen, onClose }) => {
               >
                 {currentTheme === theme.id && (
                   <div className="absolute top-2 right-2">
-                    <Check className="w-5 h-5 text-primary-600" />
+                    <Check className="w-5 h-5 text-primary-600 dark:text-primary-400" />
                   </div>
                 )}
 
@@ -124,7 +124,11 @@ const ThemeSelector = ({ isOpen, onClose }) => {
                       className="w-6 h-6 rounded-full border-2 border-white shadow-sm"
                       style={{ backgroundColor: theme.colors.primary }}
                     />
-                    <h3 className="font-medium text-secondary-900 dark:text-white">
+                    <h3 className={`font-medium ${
+                      currentTheme === theme.id
+                        ? 'text-secondary-900 dark:text-white'
+                        : 'text-secondary-900 dark:text-white'
+                    }`}>
                       {theme.name}
                     </h3>
                   </div>

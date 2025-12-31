@@ -53,6 +53,7 @@ SQLParrot/
 │   │   └── commands/      # Tauri command handlers
 │   │       ├── connection.rs
 │   │       ├── groups.rs
+│   │       ├── profiles.rs
 │   │       ├── snapshots.rs
 │   │       └── settings.rs
 │   ├── Cargo.toml
@@ -60,7 +61,8 @@ SQLParrot/
 ├── docs/                  # Documentation
 │   ├── SNAPSHOT_BEHAVIOR.md
 │   ├── TAURI.md
-│   └── RELEASE_STRATEGY.md
+│   └── private/
+│       └── RELEASE_STRATEGY.md
 ├── docker-compose.yml     # Docker deployment
 └── package.json           # Root orchestration
 ```
@@ -91,7 +93,7 @@ npm run tauri:build      # Build production desktop app
 ## Current Development Priorities
 
 ### Release Automation (In Progress)
-See `docs/RELEASE_STRATEGY.md` for full details.
+See `docs/private/RELEASE_STRATEGY.md` for full details.
 
 **Phase 1 - Manual Releases (Current)**
 - Create releases manually on GitHub
@@ -102,7 +104,7 @@ See `docs/RELEASE_STRATEGY.md` for full details.
 **Phase 2 - Semi-Automated (Next)**
 - [ ] Add GitHub Action for Tauri builds on tag push
 - [ ] Add GitHub Action for Docker push to ghcr.io
-- [ ] Create CHANGELOG.md
+- [x] Create CHANGELOG.md
 - [ ] Address Dependabot vulnerabilities
 
 **Phase 3 - Fully Automated (Future)**
@@ -116,8 +118,8 @@ See `docs/RELEASE_STRATEGY.md` for full details.
 - **Linux**: Planned - needs testing
 
 ### Other Considerations
-- Keychain integration for secure credential storage (Tauri)
-- Optional password protection for web UI
+- Keychain integration for secure credential storage (Tauri) - future enhancement
+- [x] Optional password protection for web UI (v1.2.0)
 
 ---
 
@@ -136,3 +138,11 @@ See `docs/RELEASE_STRATEGY.md` for full details.
 - Tiberius (Rust SQL Server): https://docs.rs/tiberius/
 - Desktop app docs: `docs/TAURI.md`
 - Snapshot behavior: `docs/SNAPSHOT_BEHAVIOR.md`
+
+---
+
+## Future Enhancement Ideas
+
+Ideas for future development (not currently in scope):
+
+- [ ] **Proxy Profiles** - Allow profiles to connect through SSH tunnels or proxy servers for accessing remote/secured database servers

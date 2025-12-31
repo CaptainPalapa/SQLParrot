@@ -4,10 +4,39 @@
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::config::AppConfig;
+use crate::config::ConnectionProfile;
 use crate::db::{MetadataStore, SqlServerConnection};
 use crate::models::{DatabaseSnapshot, HistoryEntry, OperationResult, Snapshot};
 use crate::ApiResponse;
+
+/// Helper function to get profile from metadata database using group's profile_id
+/// and convert it to ConnectionProfile for SQL Server connection
+fn get_profile_for_group(
+    store: &MetadataStore,
+    group: &crate::models::Group,
+) -> Result<ConnectionProfile, String> {
+    let profile_id = group
+        .profile_id
+        .as_ref()
+        .ok_or_else(|| "Group has no profile_id".to_string())?;
+
+    let profile = store
+        .get_profile(profile_id)
+        .map_err(|e| format!("Failed to get profile: {}", e))?
+        .ok_or_else(|| format!("Profile not found: {}", profile_id))?;
+
+    // Convert Profile to ConnectionProfile
+    Ok(ConnectionProfile {
+        name: profile.name.clone(),
+        db_type: crate::config::DatabaseType::SqlServer,
+        host: profile.host.clone(),
+        port: profile.port,
+        username: profile.username.clone(),
+        password: profile.password.clone(),
+        trust_certificate: profile.trust_certificate,
+        snapshot_path: profile.snapshot_path.clone(),
+    })
+}
 
 /// Get snapshots for a group
 #[tauri::command]
@@ -35,16 +64,6 @@ pub async fn create_snapshot(groupId: String, snapshotName: Option<String>) -> A
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    let config = match AppConfig::load() {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
-    };
-
-    let profile = match config.get_active_profile() {
-        Some(p) => p,
-        None => return ApiResponse::error("No active connection profile".to_string()),
-    };
-
     // Get the group
     let groups = match store.get_groups() {
         Ok(g) => g,
@@ -54,6 +73,12 @@ pub async fn create_snapshot(groupId: String, snapshotName: Option<String>) -> A
     let group = match groups.iter().find(|g| g.id == group_id) {
         Some(g) => g,
         None => return ApiResponse::error(format!("Group not found: {}", group_id)),
+    };
+
+    // Get profile from metadata database using group's profile_id
+    let profile = match get_profile_for_group(&store, group) {
+        Ok(p) => p,
+        Err(e) => return ApiResponse::error(e),
     };
 
     // Get next sequence number
@@ -67,7 +92,7 @@ pub async fn create_snapshot(groupId: String, snapshotName: Option<String>) -> A
     let name = display_name.unwrap_or_else(|| format!("Snapshot {}", sequence));
 
     // Connect to SQL Server
-    let mut conn = match SqlServerConnection::connect(profile).await {
+    let mut conn = match SqlServerConnection::connect(&profile).await {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to connect to SQL Server: {}", e)),
     };
@@ -162,16 +187,6 @@ pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    let config = match AppConfig::load() {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
-    };
-
-    let profile = match config.get_active_profile() {
-        Some(p) => p,
-        None => return ApiResponse::error("No active connection profile".to_string()),
-    };
-
     // Get the snapshot to find its database snapshots
     let groups = match store.get_groups() {
         Ok(g) => g,
@@ -179,10 +194,12 @@ pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
     };
 
     let mut snapshot_to_delete: Option<Snapshot> = None;
+    let mut group_for_snapshot: Option<&crate::models::Group> = None;
     for group in &groups {
         if let Ok(snapshots) = store.get_snapshots(&group.id) {
             if let Some(s) = snapshots.into_iter().find(|s| s.id == snapshot_id) {
                 snapshot_to_delete = Some(s);
+                group_for_snapshot = Some(group);
                 break;
             }
         }
@@ -193,8 +210,19 @@ pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
         None => return ApiResponse::error(format!("Snapshot not found: {}", snapshot_id)),
     };
 
+    let group = match group_for_snapshot {
+        Some(g) => g,
+        None => return ApiResponse::error(format!("Group not found for snapshot: {}", snapshot_id)),
+    };
+
+    // Get profile from metadata database using group's profile_id
+    let profile = match get_profile_for_group(&store, group) {
+        Ok(p) => p,
+        Err(e) => return ApiResponse::error(e),
+    };
+
     // Connect and drop SQL Server snapshots
-    let mut conn = match SqlServerConnection::connect(profile).await {
+    let mut conn = match SqlServerConnection::connect(&profile).await {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to connect: {}", e)),
     };
@@ -248,16 +276,6 @@ pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    let config = match AppConfig::load() {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
-    };
-
-    let profile = match config.get_active_profile() {
-        Some(p) => p,
-        None => return ApiResponse::error("No active connection profile".to_string()),
-    };
-
     // Find the snapshot and its group
     let groups = match store.get_groups() {
         Ok(g) => g,
@@ -284,8 +302,14 @@ pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
 
     let group = target_group.unwrap();
 
+    // Get profile from metadata database using group's profile_id
+    let profile = match get_profile_for_group(&store, group) {
+        Ok(p) => p,
+        Err(e) => return ApiResponse::error(e),
+    };
+
     // Connect to SQL Server
-    let mut conn = match SqlServerConnection::connect(profile).await {
+    let mut conn = match SqlServerConnection::connect(&profile).await {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to connect: {}", e)),
     };
@@ -537,17 +561,24 @@ pub async fn verify_snapshots(groupId: String) -> ApiResponse<VerificationResult
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    let config = match AppConfig::load() {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
+    // Get the group to find its profile_id
+    let groups = match store.get_groups() {
+        Ok(g) => g,
+        Err(e) => return ApiResponse::error(format!("Failed to get groups: {}", e)),
     };
 
-    let profile = match config.get_active_profile() {
-        Some(p) => p,
-        None => return ApiResponse::error("No active connection profile".to_string()),
+    let group = match groups.iter().find(|g| g.id == group_id) {
+        Some(g) => g,
+        None => return ApiResponse::error(format!("Group not found: {}", group_id)),
     };
 
-    let mut conn = match SqlServerConnection::connect(profile).await {
+    // Get profile from metadata database using group's profile_id
+    let profile = match get_profile_for_group(&store, group) {
+        Ok(p) => p,
+        Err(e) => return ApiResponse::error(e),
+    };
+
+    let mut conn = match SqlServerConnection::connect(&profile).await {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to connect: {}", e)),
     };
@@ -614,16 +645,6 @@ pub async fn cleanup_snapshot(id: String) -> ApiResponse<CleanupResult> {
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    let config = match AppConfig::load() {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
-    };
-
-    let profile = match config.get_active_profile() {
-        Some(p) => p,
-        None => return ApiResponse::error("No active connection profile".to_string()),
-    };
-
     // Find the snapshot
     let groups = match store.get_groups() {
         Ok(g) => g,
@@ -631,10 +652,12 @@ pub async fn cleanup_snapshot(id: String) -> ApiResponse<CleanupResult> {
     };
 
     let mut snapshot_to_cleanup: Option<Snapshot> = None;
+    let mut group_for_snapshot: Option<&crate::models::Group> = None;
     for group in &groups {
         if let Ok(snapshots) = store.get_snapshots(&group.id) {
             if let Some(s) = snapshots.into_iter().find(|s| s.id == snapshot_id) {
                 snapshot_to_cleanup = Some(s);
+                group_for_snapshot = Some(group);
                 break;
             }
         }
@@ -645,8 +668,19 @@ pub async fn cleanup_snapshot(id: String) -> ApiResponse<CleanupResult> {
         None => return ApiResponse::error(format!("Snapshot not found: {}", snapshot_id)),
     };
 
+    let group = match group_for_snapshot {
+        Some(g) => g,
+        None => return ApiResponse::error(format!("Group not found for snapshot: {}", snapshot_id)),
+    };
+
+    // Get profile from metadata database using group's profile_id
+    let profile = match get_profile_for_group(&store, group) {
+        Ok(p) => p,
+        Err(e) => return ApiResponse::error(e),
+    };
+
     // Connect to SQL Server
-    let mut conn = match SqlServerConnection::connect(profile).await {
+    let mut conn = match SqlServerConnection::connect(&profile).await {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to connect: {}", e)),
     };
@@ -717,16 +751,6 @@ pub async fn check_external_snapshots(id: String) -> ApiResponse<ExternalSnapsho
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    let config = match AppConfig::load() {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
-    };
-
-    let profile = match config.get_active_profile() {
-        Some(p) => p,
-        None => return ApiResponse::error("No active connection profile".to_string()),
-    };
-
     // Find the snapshot and its group
     let groups = match store.get_groups() {
         Ok(g) => g,
@@ -753,8 +777,14 @@ pub async fn check_external_snapshots(id: String) -> ApiResponse<ExternalSnapsho
 
     let group = target_group.unwrap();
 
+    // Get profile from metadata database using group's profile_id
+    let profile = match get_profile_for_group(&store, group) {
+        Ok(p) => p,
+        Err(e) => return ApiResponse::error(e),
+    };
+
     // Connect to SQL Server
-    let mut conn = match SqlServerConnection::connect(profile).await {
+    let mut conn = match SqlServerConnection::connect(&profile).await {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to connect: {}", e)),
     };

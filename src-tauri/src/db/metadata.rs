@@ -6,8 +6,9 @@ use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use thiserror::Error;
+use uuid::Uuid;
 
-use crate::models::{Group, HistoryEntry, Settings, Snapshot};
+use crate::models::{Group, HistoryEntry, Profile, Settings, Snapshot};
 
 #[derive(Error, Debug)]
 pub enum MetadataError {
@@ -15,6 +16,8 @@ pub enum MetadataError {
     Sqlite(#[from] rusqlite::Error),
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
     #[error("Database not initialized")]
     NotInitialized,
     #[error("Data directory not found")]
@@ -39,12 +42,53 @@ impl MetadataStore {
     /// Open or create the metadata database
     pub fn open() -> Result<Self, MetadataError> {
         let path = Self::db_path()?;
+
+        // Check if database exists
+        let db_exists = path.exists();
+
+        // If database doesn't exist, try to copy from bundled resource
+        if !db_exists {
+            // Try to find bundled database in various locations
+            let mut bundled_paths = vec![
+                // In installed app, resources might be in app directory
+                path.parent().unwrap().join("resources").join("sqlparrot.db"),
+                // Or relative to current directory (for development)
+                PathBuf::from("resources/sqlparrot.db"),
+            ];
+
+            // Add executable directory path if available
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(exe_dir) = exe.parent() {
+                    bundled_paths.push(exe_dir.join("resources").join("sqlparrot.db"));
+                }
+            }
+
+            for bundled_path in bundled_paths {
+                if bundled_path.exists() {
+                    // Copy bundled database to target location (AppData)
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::copy(&bundled_path, &path)?;
+                    break;
+                }
+            }
+        }
+
         let conn = Connection::open(&path)?;
 
         let store = Self {
             conn: Mutex::new(conn),
         };
         store.initialize()?;
+
+        // Check version and migrate if needed
+        let current_version = env!("CARGO_PKG_VERSION");
+        if let Err(e) = store.check_and_migrate(current_version) {
+            eprintln!("Warning: Failed to check/migrate database version: {}", e);
+            // Continue anyway - migration failures shouldn't prevent app from starting
+        }
+
         Ok(store)
     }
 
@@ -54,14 +98,16 @@ impl MetadataStore {
 
         conn.execute_batch(
             r#"
-            -- Groups table
+            -- Groups table (profile_id links groups to connection profiles)
             CREATE TABLE IF NOT EXISTS groups (
                 id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
                 databases TEXT NOT NULL,
+                profile_id TEXT,
                 created_by TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                UNIQUE(name, profile_id)
             );
 
             -- Snapshots table
@@ -93,10 +139,55 @@ impl MetadataStore {
                 data TEXT NOT NULL
             );
 
+            -- Metadata table for version tracking (may not exist in older databases)
+            CREATE TABLE IF NOT EXISTS _metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            -- Connection profiles table (for multiple database profiles)
+            CREATE TABLE IF NOT EXISTS profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                platform_type TEXT NOT NULL DEFAULT 'Microsoft SQL Server',
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL DEFAULT 1433,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                trust_certificate INTEGER DEFAULT 1,
+                snapshot_path TEXT NOT NULL DEFAULT '/var/opt/mssql/snapshots',
+                description TEXT,
+                notes TEXT,
+                is_active INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             -- Indexes
             CREATE INDEX IF NOT EXISTS idx_snapshots_group ON snapshots(group_id);
             CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(is_active);
             "#,
+        )?;
+
+        // Conditionally add profile_id column and create index if needed
+        // This handles cases where the database has an old schema without profile_id
+        // (e.g., from an old bundled database)
+        let mut stmt = conn.prepare("PRAGMA table_info('groups')")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if !columns.contains(&"profile_id".to_string()) {
+            // Column doesn't exist - add it (for old databases)
+            conn.execute("ALTER TABLE groups ADD COLUMN profile_id TEXT", [])?;
+        }
+
+        // Now create the index (column should exist now)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)",
+            [],
         )?;
 
         // Initialize settings if not exists
@@ -105,20 +196,308 @@ impl MetadataStore {
             params![serde_json::to_string(&Settings::default())?],
         )?;
 
+        // Initialize metadata version if not exists (for databases created before version tracking)
+        conn.execute(
+            "INSERT OR IGNORE INTO _metadata (key, value) VALUES ('last_version_seen', '0.0.0')",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get the last version seen from metadata
+    pub fn get_last_version_seen(&self) -> Result<String, MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        match conn.query_row(
+            "SELECT value FROM _metadata WHERE key = 'last_version_seen'",
+            [],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(version) => Ok(version),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok("0.0.0".to_string()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Update the last version seen
+    pub fn update_last_version_seen(&self, version: &str) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO _metadata (key, value) VALUES ('last_version_seen', ?)",
+            params![version],
+        )?;
+        Ok(())
+    }
+
+    /// Check and run migrations if needed
+    pub fn check_and_migrate(&self, current_version: &str) -> Result<(), MetadataError> {
+        let last_version = self.get_last_version_seen()?;
+
+        if last_version == current_version {
+            // Already up to date
+            return Ok(());
+        }
+
+        // Migration from versions < 1.3.0: Migrate config.json to profiles table
+        if self.compare_versions(&last_version, "1.3.0") < 0 {
+            if let Err(e) = self.migrate_config_json_to_profiles() {
+                eprintln!("Warning: Failed to migrate config.json to profiles: {}", e);
+                // Continue anyway - migration failures shouldn't prevent app from starting
+            }
+        }
+
+        // Migration from versions < 1.4.0: Add profile_id to groups table
+        if self.compare_versions(&last_version, "1.4.0") < 0 {
+            if let Err(e) = self.migrate_groups_add_profile_id() {
+                eprintln!("Warning: Failed to add profile_id to groups: {}", e);
+                // Continue anyway - migration failures shouldn't prevent app from starting
+            }
+        }
+
+        // Update version after migrations
+        self.update_last_version_seen(current_version)?;
+
+        Ok(())
+    }
+
+    /// Migration: Add profile_id column to groups table
+    fn migrate_groups_add_profile_id(&self) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+
+        // Check if column already exists
+        let mut stmt = conn.prepare("PRAGMA table_info('groups')")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if columns.contains(&"profile_id".to_string()) {
+            // Column already exists
+            return Ok(());
+        }
+
+        // Add the column
+        conn.execute("ALTER TABLE groups ADD COLUMN profile_id TEXT", [])?;
+
+        // Get the active profile (or first profile if none active)
+        let active_profile_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .or_else(|_| {
+                conn.query_row("SELECT id FROM profiles LIMIT 1", [], |row| row.get(0))
+            })
+            .ok();
+
+        if let Some(profile_id) = active_profile_id {
+            // Assign existing groups to the active profile
+            conn.execute(
+                "UPDATE groups SET profile_id = ? WHERE profile_id IS NULL",
+                params![profile_id],
+            )?;
+        }
+
+        // Create index for profile_id
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    /// Compare two version strings (returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2)
+    fn compare_versions(&self, v1: &str, v2: &str) -> i32 {
+        let v1_parts: Vec<u32> = v1.split('.').filter_map(|s| s.parse().ok()).collect();
+        let v2_parts: Vec<u32> = v2.split('.').filter_map(|s| s.parse().ok()).collect();
+
+        for i in 0..v1_parts.len().max(v2_parts.len()) {
+            let v1_val = v1_parts.get(i).copied().unwrap_or(0);
+            let v2_val = v2_parts.get(i).copied().unwrap_or(0);
+
+            if v1_val < v2_val {
+                return -1;
+            } else if v1_val > v2_val {
+                return 1;
+            }
+        }
+        0
+    }
+
+    /// Migrate config.json to profiles table and settings
+    /// Also migrates preferences (theme, max_history_entries) to SQLite settings
+    /// Deletes config.json after successful migration
+    fn migrate_config_json_to_profiles(&self) -> Result<(), MetadataError> {
+        use crate::config::AppConfig;
+        use std::fs;
+
+        // Check if config.json exists
+        let config_path = match AppConfig::config_path() {
+            Ok(p) => p,
+            Err(_) => {
+                // No config.json, nothing to migrate
+                return Ok(());
+            }
+        };
+
+        if !config_path.exists() {
+            // No config.json, nothing to migrate
+            return Ok(());
+        }
+
+        // Check if profiles table already has data
+        let conn = self.conn.lock().unwrap();
+        let profile_count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM profiles",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        if profile_count > 0 {
+            // Already migrated or profiles exist, skip migration
+            // But still try to migrate preferences if needed
+            drop(conn);
+            self.migrate_config_preferences(&config_path)?;
+            return Ok(());
+        }
+
+        // Load config.json
+        let config = match AppConfig::load() {
+            Ok(c) => c,
+            Err(_) => {
+                // Failed to load config.json, skip migration
+                return Ok(());
+            }
+        };
+
+        // Migrate each profile from config.json
+        let now = Utc::now().to_rfc3339();
+        let mut migrated_profiles = Vec::new();
+
+        for (profile_key, profile) in &config.profiles {
+            // Skip if password is empty (invalid profile)
+            if profile.password.is_empty() {
+                continue;
+            }
+
+            let profile_id = Uuid::new_v4().to_string();
+            let is_active = if profile_key == &config.active_profile { 1 } else { 0 };
+            let name = if profile_key == "default" {
+                "Migrated".to_string()
+            } else {
+                profile.name.clone()
+            };
+
+            conn.execute(
+                "INSERT INTO profiles (id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    profile_id,
+                    name.clone(),
+                    "Microsoft SQL Server",
+                    profile.host,
+                    profile.port,
+                    profile.username,
+                    profile.password,
+                    if profile.trust_certificate { 1 } else { 0 },
+                    profile.snapshot_path,
+                    None::<String>, // description
+                    None::<String>, // notes
+                    is_active,
+                    now,
+                    now
+                ],
+            )?;
+
+            migrated_profiles.push(serde_json::json!({
+                "name": name,
+                "host": profile.host,
+                "port": profile.port
+            }));
+        }
+
+        // Migrate preferences to SQLite settings
+        drop(conn);
+        self.migrate_config_preferences(&config_path)?;
+
+        // Add history entry for migration
+        if !migrated_profiles.is_empty() {
+            let history_entry = HistoryEntry {
+                id: Uuid::new_v4().to_string(),
+                operation_type: "migrate_config_to_profiles".to_string(),
+                timestamp: Utc::now(),
+                user_name: None,
+                details: Some(serde_json::json!({
+                    "migratedProfiles": migrated_profiles,
+                    "sourceFile": "config.json",
+                    "message": format!("Migrated {} connection(s) in config.json to profile(s)", migrated_profiles.len())
+                })),
+                results: None,
+            };
+            if let Err(e) = self.add_history(&history_entry) {
+                eprintln!("Warning: Failed to add history entry for config.json migration: {}", e);
+            }
+        }
+
+        // Delete config.json after successful migration
+        if let Err(e) = fs::remove_file(&config_path) {
+            eprintln!("Warning: Failed to delete config.json after migration: {}", e);
+            // Continue anyway - migration succeeded even if deletion failed
+        }
+
+        Ok(())
+    }
+
+    /// Migrate preferences from config.json to SQLite settings
+    fn migrate_config_preferences(&self, _config_path: &std::path::Path) -> Result<(), MetadataError> {
+        use crate::config::AppConfig;
+
+        // Load config.json to get preferences
+        let config = match AppConfig::load() {
+            Ok(c) => c,
+            Err(_) => return Ok(()), // No config.json, nothing to migrate
+        };
+
+        // Get current settings
+        let mut settings = self.get_settings().unwrap_or_default();
+
+        // Migrate preferences.theme and preferences.max_history_entries
+        // Only update if not already set in SQLite (preserve existing values)
+        if settings.preferences.max_history_entries == 100 && config.preferences.max_history_entries != 100 {
+            settings.preferences.max_history_entries = config.preferences.max_history_entries;
+        }
+
+        // Note: theme is not currently stored in SQLite Settings model, but we could add it if needed
+        // For now, we'll skip theme migration
+
+        // Save updated settings
+        self.update_settings(&settings)?;
+
         Ok(())
     }
 
     // ===== Groups =====
 
-    /// Get all groups
+    /// Get all groups (filtered by active profile)
     pub fn get_groups(&self) -> Result<Vec<Group>, MetadataError> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, databases, created_by, created_at, updated_at FROM groups ORDER BY name",
-        )?;
 
-        let groups = stmt
-            .query_map([], |row| {
+        // Get active profile ID
+        let active_profile_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let groups = if let Some(profile_id) = active_profile_id {
+            let mut stmt = conn.prepare(
+                "SELECT id, name, databases, profile_id, created_by, created_at, updated_at FROM groups WHERE profile_id = ? ORDER BY name",
+            )?;
+
+            let rows = stmt.query_map(params![profile_id], |row| {
                 let databases_json: String = row.get(2)?;
                 let databases: Vec<String> =
                     serde_json::from_str(&databases_json).unwrap_or_default();
@@ -127,31 +506,93 @@ impl MetadataStore {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     databases,
-                    created_by: row.get(3)?,
+                    profile_id: row.get(3)?,
+                    created_by: row.get(4)?,
                     created_at: row
-                        .get::<_, String>(4)?
-                        .parse()
-                        .unwrap_or_else(|_| Utc::now()),
-                    updated_at: row
                         .get::<_, String>(5)?
                         .parse()
                         .unwrap_or_else(|_| Utc::now()),
+                    updated_at: row
+                        .get::<_, String>(6)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
                 })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        } else {
+            // No active profile, return all groups
+            let mut stmt = conn.prepare(
+                "SELECT id, name, databases, profile_id, created_by, created_at, updated_at FROM groups ORDER BY name",
+            )?;
+
+            let rows = stmt.query_map([], |row| {
+                let databases_json: String = row.get(2)?;
+                let databases: Vec<String> =
+                    serde_json::from_str(&databases_json).unwrap_or_default();
+
+                Ok(Group {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    databases,
+                    profile_id: row.get(3)?,
+                    created_by: row.get(4)?,
+                    created_at: row
+                        .get::<_, String>(5)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    updated_at: row
+                        .get::<_, String>(6)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
 
         Ok(groups)
+    }
+
+    /// Get group counts per profile
+    pub fn get_group_counts_by_profile(&self) -> Result<std::collections::HashMap<String, u32>, MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT profile_id, COUNT(*) as count FROM groups WHERE profile_id IS NOT NULL GROUP BY profile_id",
+        )?;
+
+        let mut counts = std::collections::HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+        })?;
+
+        for row in rows {
+            let (profile_id, count) = row?;
+            counts.insert(profile_id, count);
+        }
+
+        Ok(counts)
     }
 
     /// Create a new group
     pub fn create_group(&self, group: &Group) -> Result<(), MetadataError> {
         let conn = self.conn.lock().unwrap();
+
+        // Get profile_id - use provided one or get from active profile
+        let profile_id = group.profile_id.clone().or_else(|| {
+            conn.query_row(
+                "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+        });
+
         conn.execute(
-            "INSERT INTO groups (id, name, databases, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO groups (id, name, databases, profile_id, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
                 group.id,
                 group.name,
                 serde_json::to_string(&group.databases)?,
+                profile_id,
                 group.created_by,
                 group.created_at.to_rfc3339(),
                 group.updated_at.to_rfc3339(),
@@ -376,5 +817,482 @@ impl MetadataStore {
             params![serde_json::to_string(settings)?],
         )?;
         Ok(())
+    }
+
+    // ===== Profiles =====
+
+    /// Get all profiles
+    pub fn get_profiles(&self) -> Result<Vec<Profile>, MetadataError> {
+        // Ensure at least one profile is active before getting profiles
+        let _ = self.ensure_active_profile();
+
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles ORDER BY is_active DESC, name",
+        )?;
+
+        let profiles = stmt
+            .query_map([], |row| {
+                Ok(Profile {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    platform_type: row.get(2)?,
+                    host: row.get(3)?,
+                    port: row.get(4)?,
+                    username: row.get(5)?,
+                    password: row.get(6)?,
+                    trust_certificate: row.get::<_, i32>(7)? == 1,
+                    snapshot_path: row.get(8)?,
+                    description: row.get(9)?,
+                    notes: row.get(10)?,
+                    is_active: row.get::<_, i32>(11)? == 1,
+                    created_at: row
+                        .get::<_, String>(12)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                    updated_at: row
+                        .get::<_, String>(13)?
+                        .parse()
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(profiles)
+    }
+
+    /// Get active profile
+    pub fn get_active_profile(&self) -> Result<Option<Profile>, MetadataError> {
+        // Ensure at least one profile is active before getting it
+        let _ = self.ensure_active_profile();
+
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles WHERE is_active = 1 LIMIT 1",
+        )?;
+
+        match stmt.query_row([], |row| {
+            Ok(Profile {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                platform_type: row.get(2)?,
+                host: row.get(3)?,
+                port: row.get(4)?,
+                username: row.get(5)?,
+                password: row.get(6)?,
+                trust_certificate: row.get::<_, i32>(7)? == 1,
+                snapshot_path: row.get(8)?,
+                description: row.get(9)?,
+                notes: row.get(10)?,
+                is_active: row.get::<_, i32>(11)? == 1,
+                created_at: row
+                    .get::<_, String>(12)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+                updated_at: row
+                    .get::<_, String>(13)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        }) {
+            Ok(profile) => Ok(Some(profile)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Get a single profile by ID
+    pub fn get_profile(&self, profile_id: &str) -> Result<Option<Profile>, MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles WHERE id = ? LIMIT 1",
+        )?;
+
+        match stmt.query_row(params![profile_id], |row| {
+            Ok(Profile {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                platform_type: row.get(2)?,
+                host: row.get(3)?,
+                port: row.get(4)?,
+                username: row.get(5)?,
+                password: row.get(6)?,
+                trust_certificate: row.get::<_, i32>(7)? == 1,
+                snapshot_path: row.get(8)?,
+                description: row.get(9)?,
+                notes: row.get(10)?,
+                is_active: row.get::<_, i32>(11)? == 1,
+                created_at: row
+                    .get::<_, String>(12)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+                updated_at: row
+                    .get::<_, String>(13)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        }) {
+            Ok(profile) => Ok(Some(profile)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Create a new profile
+    pub fn create_profile(&self, profile: &Profile) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+
+        // If this is being set as active, deactivate all others first
+        if profile.is_active {
+            conn.execute("UPDATE profiles SET is_active = 0", [])?;
+        }
+
+        conn.execute(
+            "INSERT INTO profiles (id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                profile.id,
+                profile.name,
+                profile.platform_type,
+                profile.host,
+                profile.port,
+                profile.username,
+                profile.password,
+                if profile.trust_certificate { 1 } else { 0 },
+                profile.snapshot_path,
+                profile.description.as_ref(),
+                profile.notes.as_ref(),
+                if profile.is_active { 1 } else { 0 },
+                profile.created_at.to_rfc3339(),
+                profile.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Update an existing profile
+    pub fn update_profile(&self, profile: &Profile) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+
+        // If this is being set as active, deactivate all others first
+        if profile.is_active {
+            conn.execute("UPDATE profiles SET is_active = 0 WHERE id != ?", params![profile.id])?;
+        }
+
+        conn.execute(
+            "UPDATE profiles SET name = ?, platform_type = ?, host = ?, port = ?, username = ?, password = ?, trust_certificate = ?, snapshot_path = ?, description = ?, notes = ?, is_active = ?, updated_at = ? WHERE id = ?",
+            params![
+                profile.name,
+                profile.platform_type,
+                profile.host,
+                profile.port,
+                profile.username,
+                profile.password,
+                if profile.trust_certificate { 1 } else { 0 },
+                profile.snapshot_path,
+                profile.description.as_ref(),
+                profile.notes.as_ref(),
+                if profile.is_active { 1 } else { 0 },
+                profile.updated_at.to_rfc3339(),
+                profile.id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Find profile by host, port, and username (for migration matching)
+    pub fn find_profile_by_connection(&self, host: &str, port: u16, username: &str) -> Result<Option<Profile>, MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles WHERE host = ? AND port = ? AND username = ? LIMIT 1",
+        )?;
+
+        match stmt.query_row(params![host, port, username], |row| {
+            Ok(Profile {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                platform_type: row.get(2)?,
+                host: row.get(3)?,
+                port: row.get(4)?,
+                username: row.get(5)?,
+                password: row.get(6)?,
+                trust_certificate: row.get::<_, i32>(7)? == 1,
+                snapshot_path: row.get(8)?,
+                description: row.get(9)?,
+                notes: row.get(10)?,
+                is_active: row.get::<_, i32>(11)? == 1,
+                created_at: row
+                    .get::<_, String>(12)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+                updated_at: row
+                    .get::<_, String>(13)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        }) {
+            Ok(profile) => Ok(Some(profile)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Delete a profile
+    pub fn delete_profile(&self, profile_id: &str) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM profiles WHERE id = ?", params![profile_id])?;
+        Ok(())
+    }
+
+    /// Set a profile as active (deactivates all others)
+    pub fn set_active_profile(&self, profile_id: &str) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("UPDATE profiles SET is_active = 0", [])?;
+        conn.execute("UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?", params![Utc::now().to_rfc3339(), profile_id])?;
+        Ok(())
+    }
+
+    /// Ensure at least one profile is active (if profiles exist)
+    /// If no profile is active and profiles exist, activates the first profile
+    pub fn ensure_active_profile(&self) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+
+        // Check if any profile is active
+        let active_count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM profiles WHERE is_active = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        // If no active profile and profiles exist, activate the first one
+        if active_count == 0 {
+            let total_count: i32 = conn.query_row(
+                "SELECT COUNT(*) FROM profiles",
+                [],
+                |row| row.get(0),
+            )?;
+
+            if total_count > 0 {
+                // Get the first profile (by created_at or id)
+                let first_profile_id: Option<String> = conn.query_row(
+                    "SELECT id FROM profiles ORDER BY created_at ASC, id ASC LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                ).ok();
+
+                if let Some(profile_id) = first_profile_id {
+                    conn.execute(
+                        "UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?",
+                        params![Utc::now().to_rfc3339(), profile_id],
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    fn create_test_store() -> (MetadataStore, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a new connection for testing
+        let conn = Connection::open(&db_path).unwrap();
+
+        // Initialize schema
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                platform_type TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                trust_certificate INTEGER NOT NULL,
+                snapshot_path TEXT NOT NULL,
+                description TEXT,
+                notes TEXT,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        ).unwrap();
+
+        let store = MetadataStore {
+            conn: Mutex::new(conn),
+        };
+
+        (store, temp_dir)
+    }
+
+    #[test]
+    fn test_ensure_active_profile_activates_first_when_none_active() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create two profiles, both inactive
+        let profile1 = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile 1".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password1".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let profile2 = Profile {
+            id: "profile-2".to_string(),
+            name: "Test Profile 2".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password2".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Insert profiles
+        store.create_profile(&profile1).unwrap();
+        store.create_profile(&profile2).unwrap();
+
+        // Ensure active profile - should activate the first one
+        store.ensure_active_profile().unwrap();
+
+        // Verify first profile is now active
+        let active = store.get_active_profile().unwrap();
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().id, "profile-1");
+    }
+
+    #[test]
+    fn test_ensure_active_profile_does_nothing_when_one_active() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create a profile and set it as active
+        let profile = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile).unwrap();
+
+        // Get the active profile before ensure
+        let active_before = store.get_active_profile().unwrap().unwrap();
+
+        // Ensure active profile - should do nothing
+        store.ensure_active_profile().unwrap();
+
+        // Verify same profile is still active
+        let active_after = store.get_active_profile().unwrap().unwrap();
+        assert_eq!(active_before.id, active_after.id);
+    }
+
+    #[test]
+    fn test_ensure_active_profile_does_nothing_when_no_profiles() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Ensure active profile with no profiles - should do nothing
+        store.ensure_active_profile().unwrap();
+
+        // Verify no active profile
+        let active = store.get_active_profile().unwrap();
+        assert!(active.is_none());
+    }
+
+    #[test]
+    fn test_get_profiles_ensures_active_profile() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create a profile but set it as inactive
+        let profile = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile).unwrap();
+
+        // Get profiles - should ensure one is active
+        let profiles = store.get_profiles().unwrap();
+
+        // Verify at least one is active
+        let active_count = profiles.iter().filter(|p| p.is_active).count();
+        assert_eq!(active_count, 1);
+    }
+
+    #[test]
+    fn test_get_active_profile_ensures_active_profile() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create a profile but set it as inactive
+        let profile = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile).unwrap();
+
+        // Get active profile - should ensure one is active and return it
+        let active = store.get_active_profile().unwrap();
+
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().id, "profile-1");
     }
 }

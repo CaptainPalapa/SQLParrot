@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- Custom action to delete application data on uninstall -->
+  <!-- This will be merged with the generated WiX script -->
+  <!-- Note: MSI uninstallers don't typically have a checkbox UI like NSIS -->
+  <!-- This will delete the data automatically during uninstall -->
+
+  <!-- Custom action to delete AppData directories -->
+  <CustomAction
+    Id="DeleteAppData"
+    Directory="TARGETDIR"
+    Execute="deferred"
+    Impersonate="no"
+    Script="vbscript"
+    Return="ignore">
+    <![CDATA[
+      On Error Resume Next
+      Set fso = CreateObject("Scripting.FileSystemObject")
+      Set shell = CreateObject("WScript.Shell")
+
+      ' Get LocalAppData path
+      localAppData = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
+      sqlParrotPath = localAppData & "\SQL Parrot"
+
+      ' Delete LocalAppData\SQL Parrot if it exists
+      If fso.FolderExists(sqlParrotPath) Then
+        fso.DeleteFolder sqlParrotPath, True
+      End If
+
+      ' Get AppData (Roaming) path
+      appData = shell.ExpandEnvironmentStrings("%APPDATA%")
+      sqlParrotRoamingPath = appData & "\SQL Parrot"
+
+      ' Delete AppData\SQL Parrot if it exists
+      If fso.FolderExists(sqlParrotRoamingPath) Then
+        fso.DeleteFolder sqlParrotRoamingPath, True
+      End If
+    ]]>
+  </CustomAction>
+
+  <!-- Install the custom action to run during uninstall -->
+  <InstallExecuteSequence>
+    <Custom Action="DeleteAppData" Before="RemoveFiles">
+      REMOVE="ALL"
+    </Custom>
+  </InstallExecuteSequence>
+</Wix>
+

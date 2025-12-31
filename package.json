@@ -1,6 +1,6 @@
 {
   "name": "sql-parrot",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "description": "Database Server Snapshot Management Tool",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
@@ -10,9 +10,13 @@
     "start:docker": "cd backend && npm start",
     "tauri": "npx tauri",
     "tauri:dev": "npx tauri dev",
-    "tauri:build": "npx tauri build",
+    "tauri:build": "npx tauri build && node src-tauri/scripts/patch-nsis-installer.js",
     "test": "jest",
     "test:api": "jest tests/snapshot-rollback-api.spec.js",
+    "test:profiles": "jest tests/profile-management-api.spec.js",
+    "test:history": "jest tests/history-api.spec.js",
+    "test:storage": "jest backend/utils/__tests__/metadataStorageSqlite.test.js",
+    "test:all": "jest tests/ backend/utils/__tests__/",
     "test:watch": "jest --watch"
   },
   "devDependencies": {

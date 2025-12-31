@@ -19,10 +19,6 @@ class MetadataStorage {
     this.userName = process.env.SQLPARROT_USER_NAME || 'local_user';
     this.dbPath = path.join(process.cwd(), 'data', 'sqlparrot.db');
     this.db = null;
-
-    console.log(`🔧 SQLite Metadata Storage:`);
-    console.log(`   User = "${this.userName}"`);
-    console.log(`   Database = "${this.dbPath}"`);
   }
 
   /**
@@ -51,7 +47,6 @@ class MetadataStorage {
     if (this.db) {
       this.db.close();
       this.db = null;
-      console.log('🔌 SQLite database closed');
     }
   }
 
@@ -66,10 +61,8 @@ class MetadataStorage {
    */
   async testConnection() {
     try {
-      console.log('🔍 Testing SQLite connection...');
       const db = this.getDb();
       db.prepare('SELECT 1 as test').get();
-      console.log('✅ SQLite connection successful');
       return { success: true, message: 'SQLite connection successful' };
     } catch (error) {
       console.error('❌ SQLite connection failed:', error.message);
@@ -83,7 +76,6 @@ class MetadataStorage {
    */
   async initialize() {
     try {
-      console.log('🚀 Initializing SQLite metadata storage...');
       const db = this.getDb();
 
       // Create snapshot table
@@ -120,15 +112,17 @@ class MetadataStorage {
         )
       `);
 
-      // Create groups table
+      // Create groups table (profile_id links groups to connection profiles)
       db.exec(`
         CREATE TABLE IF NOT EXISTS groups (
           id TEXT PRIMARY KEY,
-          name TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
           databases TEXT,
+          profile_id TEXT,
           created_by TEXT NOT NULL,
           created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
+          updated_at TEXT NOT NULL,
+          UNIQUE(name, profile_id)
         )
       `);
 
@@ -142,20 +136,714 @@ class MetadataStorage {
         )
       `);
 
-      // Create indexes for common queries
+      // Create _metadata table for version tracking
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS _metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `);
+
+      // Create profiles table for connection profiles
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS profiles (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          platform_type TEXT NOT NULL DEFAULT 'Microsoft SQL Server',
+          host TEXT NOT NULL,
+          port INTEGER NOT NULL DEFAULT 1433,
+          username TEXT NOT NULL,
+          password TEXT NOT NULL,
+          trust_certificate INTEGER DEFAULT 1,
+          snapshot_path TEXT NOT NULL DEFAULT '/var/opt/mssql/snapshots',
+          description TEXT,
+          notes TEXT,
+          is_active INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+
+      // Create indexes for common queries (profile_id index created after migration)
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_snapshot_group_id ON snapshot(group_id);
         CREATE INDEX IF NOT EXISTS idx_snapshot_created_at ON snapshot(created_at);
         CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
         CREATE INDEX IF NOT EXISTS idx_history_type ON history(type);
+        CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(is_active);
       `);
 
-      console.log('✅ SQLite metadata storage initialized successfully');
+      // Initialize metadata version if not exists
+      db.exec(`
+        INSERT OR IGNORE INTO _metadata (key, value) VALUES ('last_version_seen', '0.0.0')
+      `);
+
+      // Check version and migrate if needed (this adds profile_id column if needed)
+      await this.checkAndMigrate();
+
+      // Create profile_id index AFTER migrations have run (column may have just been added)
+      try {
+        db.exec('CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)');
+      } catch (e) {
+        // Index creation might fail if column still doesn't exist for some reason
+        console.warn('⚠️ Could not create profile_id index:', e.message);
+      }
+
       return { success: true, message: 'Metadata storage initialized' };
 
     } catch (error) {
       console.error('❌ Failed to initialize metadata storage:', error.message);
       throw new Error(`Metadata storage initialization failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check version and run migrations if needed
+   */
+  async checkAndMigrate() {
+    try {
+      const db = this.getDb();
+      const versionResult = db.prepare('SELECT value FROM _metadata WHERE key = ?').get('last_version_seen');
+      const lastVersion = versionResult ? versionResult.value : '0.0.0';
+      const currentVersion = '1.4.0';
+
+      if (this.compareVersions(lastVersion, currentVersion) < 0) {
+        // Migration from versions < 1.3.0: Migrate config.json and env vars to profiles table
+        if (this.compareVersions(lastVersion, '1.3.0') < 0) {
+          await this.migrateConfigJsonToProfiles();
+          await this.migrateEnvVarsToProfiles();
+        }
+
+        // Migration from versions < 1.4.0: Add profile_id to groups table
+        if (this.compareVersions(lastVersion, '1.4.0') < 0) {
+          await this.migrateGroupsAddProfileId();
+        }
+
+        // Update version
+        db.prepare('INSERT OR REPLACE INTO _metadata (key, value) VALUES (?, ?)').run('last_version_seen', currentVersion);
+      }
+    } catch (error) {
+      console.error('⚠️ Migration check failed:', error.message);
+      // Continue anyway - migration failures shouldn't prevent app from starting
+    }
+  }
+
+  /**
+   * Migration: Add profile_id column to groups table
+   * Assigns existing groups to the active profile (or first profile if none active)
+   */
+  async migrateGroupsAddProfileId() {
+    try {
+      const db = this.getDb();
+
+      // Check if column already exists
+      const tableInfo = db.prepare("PRAGMA table_info('groups')").all();
+      const hasProfileId = tableInfo.some(col => col.name === 'profile_id');
+
+      if (!hasProfileId) {
+        // Add the column
+        db.exec('ALTER TABLE groups ADD COLUMN profile_id TEXT');
+
+        // Get the active profile (or first profile if none active)
+        let activeProfile = db.prepare('SELECT id FROM profiles WHERE is_active = 1 LIMIT 1').get();
+        if (!activeProfile) {
+          activeProfile = db.prepare('SELECT id FROM profiles LIMIT 1').get();
+        }
+
+        if (activeProfile) {
+          // Assign existing groups to the active profile
+          db.prepare('UPDATE groups SET profile_id = ? WHERE profile_id IS NULL').run(activeProfile.id);
+        }
+
+        // Create index for profile_id
+        db.exec('CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)');
+
+        // Drop the old unique constraint on name and add new one on (name, profile_id)
+        // SQLite doesn't support DROP CONSTRAINT, so we need to recreate the table
+        // For simplicity, we'll just allow duplicate names across profiles going forward
+        // The CREATE TABLE already has UNIQUE(name, profile_id)
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to add profile_id to groups:', error.message);
+      // Continue anyway
+    }
+  }
+
+  /**
+   * Compare two version strings
+   * @param {string} v1
+   * @param {string} v2
+   * @returns {number} -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+   */
+  compareVersions(v1, v2) {
+    const v1Parts = v1.split('.').map(n => parseInt(n) || 0);
+    const v2Parts = v2.split('.').map(n => parseInt(n) || 0);
+
+    for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
+      const v1Val = v1Parts[i] || 0;
+      const v2Val = v2Parts[i] || 0;
+
+      if (v1Val < v2Val) return -1;
+      if (v1Val > v2Val) return 1;
+    }
+    return 0;
+  }
+
+  /**
+   * Migrate config.json to profiles table
+   * Migrates connection profiles from config.json to SQLite profiles table
+   * Also migrates preferences to SQLite settings
+   * Deletes config.json after successful migration
+   */
+  async migrateConfigJsonToProfiles() {
+    try {
+      const db = this.getDb();
+      const { v4: uuidv4 } = require('uuid');
+      const configPath = path.join(process.cwd(), 'config.json');
+
+      // Check if config.json exists
+      if (!fs.existsSync(configPath)) {
+        // No config.json, nothing to migrate
+        return;
+      }
+
+      // Check if profiles table already has data (skip if already migrated)
+      const profileCount = db.prepare('SELECT COUNT(*) as count FROM profiles').get();
+      if (profileCount && profileCount.count > 0) {
+        // Already migrated or profiles exist, skip migration
+        // But still try to migrate preferences if needed
+        await this.migrateConfigPreferences(configPath);
+        return;
+      }
+
+      // Load config.json
+      let config;
+      try {
+        const configContent = fs.readFileSync(configPath, 'utf8');
+        config = JSON.parse(configContent);
+      } catch (error) {
+        console.error('⚠️ Failed to load config.json:', error.message);
+        return;
+      }
+
+      // Migrate each profile from config.json
+      const now = new Date().toISOString();
+      let migratedProfiles = [];
+
+      if (config.profiles && typeof config.profiles === 'object') {
+        for (const [profileKey, profile] of Object.entries(config.profiles)) {
+          // Skip if password is empty (invalid profile)
+          if (!profile.password) {
+            continue;
+          }
+
+          const profileId = uuidv4();
+          const isActive = profileKey === config.active_profile ? 1 : 0;
+          const name = profileKey === 'default' ? 'Migrated' : (profile.name || profileKey);
+
+          // Insert profile into SQLite
+          db.prepare(`
+            INSERT INTO profiles (id, name, platform_type, host, port, username, password,
+                                  trust_certificate, snapshot_path, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            profileId,
+            name,
+            'Microsoft SQL Server',
+            profile.host || 'localhost',
+            profile.port || 1433,
+            profile.username || '',
+            profile.password,
+            profile.trust_certificate !== false ? 1 : 0,
+            profile.snapshot_path || '/var/opt/mssql/snapshots',
+            isActive,
+            now,
+            now
+          );
+
+          migratedProfiles.push({
+            name,
+            host: profile.host || 'localhost',
+            port: profile.port || 1433
+          });
+
+        }
+      }
+
+      // Migrate preferences to SQLite settings
+      await this.migrateConfigPreferences(configPath);
+
+      // Add history entry for migration
+      if (migratedProfiles.length > 0) {
+        const historyEntry = {
+          type: 'migrate_config_to_profiles',
+          migratedProfiles: migratedProfiles,
+          sourceFile: 'config.json',
+          message: `Migrated ${migratedProfiles.length} connection profile(s) from config.json to SQLite`
+        };
+        await this.addHistoryEntry(historyEntry);
+      }
+
+      // Delete config.json after successful migration
+      try {
+        fs.unlinkSync(configPath);
+      } catch (error) {
+        console.warn('⚠️ Failed to delete config.json after migration:', error.message);
+        // Continue anyway - migration succeeded even if deletion failed
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to migrate config.json to profiles:', error.message);
+      // Continue anyway - migration failures shouldn't prevent app from starting
+    }
+  }
+
+  /**
+   * Migrate preferences from config.json to SQLite settings
+   * @param {string} configPath Path to config.json file
+   */
+  async migrateConfigPreferences(configPath) {
+    try {
+      if (!fs.existsSync(configPath)) {
+        return;
+      }
+
+      const configContent = fs.readFileSync(configPath, 'utf8');
+      const config = JSON.parse(configContent);
+
+      if (config.preferences) {
+        const settingsResult = await this.getSettings();
+        const settings = settingsResult.success ? settingsResult.settings : {};
+
+        // Migrate preferences
+        if (config.preferences.max_history_entries !== undefined) {
+          settings.maxHistoryEntries = config.preferences.max_history_entries;
+        }
+        // Note: theme preference is handled by frontend, not stored in backend
+
+        await this.updateSettings(settings);
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to migrate preferences from config.json:', error.message);
+      // Continue anyway
+    }
+  }
+
+  /**
+   * Migrate environment variables to profiles table
+   * Creates/updates a "Migrated" profile with current env vars
+   */
+  async migrateEnvVarsToProfiles() {
+    try {
+      const db = this.getDb();
+      const { v4: uuidv4 } = require('uuid');
+
+      // Check if we have env vars to migrate
+      const hasEnvVars = process.env.SQL_SERVER && process.env.SQL_USERNAME && process.env.SQL_PASSWORD;
+
+      if (!hasEnvVars) {
+        return;
+      }
+
+      // Check if "Migrated" profile already exists
+      const existingProfile = db.prepare('SELECT id FROM profiles WHERE name = ?').get('Migrated');
+
+      const now = new Date().toISOString();
+      const existingCreatedAt = existingProfile
+        ? db.prepare('SELECT created_at FROM profiles WHERE name = ?').get('Migrated')?.created_at || now
+        : now;
+
+      const profileData = {
+        id: existingProfile ? existingProfile.id : uuidv4(),
+        name: 'Migrated',
+        platform_type: 'Microsoft SQL Server',
+        host: process.env.SQL_SERVER || 'localhost',
+        port: parseInt(process.env.SQL_PORT) || 1433,
+        username: process.env.SQL_USERNAME || '',
+        password: process.env.SQL_PASSWORD || '',
+        trust_certificate: process.env.SQL_TRUST_CERTIFICATE === 'true' ? 1 : 1,
+        snapshot_path: process.env.SNAPSHOT_PATH || '/var/opt/mssql/snapshots',
+        is_active: 1, // Always set as active
+        created_at: existingCreatedAt,
+        updated_at: now
+      };
+
+      if (existingProfile) {
+        // Update existing profile
+        db.prepare(`
+          UPDATE profiles
+          SET platform_type = ?, host = ?, port = ?, username = ?, password = ?,
+              trust_certificate = ?, snapshot_path = ?, is_active = ?, updated_at = ?
+          WHERE id = ?
+        `).run(
+          profileData.platform_type,
+          profileData.host,
+          profileData.port,
+          profileData.username,
+          profileData.password,
+          profileData.trust_certificate,
+          profileData.snapshot_path,
+          profileData.is_active,
+          profileData.updated_at,
+          profileData.id
+        );
+      } else {
+        // Deactivate all other profiles first
+        db.prepare('UPDATE profiles SET is_active = 0').run();
+
+        // Create new profile
+        db.prepare(`
+          INSERT INTO profiles (id, name, platform_type, host, port, username, password,
+                                trust_certificate, snapshot_path, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          profileData.id,
+          profileData.name,
+          profileData.platform_type,
+          profileData.host,
+          profileData.port,
+          profileData.username,
+          profileData.password,
+          profileData.trust_certificate,
+          profileData.snapshot_path,
+          profileData.is_active,
+          profileData.created_at,
+          profileData.updated_at
+        );
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to migrate environment variables to profiles:', error.message);
+      // Continue anyway
+    }
+  }
+
+  /**
+   * Ensure at least one profile is active (if profiles exist)
+   * If no profile is active and profiles exist, activates the first profile
+   */
+  ensureActiveProfile() {
+    try {
+      const db = this.getDb();
+
+      // Check if any profile is active
+      const activeCount = db.prepare('SELECT COUNT(*) as count FROM profiles WHERE is_active = 1').get();
+
+      // If no active profile and profiles exist, activate the first one
+      if (activeCount.count === 0) {
+        const totalCount = db.prepare('SELECT COUNT(*) as count FROM profiles').get();
+
+        if (totalCount.count > 0) {
+          // Get the first profile (by created_at or id)
+          const firstProfile = db.prepare(`
+            SELECT id FROM profiles ORDER BY created_at ASC, id ASC LIMIT 1
+          `).get();
+
+          if (firstProfile) {
+            const now = new Date().toISOString();
+            db.prepare('UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?').run(now, firstProfile.id);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error ensuring active profile:', error);
+      // Don't throw - this is a best-effort operation
+    }
+  }
+
+  /**
+   * Get active profile
+   * @returns {Object|null} Active profile or null
+   */
+  getActiveProfile() {
+    try {
+      // Ensure at least one profile is active before getting it
+      this.ensureActiveProfile();
+
+      const db = this.getDb();
+      const profile = db.prepare(`
+        SELECT id, name, platform_type, host, port, username, password,
+               trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at
+        FROM profiles
+        WHERE is_active = 1
+        LIMIT 1
+      `).get();
+
+      if (!profile) {
+        return null;
+      }
+
+      return {
+        id: profile.id,
+        name: profile.name,
+        platformType: profile.platform_type,
+        host: profile.host,
+        port: profile.port,
+        username: profile.username,
+        password: profile.password,
+        trustCertificate: profile.trust_certificate === 1,
+        snapshotPath: profile.snapshot_path,
+        description: profile.description || null,
+        notes: profile.notes || null,
+        isActive: profile.is_active === 1,
+        createdAt: profile.created_at,
+        updatedAt: profile.updated_at
+      };
+    } catch (error) {
+      console.error('Error getting active profile:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all profiles (without passwords for security)
+   * @returns {Array} Array of profiles
+   */
+  getProfiles() {
+    try {
+      // Ensure at least one profile is active before getting profiles
+      this.ensureActiveProfile();
+
+      const db = this.getDb();
+      const profiles = db.prepare(`
+        SELECT id, name, platform_type, host, port, username,
+               trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at
+        FROM profiles
+        ORDER BY is_active DESC, name
+      `).all();
+
+      return profiles.map(p => ({
+        id: p.id,
+        name: p.name,
+        platformType: p.platform_type,
+        host: p.host,
+        port: p.port,
+        username: p.username,
+        trustCertificate: p.trust_certificate === 1,
+        snapshotPath: p.snapshot_path,
+        description: p.description || null,
+        notes: p.notes || null,
+        isActive: p.is_active === 1,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at
+      }));
+    } catch (error) {
+      console.error('Error getting profiles:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get a single profile by ID (without password)
+   * @param {string} profileId
+   * @returns {Object|null} Profile or null
+   */
+  getProfile(profileId) {
+    try {
+      const db = this.getDb();
+      const profile = db.prepare(`
+        SELECT id, name, platform_type, host, port, username, password,
+               trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at
+        FROM profiles
+        WHERE id = ?
+      `).get(profileId);
+
+      if (!profile) {
+        return null;
+      }
+
+      return {
+        id: profile.id,
+        name: profile.name,
+        platformType: profile.platform_type,
+        host: profile.host,
+        port: profile.port,
+        username: profile.username,
+        password: profile.password,
+        trustCertificate: profile.trust_certificate === 1,
+        snapshotPath: profile.snapshot_path,
+        description: profile.description || null,
+        notes: profile.notes || null,
+        isActive: profile.is_active === 1,
+        createdAt: profile.created_at,
+        updatedAt: profile.updated_at
+      };
+    } catch (error) {
+      console.error('Error getting profile:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a new profile
+   * @param {Object} profileData
+   * @returns {Object} Result with success and profile
+   */
+  createProfile(profileData) {
+    try {
+      const db = this.getDb();
+      const { v4: uuidv4 } = require('uuid');
+
+      const profileId = uuidv4();
+      const now = new Date().toISOString();
+
+      // Determine if this profile should be active
+      // If explicitly set, use that; otherwise, activate if it's the only profile
+      let shouldBeActive = profileData.isActive;
+      if (shouldBeActive === undefined) {
+        // Check if this will be the only profile (count existing profiles)
+        const existingCount = db.prepare('SELECT COUNT(*) as count FROM profiles').get();
+        shouldBeActive = existingCount.count === 0; // Activate if it's the first profile
+      }
+
+      // If setting as active, deactivate all others first
+      if (shouldBeActive) {
+        db.prepare('UPDATE profiles SET is_active = 0').run();
+      }
+
+      db.prepare(`
+        INSERT INTO profiles (id, name, platform_type, host, port, username, password,
+                              trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        profileId,
+        profileData.name,
+        profileData.platformType || 'Microsoft SQL Server',
+        profileData.host,
+        profileData.port,
+        profileData.username,
+        profileData.password,
+        profileData.trustCertificate ? 1 : 0,
+        profileData.snapshotPath || '/var/opt/mssql/snapshots',
+        profileData.description || null,
+        profileData.notes || null,
+        shouldBeActive ? 1 : 0,
+        now,
+        now
+      );
+
+      // Ensure at least one profile is active after creation
+      this.ensureActiveProfile();
+
+      return {
+        success: true,
+        profile: this.getProfile(profileId)
+      };
+    } catch (error) {
+      console.error('Error creating profile:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Update an existing profile
+   * @param {string} profileId
+   * @param {Object} profileData
+   * @returns {Object} Result with success and profile
+   */
+  updateProfile(profileId, profileData) {
+    try {
+      const db = this.getDb();
+
+      // Get existing profile to preserve password and isActive if not provided
+      const existingProfile = db.prepare('SELECT password, is_active FROM profiles WHERE id = ?').get(profileId);
+      if (!existingProfile) {
+        return {
+          success: false,
+          error: 'Profile not found'
+        };
+      }
+
+      // Preserve existing isActive if not explicitly provided
+      const isActive = profileData.isActive !== undefined ? profileData.isActive : (existingProfile.is_active === 1);
+
+      // If setting as active, deactivate all others first
+      if (isActive) {
+        db.prepare('UPDATE profiles SET is_active = 0 WHERE id != ?').run(profileId);
+      }
+
+      const password = profileData.password !== undefined ? profileData.password : existingProfile.password;
+      const now = new Date().toISOString();
+
+      db.prepare(`
+        UPDATE profiles
+        SET name = ?, platform_type = ?, host = ?, port = ?, username = ?, password = ?,
+            trust_certificate = ?, snapshot_path = ?, description = ?, notes = ?, is_active = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        profileData.name,
+        profileData.platformType || 'Microsoft SQL Server',
+        profileData.host,
+        profileData.port,
+        profileData.username,
+        password,
+        profileData.trustCertificate ? 1 : 0,
+        profileData.snapshotPath || '/var/opt/mssql/snapshots',
+        profileData.description || null,
+        profileData.notes || null,
+        isActive ? 1 : 0,
+        now,
+        profileId
+      );
+
+      // Ensure at least one profile is active after update
+      this.ensureActiveProfile();
+
+      return {
+        success: true,
+        profile: this.getProfile(profileId)
+      };
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Delete a profile
+   * @param {string} profileId
+   * @returns {Object} Result with success
+   */
+  deleteProfile(profileId) {
+    try {
+      const db = this.getDb();
+      db.prepare('DELETE FROM profiles WHERE id = ?').run(profileId);
+
+      // Ensure at least one profile is active after deletion (if profiles still exist)
+      this.ensureActiveProfile();
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting profile:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Set a profile as active (deactivates all others)
+   * @param {string} profileId
+   * @returns {Object} Result with success
+   */
+  setActiveProfile(profileId) {
+    try {
+      const db = this.getDb();
+      db.prepare('UPDATE profiles SET is_active = 0').run();
+      const now = new Date().toISOString();
+      db.prepare('UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?').run(now, profileId);
+      return { success: true };
+    } catch (error) {
+      console.error('Error setting active profile:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
@@ -330,8 +1018,6 @@ class MetadataStorage {
         JSON.stringify(historyEntry)
       );
 
-      console.log(`✅ Added history entry to metadata database`);
-
       // Enforce max history entries limit
       const settingsResult = await this.getSettings();
       const maxEntries = settingsResult.settings?.maxHistoryEntries || 100;
@@ -472,7 +1158,9 @@ class MetadataStorage {
         // Return default settings
         const defaultSettings = {
           maxHistoryEntries: 100,
-          defaultGroup: ''
+          defaultGroup: '',
+          passwordHash: null,
+          passwordSkipped: false
         };
         return { success: true, settings: defaultSettings };
       }
@@ -536,29 +1224,57 @@ class MetadataStorage {
   }
 
   /**
-   * Get groups from metadata storage
+   * Get groups from metadata storage (filtered by active profile)
+   * @param {string} [profileId] Optional profile ID to filter by (defaults to active profile)
    * @returns {Object} Groups result
    */
-  async getGroups() {
+  async getGroups(profileId = null) {
     try {
       const db = this.getDb();
 
-      const rows = db.prepare(`
-        SELECT
-          id,
-          name,
-          databases,
-          created_by,
-          created_at,
-          updated_at
-        FROM groups
-        ORDER BY name
-      `).all();
+      // Get the profile ID to filter by
+      let filterProfileId = profileId;
+      if (!filterProfileId) {
+        const activeProfile = this.getActiveProfile();
+        filterProfileId = activeProfile?.id || null;
+      }
+
+      let rows;
+      if (filterProfileId) {
+        rows = db.prepare(`
+          SELECT
+            id,
+            name,
+            databases,
+            profile_id,
+            created_by,
+            created_at,
+            updated_at
+          FROM groups
+          WHERE profile_id = ?
+          ORDER BY name
+        `).all(filterProfileId);
+      } else {
+        // No profile, return all groups (for backward compatibility)
+        rows = db.prepare(`
+          SELECT
+            id,
+            name,
+            databases,
+            profile_id,
+            created_by,
+            created_at,
+            updated_at
+          FROM groups
+          ORDER BY name
+        `).all();
+      }
 
       const groups = rows.map(row => {
         const group = {
           id: row.id,
           name: row.name,
+          profileId: row.profile_id,
           createdBy: row.created_by,
           createdAt: row.created_at,
           updatedAt: row.updated_at
@@ -586,21 +1302,55 @@ class MetadataStorage {
   }
 
   /**
+   * Get group count per profile
+   * @returns {Object} Map of profile_id to group count
+   */
+  getGroupCountsByProfile() {
+    try {
+      const db = this.getDb();
+      const rows = db.prepare(`
+        SELECT profile_id, COUNT(*) as count
+        FROM groups
+        WHERE profile_id IS NOT NULL
+        GROUP BY profile_id
+      `).all();
+
+      const counts = {};
+      rows.forEach(row => {
+        counts[row.profile_id] = row.count;
+      });
+
+      return { success: true, counts };
+    } catch (error) {
+      console.error(`❌ Failed to get group counts: ${error.message}`);
+      return { success: false, error: error.message, counts: {} };
+    }
+  }
+
+  /**
    * Create a group in metadata storage
-   * @param {Object} group Group object
+   * @param {Object} group Group object (should include profileId or will use active profile)
    * @returns {Object} Result
    */
   async createGroup(group) {
     try {
       const db = this.getDb();
 
+      // Get profile ID - use provided one or get from active profile
+      let profileId = group.profileId;
+      if (!profileId) {
+        const activeProfile = this.getActiveProfile();
+        profileId = activeProfile?.id || null;
+      }
+
       db.prepare(`
-        INSERT INTO groups (id, name, databases, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO groups (id, name, databases, profile_id, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         group.id,
         group.name,
         JSON.stringify(group.databases || []),
+        profileId,
         this.userName,
         new Date().toISOString(),
         new Date().toISOString()
@@ -713,6 +1463,95 @@ class MetadataStorage {
   async addGroup(group) {
     // Alias for createGroup
     return this.createGroup(group);
+  }
+
+  /**
+   * Get password status
+   * @returns {Object} Password status
+   */
+  async getPasswordStatus() {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+      const passwordHash = settings.passwordHash || null;
+      const passwordSkipped = settings.passwordSkipped || false;
+
+      let status = 'not-set';
+      if (passwordHash) {
+        status = 'set';
+      } else if (passwordSkipped) {
+        status = 'skipped';
+      }
+
+      return {
+        success: true,
+        status,
+        passwordSet: !!passwordHash,
+        passwordSkipped
+      };
+    } catch (error) {
+      console.error(`❌ Failed to get password status: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Set password hash in settings
+   * @param {string} passwordHash Bcrypt hash of password
+   * @returns {Object} Result
+   */
+  async setPasswordHash(passwordHash) {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+
+      settings.passwordHash = passwordHash;
+      settings.passwordSkipped = false; // Clear skip flag when setting password
+
+      return await this.updateSettings(settings);
+    } catch (error) {
+      console.error(`❌ Failed to set password hash: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Remove password protection
+   * @returns {Object} Result
+   */
+  async removePassword() {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+
+
+      settings.passwordHash = null;
+      settings.passwordSkipped = true; // Mark as explicitly skipped
+
+      return await this.updateSettings(settings);
+    } catch (error) {
+      console.error(`❌ Failed to remove password: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Skip password protection (first launch only)
+   * @returns {Object} Result
+   */
+  async skipPassword() {
+    try {
+      const settingsResult = await this.getSettings();
+      const settings = settingsResult.success ? settingsResult.settings : {};
+
+      settings.passwordHash = null;
+      settings.passwordSkipped = true;
+
+      return await this.updateSettings(settings);
+    } catch (error) {
+      console.error(`❌ Failed to skip password: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 }
 

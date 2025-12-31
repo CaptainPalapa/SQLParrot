@@ -22,6 +22,37 @@ async function getSqlConfig() {
   };
 }
 
+// Helper to ensure a test profile exists for API operations
+async function ensureTestProfile() {
+  const MetadataStorage = require('../backend/utils/metadataStorageSqlite');
+  const storage = new MetadataStorage();
+
+  // Check if active profile exists
+  const activeProfile = storage.getActiveProfile();
+  if (activeProfile) {
+    return activeProfile;
+  }
+
+  // Create a test profile from environment variables
+  const result = storage.createProfile({
+    name: 'TEST_SnapshotRollback',
+    platformType: 'Microsoft SQL Server',
+    host: process.env.SQL_SERVER || 'localhost',
+    port: parseInt(process.env.SQL_PORT) || 1433,
+    username: process.env.SQL_USERNAME || 'sa',
+    password: process.env.SQL_PASSWORD || '',
+    trustCertificate: process.env.SQL_TRUST_CERTIFICATE === 'true' || true,
+    snapshotPath: process.env.SNAPSHOT_PATH || '/var/opt/mssql/snapshots',
+    isActive: true
+  });
+
+  if (!result.success) {
+    throw new Error(`Failed to create test profile: ${result.error}`);
+  }
+
+  return result.profile;
+}
+
 // Helper function to execute SQL queries
 async function executeSQL(query) {
   const config = await getSqlConfig();
@@ -332,6 +363,9 @@ describe('Snapshot Rollback API Tests', () => {
   let testGroup;
 
   beforeAll(async () => {
+    // Ensure a test profile exists for API operations
+    await ensureTestProfile();
+
     // Clean up any existing test groups and set up fresh environment
     await cleanupTestGroup();
     await cleanupTestDatabase();

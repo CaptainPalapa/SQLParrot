@@ -88,6 +88,12 @@ const normalizeResponse = (endpoint, response) => {
     return response;
   }
 
+  // Auth endpoints (password status, check, set, change, remove, skip)
+  if (path.startsWith('auth/')) {
+    // Both Express and Tauri return standard format
+    return response;
+  }
+
   // Connection endpoint
   if (path === 'connection') {
     // Express: direct connection object or null
@@ -159,6 +165,14 @@ const endpointToCommand = (endpoint, method) => {
     return method === 'PUT' ? 'update_settings' : 'get_settings';
   }
 
+  // Auth endpoints (UI Security)
+  if (path === 'auth/password-status') return 'get_password_status';
+  if (path === 'auth/check-password') return 'check_password';
+  if (path === 'auth/set-password') return 'set_password';
+  if (path === 'auth/change-password') return 'change_password';
+  if (path === 'auth/remove-password') return 'remove_password';
+  if (path === 'auth/skip-password') return 'skip_password';
+
   // History
   if (path === 'history') {
     return method === 'DELETE' ? 'clear_history' : 'get_history';
@@ -199,6 +213,16 @@ const endpointToCommand = (endpoint, method) => {
     if (method === 'DELETE') return 'delete_snapshot';
   }
 
+  // Profile operations: profiles
+  if (segments[0] === 'profiles') {
+    if (segments.length === 1 && method === 'GET') return 'get_profiles';
+    if (segments.length === 2 && method === 'GET') return 'get_profile';
+    if (segments.length === 1 && method === 'POST') return 'create_profile';
+    if (segments.length === 2 && method === 'PUT') return 'update_profile';
+    if (segments.length === 2 && method === 'DELETE') return 'delete_profile';
+    if (segments[2] === 'activate' && method === 'POST') return 'set_active_profile';
+  }
+
   // Fallback - convert path to snake_case command
   console.warn(`Unknown endpoint mapping: ${method} ${endpoint}`);
   return path.replace(/[/-]/g, '_').replace(/:(\w+)/g, '');
@@ -228,6 +252,14 @@ const extractPathParams = (endpoint) => {
   // snapshots/:id/... - use 'id' for direct operations
   if (segments[0] === 'snapshots' && segments.length >= 2) {
     params.id = segments[1];
+  }
+
+  // profiles/:id/... - use 'profileId' for all profile operations (Tauri v2 converts camelCase to snake_case)
+  // Handle both direct operations (profiles/:id) and nested operations (profiles/:id/activate)
+  if (segments[0] === 'profiles' && segments.length >= 2) {
+    // Extract profileId from the second segment (works for both /profiles/:id and /profiles/:id/activate)
+    // Tauri v2 converts camelCase profileId to snake_case profile_id in Rust
+    params.profileId = segments[1];
   }
 
   return params;
@@ -278,13 +310,58 @@ export async function apiCall(endpoint, options = {}) {
       headers: {}
     };
 
+    // Add session token if available (for password-protected routes)
+    const sessionToken = sessionStorage.getItem('sessionToken');
+    if (sessionToken) {
+      fetchOptions.headers['X-Session-Token'] = sessionToken;
+    }
+
     if (body) {
       fetchOptions.headers['Content-Type'] = 'application/json';
       fetchOptions.body = JSON.stringify(body);
     }
 
     const response = await fetch(endpoint, fetchOptions);
+
+    // Handle 401 Unauthorized - password required
+    if (response.status === 401) {
+      return {
+        success: false,
+        data: null,
+        messages: {
+          error: ['Authentication required'],
+          warning: [],
+          info: [],
+          success: []
+        },
+        timestamp: new Date().toISOString(),
+        requiresAuth: true
+      };
+    }
+
+    // Handle other error status codes (400, 500, etc.)
+    if (!response.ok) {
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      return {
+        success: false,
+        error: errorData.error || errorData.messages?.error?.[0] || `HTTP ${response.status}`,
+        messages: errorData.messages || { error: [errorData.error || `HTTP ${response.status}`], warning: [], info: [], success: [] },
+        timestamp: new Date().toISOString()
+      };
+    }
+
     const result = await response.json();
+
+    // Store session token if provided
+    if (result.data?.sessionToken) {
+      sessionStorage.setItem('sessionToken', result.data.sessionToken);
+    }
+
     return normalizeResponse(endpoint, result);
   }
 }
@@ -294,7 +371,26 @@ export const api = {
   get: (endpoint) => apiCall(endpoint, { method: 'GET' }),
   post: (endpoint, body) => apiCall(endpoint, { method: 'POST', body }),
   put: (endpoint, body) => apiCall(endpoint, { method: 'PUT', body }),
-  delete: (endpoint, body) => apiCall(endpoint, { method: 'DELETE', body })
+  delete: (endpoint, body) => apiCall(endpoint, { method: 'DELETE', body }),
+
+  // Profile management
+  getProfiles: () => apiCall('/api/profiles'),
+  getProfile: (id) => apiCall(`/api/profiles/${id}`),
+  createProfile: (profileData) => apiCall('/api/profiles', {
+    method: 'POST',
+    body: profileData
+  }),
+  updateProfile: (id, profileData) => apiCall(`/api/profiles/${id}`, {
+    method: 'PUT',
+    body: profileData
+  }),
+  deleteProfile: (id) => apiCall(`/api/profiles/${id}`, {
+    method: 'DELETE'
+  }),
+  setActiveProfile: (id) => apiCall(`/api/profiles/${id}/activate`, {
+    method: 'POST',
+    body: { profileId: id } // Use camelCase for Tauri v2 (converts to profile_id in Rust)
+  }),
 };
 
 // Export isTauri for components that need to know
