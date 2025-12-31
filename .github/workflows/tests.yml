@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false  # Don't cancel other jobs if one fails
       matrix:
         node-version: [18.x, 20.x]
 
@@ -25,20 +26,43 @@ jobs:
         cache: 'npm'
 
     - name: Install root dependencies
-      run: npm ci
+      run: |
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          echo "No package-lock.json found, using npm install"
+          npm install
+        fi
+      timeout-minutes: 5
 
     - name: Install frontend dependencies
-      run: cd frontend && npm ci
+      run: |
+        cd frontend
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          echo "No package-lock.json found, using npm install"
+          npm install
+        fi
+      timeout-minutes: 5
 
     - name: Install backend dependencies
-      run: cd backend && npm ci
+      run: |
+        cd backend
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          echo "No package-lock.json found, using npm install"
+          npm install
+        fi
+      timeout-minutes: 5
 
     - name: Create data directories for tests
       run: |
         mkdir -p data
         mkdir -p backend/data
         echo "Created test directories"
-    
+
     - name: Run Jest tests (backend) with coverage
       run: npm test -- --coverage --maxWorkers=2
       timeout-minutes: 10
