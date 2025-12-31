@@ -2,7 +2,7 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: [
     '**/tests/**/*.spec.js',
-    '**/__tests__/**/*.test.js'
+    '**/backend/**/__tests__/**/*.test.js'
   ],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   testTimeout: 30000, // 30 seconds for database operations
@@ -14,6 +14,7 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/',
     '/dist/',
-    '/target/'
+    '/target/',
+    '/frontend/'  // Frontend tests use Vitest, not Jest
   ]
 };

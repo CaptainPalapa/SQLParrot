@@ -1,14 +1,24 @@
+// Clear module cache to ensure our mock is used (not a cached version from global setup)
+beforeAll(() => {
+  jest.resetModules();
+});
+
 // Mock better-sqlite3 before requiring MetadataStorage
 jest.mock('better-sqlite3', () => {
   const mockDb = {
     prepare: jest.fn(),
     exec: jest.fn(),
-    close: jest.fn()
+    close: jest.fn(),
+    pragma: jest.fn() // Add pragma method for WAL mode
   };
 
-  return jest.fn(() => mockDb);
+  // Return a constructor function that returns mockDb
+  // Using mockImplementation ensures 'new' works correctly
+  const MockDatabase = jest.fn().mockImplementation(() => mockDb);
+  return MockDatabase;
 });
 
+// Import after mock is set up
 const MetadataStorage = require('../metadataStorageSqlite');
 
 describe('MetadataStorage SQLite Tests', () => {
@@ -28,17 +38,27 @@ describe('MetadataStorage SQLite Tests', () => {
       queryRow: jest.fn()
     };
 
-    // Create mock database
+    // Get the mock database from our mocked better-sqlite3
+    // The mock returns the same mockDb object each time
     const betterSqlite3 = require('better-sqlite3');
     mockDb = betterSqlite3();
-    // Don't set a default return value - each test should set up its own mocks
+
+    // Reset mock implementations for each test
+    mockDb.prepare.mockReset();
+    mockDb.exec.mockReset();
+    mockDb.close.mockReset();
+    mockDb.pragma.mockReset();
+
+    // Set default implementations
     mockDb.prepare.mockImplementation(() => mockStmt);
     mockDb.exec.mockReturnValue(undefined);
+    mockDb.pragma.mockReturnValue(undefined);
 
     // Create storage instance
     storage = new MetadataStorage();
 
     // Replace the internal db with our mock
+    // This prevents getDb() from trying to create a real database
     storage.db = mockDb;
   });
 

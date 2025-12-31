@@ -214,9 +214,8 @@ function generateDisplayName(snapshotName) {
 }
 
 async function getNextSequenceForGroup(groupId) {
-  const snapshotsData = await getSnapshotsData();
-  const groupSnapshots = snapshotsData.snapshots.filter(s => s.groupId === groupId);
-  return groupSnapshots.length + 1;
+  // Use metadataStorage method for proper sequence calculation
+  return metadataStorage.getNextSequence(groupId);
 }
 
 async function deleteAllSnapshots() {
@@ -3136,7 +3135,7 @@ if (process.env.NODE_ENV !== 'test') {
       console.error(`❌ FATAL ERROR: Port ${PORT} is already in use!`);
       console.error(`   Another process is already running on port ${PORT}.`);
       console.error(`   Please stop the conflicting process or use a different port.`);
-      console.error(`   To stop SQL Parrot processes, run: stop-dev.cmd`);
+      console.error(`   To stop SQL Parrot processes, run: scripts\\stop-dev.cmd`);
       console.error('');
       console.error(`   Error details: ${error.message}`);
       process.exit(1);

@@ -89,7 +89,7 @@ npm run install:all
 npm run dev
 ```
 
-📖 **See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for detailed configuration guide**
+📖 **See [docs/ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md) for detailed configuration guide**
 
 **Access the application:**
 - **Frontend**: http://localhost:3000

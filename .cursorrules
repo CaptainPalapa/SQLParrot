@@ -1,4 +1,4 @@
-# SQL Parrot - Project Configuration
+# SQL Parrot - Project Configuration for AI Assistants
 
 ## Project Overview
 SQL Parrot is a database snapshot management tool for SQL Server. It provides a beautiful UI for creating, managing, and rolling back to database snapshots for testing workflows. Available as both a Docker/npm web deployment and a Tauri desktop application.
@@ -6,11 +6,8 @@ SQL Parrot is a database snapshot management tool for SQL Server. It provides a 
 ## Architecture
 
 ### Dual-Stack Deployment Model
-
-| Version | Backend | Use Case |
-|---------|---------|----------|
-| **Docker/npm** | Node.js/Express + mssql | Server deployment, self-hosted, multi-user |
-| **Tauri Desktop** | Rust + tiberius | Desktop app, "double-click and run", single user |
+- **Docker/npm**: Node.js/Express + mssql - Server deployment, self-hosted, multi-user
+- **Tauri Desktop**: Rust + tiberius - Desktop app, "double-click and run", single user
 
 ### Frontend (Shared)
 - **React 18** + Vite + Tailwind CSS (in `frontend/`)
@@ -26,7 +23,7 @@ SQL Parrot is a database snapshot management tool for SQL Server. It provides a 
 - Configuration via Settings UI (stored in app data directory)
 - SQLite for metadata storage (in app data directory)
 
-### Project Structure
+## Project Structure
 ```
 SQLParrot/
 ├── frontend/              # Shared React frontend
@@ -61,8 +58,11 @@ SQLParrot/
 ├── docs/                  # Documentation
 │   ├── SNAPSHOT_BEHAVIOR.md
 │   ├── TAURI.md
-│   └── private/
-│       └── RELEASE_STRATEGY.md
+│   ├── ENVIRONMENT_SETUP.md
+│   └── private/           # Internal docs (gitignored)
+├── scripts/               # Development scripts
+├── tests/                 # Jest tests
+│   └── __mocks__/         # Jest mocks
 ├── docker-compose.yml     # Docker deployment
 └── package.json           # Root orchestration
 ```
@@ -88,44 +88,9 @@ npm run tauri:build      # Build production desktop app
 - Public open source repo (AGPL v3 + Commercial dual license)
 - Commit directly to main for now (small project)
 
----
+## Key Technologies
 
-## Current Development Priorities
-
-### Release Automation (In Progress)
-See `docs/private/RELEASE_STRATEGY.md` for full details.
-
-**Phase 1 - Manual Releases (Current)**
-- Create releases manually on GitHub
-- Build locally: `npm run tauri:build`
-- Upload binaries to release
-- Tag with version: `git tag v1.x.x && git push --tags`
-
-**Phase 2 - Semi-Automated (Next)**
-- [ ] Add GitHub Action for Tauri builds on tag push
-- [ ] Add GitHub Action for Docker push to ghcr.io
-- [x] Create CHANGELOG.md
-- [ ] Address Dependabot vulnerabilities
-
-**Phase 3 - Fully Automated (Future)**
-- [ ] Adopt Conventional Commits
-- [ ] Add Release Please for auto-versioning
-- [ ] Combined release workflow
-
-### Platform Support
-- **Windows**: Desktop builds working (.exe/.msi)
-- **macOS**: Planned - requires signing setup
-- **Linux**: Planned - needs testing
-
-### Other Considerations
-- Keychain integration for secure credential storage (Tauri) - future enhancement
-- [x] Optional password protection for web UI (v1.2.0)
-
----
-
-## Reference
-
-### Key Rust Crates (Tauri)
+### Rust Crates (Tauri)
 - `tauri` v2 - Desktop app framework
 - `tiberius` - SQL Server driver (TDS protocol)
 - `rusqlite` - SQLite for metadata storage
@@ -133,16 +98,27 @@ See `docs/private/RELEASE_STRATEGY.md` for full details.
 - `serde` / `serde_json` - Serialization
 - `chrono` - Date/time handling
 
-### Documentation
+### Node.js Stack
+- `express` - Web framework
+- `mssql` - SQL Server driver
+- `sqlite3` - SQLite for metadata
+
+### Frontend Stack
+- `react` 18 - UI framework
+- `vite` - Build tool
+- `tailwindcss` - Styling
+- `vitest` - Testing
+
+## Documentation References
 - Tauri v2 docs: https://v2.tauri.app/
 - Tiberius (Rust SQL Server): https://docs.rs/tiberius/
 - Desktop app docs: `docs/TAURI.md`
 - Snapshot behavior: `docs/SNAPSHOT_BEHAVIOR.md`
+- Environment setup: `docs/ENVIRONMENT_SETUP.md`
 
----
+## Important Notes
+- The frontend is shared between both deployment methods (Docker/npm and Tauri)
+- Metadata is stored in SQLite, not in SQL Server
+- Configuration differs: `.env` file for Docker/npm, Settings UI for Tauri
+- Both backends implement the same API surface for the frontend
 
-## Future Enhancement Ideas
-
-Ideas for future development (not currently in scope):
-
-- [ ] **Proxy Profiles** - Allow profiles to connect through SSH tunnels or proxy servers for accessing remote/secured database servers

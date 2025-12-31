@@ -4,6 +4,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 /**
  * SQLite Metadata Storage System for SQL Parrot
@@ -78,37 +79,30 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
-      // Create snapshot table
+      // Create snapshots table (plural, matching Rust schema)
       db.exec(`
-        CREATE TABLE IF NOT EXISTS snapshot (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          snapshot_name TEXT NOT NULL UNIQUE,
-          display_name TEXT NOT NULL,
-          description TEXT,
+        CREATE TABLE IF NOT EXISTS snapshots (
+          id TEXT PRIMARY KEY,
           group_id TEXT NOT NULL,
-          group_name TEXT NOT NULL,
+          display_name TEXT NOT NULL,
           sequence INTEGER NOT NULL,
-          created_by TEXT NOT NULL,
           created_at TEXT NOT NULL,
-          purpose TEXT DEFAULT 'manual',
-          tags TEXT,
-          database_count INTEGER DEFAULT 0,
-          database_snapshots TEXT
+          created_by TEXT,
+          database_snapshots TEXT NOT NULL,
+          is_automatic INTEGER DEFAULT 0,
+          FOREIGN KEY (group_id) REFERENCES groups(id)
         )
       `);
 
-      // Create history table
+      // Create history table (matching Rust schema)
       db.exec(`
         CREATE TABLE IF NOT EXISTS history (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT PRIMARY KEY,
+          operation_type TEXT NOT NULL,
           timestamp TEXT NOT NULL,
-          type TEXT NOT NULL,
-          user_name TEXT NOT NULL,
-          group_name TEXT,
-          snapshot_name TEXT,
-          snapshot_id TEXT,
-          sequence INTEGER,
-          details TEXT
+          user_name TEXT,
+          details TEXT,
+          results TEXT
         )
       `);
 
@@ -117,22 +111,20 @@ class MetadataStorage {
         CREATE TABLE IF NOT EXISTS groups (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
-          databases TEXT,
+          databases TEXT NOT NULL,
           profile_id TEXT,
-          created_by TEXT NOT NULL,
+          created_by TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           UNIQUE(name, profile_id)
         )
       `);
 
-      // Create stats table
+      // Create settings table (matching Rust schema - single row with JSON data)
       db.exec(`
-        CREATE TABLE IF NOT EXISTS stats (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          stat_name TEXT NOT NULL UNIQUE,
-          stat_value TEXT,
-          updated_at TEXT NOT NULL
+        CREATE TABLE IF NOT EXISTS settings (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          data TEXT NOT NULL
         )
       `);
 
@@ -166,11 +158,10 @@ class MetadataStorage {
 
       // Create indexes for common queries (profile_id index created after migration)
       db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_snapshot_group_id ON snapshot(group_id);
-        CREATE INDEX IF NOT EXISTS idx_snapshot_created_at ON snapshot(created_at);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_group ON snapshots(group_id);
         CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_history_type ON history(type);
         CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(is_active);
+        CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id);
       `);
 
       // Initialize metadata version if not exists
@@ -205,7 +196,7 @@ class MetadataStorage {
       const db = this.getDb();
       const versionResult = db.prepare('SELECT value FROM _metadata WHERE key = ?').get('last_version_seen');
       const lastVersion = versionResult ? versionResult.value : '0.0.0';
-      const currentVersion = '1.4.0';
+      const currentVersion = '1.5.0';
 
       if (this.compareVersions(lastVersion, currentVersion) < 0) {
         // Migration from versions < 1.3.0: Migrate config.json and env vars to profiles table
@@ -217,6 +208,11 @@ class MetadataStorage {
         // Migration from versions < 1.4.0: Add profile_id to groups table
         if (this.compareVersions(lastVersion, '1.4.0') < 0) {
           await this.migrateGroupsAddProfileId();
+        }
+
+        // Migration from versions < 1.5.0: Schema alignment with Rust (snapshot->snapshots, type->operation_type, stats->settings)
+        if (this.compareVersions(lastVersion, '1.5.0') < 0) {
+          await this.migrateSchemaToRustCompatible();
         }
 
         // Update version
@@ -266,6 +262,203 @@ class MetadataStorage {
     } catch (error) {
       console.error('⚠️ Failed to add profile_id to groups:', error.message);
       // Continue anyway
+    }
+  }
+
+  /**
+   * Migration: Align schema with Rust implementation
+   * - Rename snapshot table to snapshots
+   * - Rename history.type to history.operation_type
+   * - Replace stats table with settings table
+   * - Update history table structure
+   */
+  async migrateSchemaToRustCompatible() {
+    try {
+      const db = this.getDb();
+
+      // Check if old snapshot table exists (Node.js old schema)
+      const oldSnapshotExists = db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='snapshot'
+      `).get();
+
+      // Check if new snapshots table already exists (Rust schema or already migrated)
+      const newSnapshotsExists = db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='snapshots'
+      `).get();
+
+      // Only migrate if old table exists and new one doesn't
+      if (oldSnapshotExists && !newSnapshotsExists) {
+        // Rename snapshot to snapshots and migrate data
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS snapshots_new (
+            id TEXT PRIMARY KEY,
+            group_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            sequence INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT,
+            database_snapshots TEXT NOT NULL,
+            is_automatic INTEGER DEFAULT 0
+          )
+        `);
+
+        // Migrate data from old snapshot table
+        const oldSnapshots = db.prepare('SELECT * FROM snapshot').all();
+        const insertStmt = db.prepare(`
+          INSERT INTO snapshots_new (id, group_id, display_name, sequence, created_at, created_by, database_snapshots, is_automatic)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const old of oldSnapshots) {
+          insertStmt.run(
+            old.snapshot_name || old.id,
+            old.group_id,
+            old.display_name,
+            old.sequence,
+            old.created_at,
+            old.created_by,
+            old.database_snapshots || '[]',
+            0
+          );
+        }
+
+        db.exec('DROP TABLE snapshot');
+        db.exec('ALTER TABLE snapshots_new RENAME TO snapshots');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_snapshots_group ON snapshots(group_id)');
+      }
+
+      // Check if history table exists and needs migration
+      const historyExists = db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='history'
+      `).get();
+
+      if (historyExists) {
+        const historyInfo = db.prepare("PRAGMA table_info('history')").all();
+        const hasTypeColumn = historyInfo.some(col => col.name === 'type');
+        const hasOperationTypeColumn = historyInfo.some(col => col.name === 'operation_type');
+
+        // Only migrate if has old 'type' column and not 'operation_type'
+        if (hasTypeColumn && !hasOperationTypeColumn) {
+        // Migrate history table: rename type to operation_type and restructure
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS history_new (
+            id TEXT PRIMARY KEY,
+            operation_type TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            user_name TEXT,
+            details TEXT,
+            results TEXT
+          )
+        `);
+
+        // Migrate existing history data
+        const oldHistory = db.prepare('SELECT * FROM history').all();
+        const historyInsert = db.prepare(`
+          INSERT INTO history_new (id, operation_type, timestamp, user_name, details, results)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const old of oldHistory) {
+          // Generate ID if missing
+          const id = old.id || crypto.randomUUID();
+          // Use type as operation_type
+          const operationType = old.type || old.operation_type || 'unknown';
+          // Combine all extra fields into details JSON
+          const details = JSON.stringify({
+            groupName: old.group_name,
+            snapshotName: old.snapshot_name,
+            snapshotId: old.snapshot_id,
+            sequence: old.sequence,
+            ...(old.details ? (typeof old.details === 'string' ? JSON.parse(old.details) : old.details) : {})
+          });
+
+          historyInsert.run(
+            id,
+            operationType,
+            old.timestamp,
+            old.user_name,
+            details,
+            null
+          );
+        }
+
+          db.exec('DROP TABLE history');
+          db.exec('ALTER TABLE history_new RENAME TO history');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp)');
+        }
+      }
+
+      // Migrate stats table to settings table (only if stats exists and settings doesn't)
+      const statsExists = db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='stats'
+      `).get();
+
+      const settingsExists = db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='settings'
+      `).get();
+
+      if (statsExists && !settingsExists) {
+        // Get settings from stats table
+        const settingsRow = db.prepare("SELECT stat_value FROM stats WHERE stat_name = 'settings'").get();
+
+        // Create settings table
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            data TEXT NOT NULL
+          )
+        `);
+
+        if (settingsRow) {
+          // Migrate settings data
+          db.prepare('INSERT OR REPLACE INTO settings (id, data) VALUES (1, ?)').run(settingsRow.stat_value);
+        } else {
+          // Create default settings
+          const defaultSettings = {
+            preferences: {
+              defaultGroup: '',
+              maxHistoryEntries: 100,
+              autoCreateCheckpoint: true
+            },
+            autoVerification: {
+              enabled: false,
+              intervalMinutes: 60
+            },
+            connection: {
+              server: '',
+              port: 1433,
+              username: '',
+              password: '',
+              trustServerCertificate: true,
+              snapshotPath: '/var/opt/mssql/snapshots'
+            },
+            passwordHash: null,
+            passwordSkipped: false
+          };
+          db.prepare('INSERT OR REPLACE INTO settings (id, data) VALUES (1, ?)').run(JSON.stringify(defaultSettings));
+        }
+
+        // Drop old stats table
+        db.exec('DROP TABLE stats');
+      }
+
+      // Update groups.databases to be NOT NULL if it's nullable
+      const groupsInfo = db.prepare("PRAGMA table_info('groups')").all();
+      const databasesCol = groupsInfo.find(col => col.name === 'databases');
+      if (databasesCol && databasesCol.notnull === 0) {
+        // SQLite doesn't support ALTER COLUMN, so we need to recreate
+        // For now, just ensure existing rows have non-null values
+        db.exec("UPDATE groups SET databases = '[]' WHERE databases IS NULL");
+      }
+
+    } catch (error) {
+      console.error('⚠️ Failed to migrate schema to Rust-compatible format:', error.message);
+      // Continue anyway - migration failures shouldn't prevent app from starting
     }
   }
 
@@ -857,7 +1050,7 @@ class MetadataStorage {
       const result = db.prepare(`
         SELECT COUNT(*) as table_count
         FROM sqlite_master
-        WHERE type = 'table' AND name IN ('snapshot', 'history', 'groups', 'stats')
+        WHERE type = 'table' AND name IN ('snapshots', 'history', 'groups', 'settings')
       `).get();
 
       return result.table_count === 4;
@@ -877,35 +1070,27 @@ class MetadataStorage {
       const db = this.getDb();
 
       const stmt = db.prepare(`
-        INSERT INTO snapshot (
-          snapshot_name,
-          display_name,
-          description,
+        INSERT INTO snapshots (
+          id,
           group_id,
-          group_name,
+          display_name,
           sequence,
-          created_by,
           created_at,
-          purpose,
-          tags,
-          database_count,
-          database_snapshots
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_by,
+          database_snapshots,
+          is_automatic
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
         snapshot.id,
-        snapshot.displayName,
-        snapshot.description || '',
         snapshot.groupId,
-        snapshot.groupName,
+        snapshot.displayName,
         snapshot.sequence,
+        snapshot.createdAt || new Date().toISOString(),
         this.userName,
-        snapshot.createdAt,
-        snapshot.purpose || 'manual',
-        JSON.stringify(snapshot.tags || []),
-        snapshot.databaseCount,
-        JSON.stringify(snapshot.databaseSnapshots || [])
+        JSON.stringify(snapshot.databaseSnapshots || []),
+        snapshot.isAutomatic ? 1 : 0
       );
 
       return { success: true, mode: 'sqlite' };
@@ -913,6 +1098,69 @@ class MetadataStorage {
     } catch (error) {
       console.error(`❌ Failed to add snapshot to metadata: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Get snapshots for a specific group
+   * @param {string} groupId Group ID
+   * @returns {Array} Array of snapshots
+   */
+  async getSnapshotsForGroup(groupId) {
+    try {
+      const db = this.getDb();
+
+      const rows = db.prepare(`
+        SELECT
+          id,
+          group_id as groupId,
+          display_name as displayName,
+          sequence,
+          created_at as createdAt,
+          created_by as createdBy,
+          database_snapshots as databaseSnapshots,
+          is_automatic as isAutomatic
+        FROM snapshots
+        WHERE group_id = ?
+        ORDER BY sequence DESC
+      `).all(groupId);
+
+      // Parse JSON fields
+      return rows.map(row => ({
+        id: row.id,
+        groupId: row.groupId,
+        displayName: row.displayName,
+        sequence: row.sequence,
+        createdAt: row.createdAt,
+        createdBy: row.createdBy,
+        databaseSnapshots: row.databaseSnapshots ? JSON.parse(row.databaseSnapshots) : [],
+        isAutomatic: row.isAutomatic === 1
+      }));
+
+    } catch (error) {
+      console.error(`❌ Failed to get snapshots for group: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get next sequence number for a group
+   * @param {string} groupId Group ID
+   * @returns {number} Next sequence number
+   */
+  getNextSequence(groupId) {
+    try {
+      const db = this.getDb();
+      const max = db.prepare(`
+        SELECT MAX(sequence) as max_sequence
+        FROM snapshots
+        WHERE group_id = ?
+      `).get(groupId);
+
+      return (max?.max_sequence || 0) + 1;
+    } catch (error) {
+      console.error(`❌ Failed to get next sequence: ${error.message}`);
+      return 1;
     }
   }
 
@@ -926,27 +1174,28 @@ class MetadataStorage {
 
       const rows = db.prepare(`
         SELECT
-          snapshot_name as id,
-          display_name as displayName,
-          description,
+          id,
           group_id as groupId,
-          group_name as groupName,
+          display_name as displayName,
           sequence,
-          created_by as createdBy,
           created_at as createdAt,
-          purpose,
-          tags,
-          database_count as databaseCount,
-          database_snapshots as databaseSnapshots
-        FROM snapshot
+          created_by as createdBy,
+          database_snapshots as databaseSnapshots,
+          is_automatic as isAutomatic
+        FROM snapshots
         ORDER BY created_at DESC
       `).all();
 
       // Parse JSON fields
       return rows.map(row => ({
-        ...row,
-        tags: row.tags ? JSON.parse(row.tags) : [],
-        databaseSnapshots: row.databaseSnapshots ? JSON.parse(row.databaseSnapshots) : []
+        id: row.id,
+        groupId: row.groupId,
+        displayName: row.displayName,
+        sequence: row.sequence,
+        createdAt: row.createdAt,
+        createdBy: row.createdBy,
+        databaseSnapshots: row.databaseSnapshots ? JSON.parse(row.databaseSnapshots) : [],
+        isAutomatic: row.isAutomatic === 1
       }));
 
     } catch (error) {
@@ -965,7 +1214,7 @@ class MetadataStorage {
       const db = this.getDb();
 
       const result = db.prepare(`
-        DELETE FROM snapshot WHERE snapshot_name = ?
+        DELETE FROM snapshots WHERE id = ?
       `).run(snapshotId);
 
       return { success: true, deleted: result.changes };
@@ -994,28 +1243,39 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
+      // Generate ID if not provided
+      const historyId = historyEntry.id || crypto.randomUUID();
+      const timestamp = historyEntry.timestamp || new Date().toISOString();
+
+      // Map type to operation_type (for backward compatibility)
+      const operationType = historyEntry.operation_type || historyEntry.type || 'unknown';
+
+      // Store full entry details in details field, results in results field
+      const details = historyEntry.details ?
+        (typeof historyEntry.details === 'string' ? historyEntry.details : JSON.stringify(historyEntry.details)) :
+        JSON.stringify(historyEntry);
+      const results = historyEntry.results ?
+        (typeof historyEntry.results === 'string' ? historyEntry.results : JSON.stringify(historyEntry.results)) :
+        null;
+
       const stmt = db.prepare(`
         INSERT INTO history (
+          id,
+          operation_type,
           timestamp,
-          type,
           user_name,
-          group_name,
-          snapshot_name,
-          snapshot_id,
-          sequence,
-          details
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          details,
+          results
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
-        historyEntry.timestamp || new Date().toISOString(),
-        historyEntry.type,
+        historyId,
+        operationType,
+        timestamp,
         this.userName,
-        historyEntry.groupName || '',
-        historyEntry.snapshotName || '',
-        historyEntry.snapshotId || '',
-        historyEntry.sequence || 0,
-        JSON.stringify(historyEntry)
+        details,
+        results
       );
 
       // Enforce max history entries limit
@@ -1041,14 +1301,12 @@ class MetadataStorage {
 
       let query = `
         SELECT
+          id,
+          operation_type,
           timestamp,
-          type,
           user_name,
-          group_name,
-          snapshot_name,
-          snapshot_id,
-          sequence,
-          details
+          details,
+          results
         FROM history
         ORDER BY timestamp DESC
       `;
@@ -1061,22 +1319,30 @@ class MetadataStorage {
 
       const history = rows.map(row => {
         const entry = {
+          id: row.id,
+          operationType: row.operation_type,
           timestamp: row.timestamp,
-          type: row.type,
-          userName: row.user_name,
-          groupName: row.group_name,
-          snapshotName: row.snapshot_name,
-          snapshotId: row.snapshot_id,
-          sequence: row.sequence
+          userName: row.user_name || null
         };
 
         // Parse details if available
         if (row.details) {
           try {
             const details = JSON.parse(row.details);
+            // For backward compatibility, map operation_type to type
+            entry.type = entry.operationType;
             Object.assign(entry, details);
           } catch (e) {
             entry.details = row.details;
+          }
+        }
+
+        // Parse results if available
+        if (row.results) {
+          try {
+            entry.results = JSON.parse(row.results);
+          } catch (e) {
+            entry.results = row.results;
           }
         }
 
@@ -1148,17 +1414,32 @@ class MetadataStorage {
       const db = this.getDb();
 
       const result = db.prepare(`
-        SELECT stat_value FROM stats WHERE stat_name = 'settings'
+        SELECT data FROM settings WHERE id = 1
       `).get();
 
       if (result) {
-        const settings = JSON.parse(result.stat_value);
+        const settings = JSON.parse(result.data);
         return { success: true, settings };
       } else {
-        // Return default settings
+        // Return default settings (matching Rust defaults)
         const defaultSettings = {
-          maxHistoryEntries: 100,
-          defaultGroup: '',
+          preferences: {
+            defaultGroup: '',
+            maxHistoryEntries: 100,
+            autoCreateCheckpoint: true
+          },
+          autoVerification: {
+            enabled: false,
+            intervalMinutes: 60
+          },
+          connection: {
+            server: '',
+            port: 1433,
+            username: '',
+            password: '',
+            trustServerCertificate: true,
+            snapshotPath: '/var/opt/mssql/snapshots'
+          },
           passwordHash: null,
           passwordSkipped: false
         };
@@ -1180,9 +1461,9 @@ class MetadataStorage {
       const db = this.getDb();
 
       db.prepare(`
-        INSERT OR REPLACE INTO stats (stat_name, stat_value, updated_at)
-        VALUES ('settings', ?, ?)
-      `).run(JSON.stringify(settings), new Date().toISOString());
+        INSERT OR REPLACE INTO settings (id, data)
+        VALUES (1, ?)
+      `).run(JSON.stringify(settings));
 
       return { success: true };
     } catch (error) {
@@ -1192,23 +1473,13 @@ class MetadataStorage {
   }
 
   /**
-   * Update stats in metadata storage
+   * Update stats in metadata storage (deprecated - stats table removed)
    * @param {Object} pool Unused (for compatibility)
    * @param {number} snapshotCount Current snapshot count
    */
   async updateStats(pool, snapshotCount) {
-    try {
-      const db = this.getDb();
-
-      db.prepare(`
-        INSERT OR REPLACE INTO stats (stat_name, stat_value, updated_at)
-        VALUES ('snapshot_count', ?, ?)
-      `).run(String(snapshotCount), new Date().toISOString());
-
-    } catch (error) {
-      console.error(`❌ Failed to update stats: ${error.message}`);
-      // Don't throw - stats update failure shouldn't break the system
-    }
+    // Stats table removed - this method kept for compatibility but does nothing
+    // Snapshot count can be calculated from snapshots table if needed
   }
 
   /**
