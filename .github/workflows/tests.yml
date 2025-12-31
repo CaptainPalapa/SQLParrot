@@ -1,0 +1,60 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install root dependencies
+      run: npm ci
+
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci
+
+    - name: Install backend dependencies
+      run: cd backend && npm ci
+
+    - name: Run Jest tests (backend) with coverage
+      run: npm test -- --coverage
+      env:
+        NODE_ENV: test
+        # Tests use mocks, so SQL Server connection not required
+        SQL_SERVER: localhost
+        SQL_USERNAME: test
+        SQL_PASSWORD: test
+        SQL_TRUST_CERTIFICATE: true
+
+    - name: Run frontend tests (Vitest) with coverage
+      run: cd frontend && npm run test:run -- --coverage
+      continue-on-error: true  # Frontend tests are optional for now
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage/coverage-final.json,./frontend/coverage/coverage-final.json
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false  # Don't fail if coverage upload fails
+        token: ${{ secrets.CODECOV_TOKEN }}  # Optional - only needed for private repos
+        directory: ./
+        verbose: true
+

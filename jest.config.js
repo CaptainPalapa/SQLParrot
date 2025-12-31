@@ -7,7 +7,9 @@ module.exports = {
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   testTimeout: 30000, // 30 seconds for database operations
   verbose: true,
-  collectCoverage: false,
+  collectCoverage: true,
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html', 'json'],
   forceExit: true,
   detectOpenHandles: true,
   // Ignore patterns

@@ -3,6 +3,8 @@
 A beautiful, modern tool for managing SQL Server database snapshots with a stunning theme system.
 
 ![SQL Parrot](https://img.shields.io/badge/Version-1.3.0-blue.svg)
+![Tests](https://github.com/CaptainPalapa/SQLParrot/actions/workflows/tests.yml/badge.svg)
+![Coverage](https://codecov.io/gh/CaptainPalapa/SQLParrot/branch/main/graph/badge.svg)
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3.3+-38bdf8.svg)
