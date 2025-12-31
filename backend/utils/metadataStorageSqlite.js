@@ -517,11 +517,47 @@ class MetadataStorage {
   }
 
   /**
+   * Ensure at least one profile is active (if profiles exist)
+   * If no profile is active and profiles exist, activates the first profile
+   */
+  ensureActiveProfile() {
+    try {
+      const db = this.getDb();
+
+      // Check if any profile is active
+      const activeCount = db.prepare('SELECT COUNT(*) as count FROM profiles WHERE is_active = 1').get();
+
+      // If no active profile and profiles exist, activate the first one
+      if (activeCount.count === 0) {
+        const totalCount = db.prepare('SELECT COUNT(*) as count FROM profiles').get();
+
+        if (totalCount.count > 0) {
+          // Get the first profile (by created_at or id)
+          const firstProfile = db.prepare(`
+            SELECT id FROM profiles ORDER BY created_at ASC, id ASC LIMIT 1
+          `).get();
+
+          if (firstProfile) {
+            const now = new Date().toISOString();
+            db.prepare('UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?').run(now, firstProfile.id);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error ensuring active profile:', error);
+      // Don't throw - this is a best-effort operation
+    }
+  }
+
+  /**
    * Get active profile
    * @returns {Object|null} Active profile or null
    */
   getActiveProfile() {
     try {
+      // Ensure at least one profile is active before getting it
+      this.ensureActiveProfile();
+
       const db = this.getDb();
       const profile = db.prepare(`
         SELECT id, name, platform_type, host, port, username, password,
@@ -563,6 +599,9 @@ class MetadataStorage {
    */
   getProfiles() {
     try {
+      // Ensure at least one profile is active before getting profiles
+      this.ensureActiveProfile();
+
       const db = this.getDb();
       const profiles = db.prepare(`
         SELECT id, name, platform_type, host, port, username,
@@ -643,13 +682,22 @@ class MetadataStorage {
       const db = this.getDb();
       const { v4: uuidv4 } = require('uuid');
 
-      // If setting as active, deactivate all others first
-      if (profileData.isActive) {
-        db.prepare('UPDATE profiles SET is_active = 0').run();
-      }
-
       const profileId = uuidv4();
       const now = new Date().toISOString();
+
+      // Determine if this profile should be active
+      // If explicitly set, use that; otherwise, activate if it's the only profile
+      let shouldBeActive = profileData.isActive;
+      if (shouldBeActive === undefined) {
+        // Check if this will be the only profile (count existing profiles)
+        const existingCount = db.prepare('SELECT COUNT(*) as count FROM profiles').get();
+        shouldBeActive = existingCount.count === 0; // Activate if it's the first profile
+      }
+
+      // If setting as active, deactivate all others first
+      if (shouldBeActive) {
+        db.prepare('UPDATE profiles SET is_active = 0').run();
+      }
 
       db.prepare(`
         INSERT INTO profiles (id, name, platform_type, host, port, username, password,
@@ -667,10 +715,13 @@ class MetadataStorage {
         profileData.snapshotPath || '/var/opt/mssql/snapshots',
         profileData.description || null,
         profileData.notes || null,
-        profileData.isActive ? 1 : 0,
+        shouldBeActive ? 1 : 0,
         now,
         now
       );
+
+      // Ensure at least one profile is active after creation
+      this.ensureActiveProfile();
 
       return {
         success: true,
@@ -695,8 +746,8 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
-      // Get existing profile to preserve password if not provided
-      const existingProfile = db.prepare('SELECT password FROM profiles WHERE id = ?').get(profileId);
+      // Get existing profile to preserve password and isActive if not provided
+      const existingProfile = db.prepare('SELECT password, is_active FROM profiles WHERE id = ?').get(profileId);
       if (!existingProfile) {
         return {
           success: false,
@@ -704,8 +755,11 @@ class MetadataStorage {
         };
       }
 
+      // Preserve existing isActive if not explicitly provided
+      const isActive = profileData.isActive !== undefined ? profileData.isActive : (existingProfile.is_active === 1);
+
       // If setting as active, deactivate all others first
-      if (profileData.isActive) {
+      if (isActive) {
         db.prepare('UPDATE profiles SET is_active = 0 WHERE id != ?').run(profileId);
       }
 
@@ -728,10 +782,13 @@ class MetadataStorage {
         profileData.snapshotPath || '/var/opt/mssql/snapshots',
         profileData.description || null,
         profileData.notes || null,
-        profileData.isActive ? 1 : 0,
+        isActive ? 1 : 0,
         now,
         profileId
       );
+
+      // Ensure at least one profile is active after update
+      this.ensureActiveProfile();
 
       return {
         success: true,
@@ -755,6 +812,10 @@ class MetadataStorage {
     try {
       const db = this.getDb();
       db.prepare('DELETE FROM profiles WHERE id = ?').run(profileId);
+
+      // Ensure at least one profile is active after deletion (if profiles still exist)
+      this.ensureActiveProfile();
+
       return { success: true };
     } catch (error) {
       console.error('Error deleting profile:', error);

@@ -5,7 +5,7 @@ All notable changes to SQL Parrot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - v1.3.0
+## [1.3.0] - 2025-12-31
 *Multi-Profile Support & Profile-Specific Groups*
 
 ### Added
@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Keyboard Accessibility**
   - ESC key closes all modals (profile, group, delete confirmation)
+
+- **Windows Installer**
+  - Uninstaller now offers option to remove SQLite database (profiles, settings, history)
 
 ### Changed
 - History messages use more natural language
@@ -99,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.2.0...HEAD
+[1.3.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.2.0...v1.3.0
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.3.0...HEAD
 [1.2.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.0.0.0...v1.1.0
 [1.0.0]: https://github.com/CaptainPalapa/SQLParrot/releases/tag/v1.0.0.0

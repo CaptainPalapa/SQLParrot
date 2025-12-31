@@ -15,8 +15,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
     trustCertificate: true,
     snapshotPath: '/var/opt/mssql/snapshots',
     description: '',
-    notes: '',
-    isActive: false
+    notes: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -45,8 +44,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
           trustCertificate: editingProfile.trustCertificate ?? true,
           snapshotPath: editingProfile.snapshotPath || '/var/opt/mssql/snapshots',
           description: editingProfile.description || '',
-          notes: editingProfile.notes || '',
-          isActive: editingProfile.isActive || false
+          notes: editingProfile.notes || ''
         });
       } else {
         // New profile
@@ -60,8 +58,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
           trustCertificate: true,
           snapshotPath: '/var/opt/mssql/snapshots',
           description: '',
-          notes: '',
-          isActive: false
+          notes: ''
         });
       }
       setErrors({});
@@ -169,12 +166,18 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
       if (response.success || response.connected) {
         setTestResult({ success: true, message: 'Connection successful!' });
         showSuccess('Connection test successful!');
+        // Clear failure flag when test succeeds
+        testFailedRef.current = false;
+        setShowSaveConfirm(false);
+        setTestFailedMessage('');
       } else {
         setTestResult({
           success: false,
           message: response.error || response.messages?.error?.[0] || 'Connection test failed'
         });
         showError(response.error || response.messages?.error?.[0] || 'Connection test failed');
+        // Set failure flag when test fails
+        testFailedRef.current = true;
       }
     } catch (error) {
       setTestResult({
@@ -182,6 +185,8 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
         message: error.message || 'Connection test failed'
       });
       showError('Connection test failed: ' + error.message);
+      // Set failure flag when test throws exception
+      testFailedRef.current = true;
     } finally {
       setIsTesting(false);
     }
@@ -295,8 +300,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
         trustCertificate: formData.trustCertificate,
         snapshotPath: formData.snapshotPath.trim(),
         description: formData.description.trim() || null,
-        notes: formData.notes.trim() || null,
-        isActive: formData.isActive
+        notes: formData.notes.trim() || null
       };
 
       let response;
@@ -307,7 +311,32 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
       }
 
       if (response.success) {
-        onSave();
+        // After saving, check if this is the only profile and set it as active if so
+        let activatedProfileId = null;
+        try {
+          const profilesResponse = await api.getProfiles();
+          if (profilesResponse.success && profilesResponse.data) {
+            const profiles = Array.isArray(profilesResponse.data)
+              ? profilesResponse.data
+              : (profilesResponse.data.profiles || []);
+
+            if (profiles.length === 1) {
+              // Only one profile exists - set it as active
+              // Use editingProfile.id if editing, otherwise use the profile from the list
+              const profileId = editingProfile ? editingProfile.id : profiles[0].id;
+              const activateResponse = await api.setActiveProfile(profileId);
+              if (activateResponse.success) {
+                activatedProfileId = profileId;
+              }
+            }
+          }
+        } catch (error) {
+          // Non-critical error - log but don't fail the save
+          console.warn('Failed to check/set active profile:', error);
+        }
+
+        // Pass the activated profile ID to onSave so parent can refresh Groups tab
+        onSave(activatedProfileId);
         onClose(); // Close modal after successful save
       } else {
         showError(response.messages?.error?.[0] || 'Failed to save profile');
@@ -341,7 +370,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
         <div className="p-6 space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-name" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Profile Name *
             </label>
             <FormInput
@@ -356,10 +385,12 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Platform Type */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-platform-type" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Platform Type *
             </label>
             <select
+              id="profile-platform-type"
+              name="platformType"
               value={formData.platformType}
               onChange={(e) => setFormData({ ...formData, platformType: e.target.value })}
               className="w-full px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
@@ -371,7 +402,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
           {/* Host and Port */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+              <label htmlFor="profile-host" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
                 Host / Server *
               </label>
               <FormInput
@@ -384,7 +415,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+              <label htmlFor="profile-port" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
                 Port *
               </label>
               <FormInput
@@ -403,7 +434,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Username */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-username" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Username *
             </label>
             <FormInput
@@ -418,7 +449,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Password */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-password" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Password
               {editingProfile && <span className="text-xs text-secondary-500 ml-1">(leave blank to keep existing)</span>}
             </label>
@@ -446,7 +477,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Snapshot Path */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-snapshot-path" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Snapshot Storage Path *
             </label>
             <FormInput
@@ -476,23 +507,9 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
             </label>
           </div>
 
-          {/* Set as Active */}
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="isActive"
-              checked={formData.isActive}
-              onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-              className="w-4 h-4 text-primary-600 bg-secondary-100 border-secondary-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-secondary-800 focus:ring-2 dark:bg-secondary-700 dark:border-secondary-600"
-            />
-            <label htmlFor="isActive" className="text-sm text-secondary-700 dark:text-secondary-300">
-              Set as active profile
-            </label>
-          </div>
-
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-description" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Description (optional)
             </label>
             <FormInput
@@ -505,10 +522,12 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-notes" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Notes (optional)
             </label>
             <textarea
+              id="profile-notes"
+              name="notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               placeholder="Additional notes about this profile"
@@ -572,7 +591,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
                 onClick={() => {
                   handleSave(false); // Explicitly pass false to ensure test runs
                 }}
-                disabled={isSaving || isTesting || showSaveConfirm || testFailedRef.current}
+                disabled={isSaving || isTesting || showSaveConfirm}
                 className="btn-primary flex items-center space-x-2"
               >
                 {isSaving ? (
@@ -622,6 +641,8 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    // Clear failure flag so user can try again after fixing credentials
+                    testFailedRef.current = false;
                     setShowSaveConfirm(false);
                     setTestFailedMessage('');
                   }}
@@ -631,9 +652,14 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
                   Cancel
                 </button>
                 <button
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    handleSave(true);
+                    // Clear failure flag and close the confirmation dialog first
+                    testFailedRef.current = false;
+                    setShowSaveConfirm(false);
+                    setTestFailedMessage('');
+                    // Then proceed with save (skip test)
+                    await handleSave(true);
                   }}
                   disabled={isSaving}
                   className="btn-primary"

@@ -4,10 +4,39 @@
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::config::AppConfig;
+use crate::config::ConnectionProfile;
 use crate::db::{MetadataStore, SqlServerConnection};
 use crate::models::{Group, HistoryEntry};
 use crate::ApiResponse;
+
+/// Helper function to get profile from metadata database using group's profile_id
+/// and convert it to ConnectionProfile for SQL Server connection
+fn get_profile_for_group(
+    store: &MetadataStore,
+    group: &Group,
+) -> Result<ConnectionProfile, String> {
+    let profile_id = group
+        .profile_id
+        .as_ref()
+        .ok_or_else(|| "Group has no profile_id".to_string())?;
+
+    let profile = store
+        .get_profile(profile_id)
+        .map_err(|e| format!("Failed to get profile: {}", e))?
+        .ok_or_else(|| format!("Profile not found: {}", profile_id))?;
+
+    // Convert Profile to ConnectionProfile
+    Ok(ConnectionProfile {
+        name: profile.name.clone(),
+        db_type: crate::config::DatabaseType::SqlServer,
+        host: profile.host.clone(),
+        port: profile.port,
+        username: profile.username.clone(),
+        password: profile.password.clone(),
+        trust_certificate: profile.trust_certificate,
+        snapshot_path: profile.snapshot_path.clone(),
+    })
+}
 
 /// Get all groups
 #[tauri::command]
@@ -92,19 +121,14 @@ pub async fn update_group(id: String, name: String, databases: Vec<String>) -> A
 
     // If databases were removed, clean up their snapshots
     if !removed_databases.is_empty() {
-        // Get connection profile
-        let config = match AppConfig::load() {
-            Ok(c) => c,
-            Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
-        };
-
-        let profile = match config.get_active_profile() {
-            Some(p) => p,
-            None => return ApiResponse::error("No active connection profile".to_string()),
+        // Get profile from metadata database using group's profile_id
+        let profile = match get_profile_for_group(&store, &existing) {
+            Ok(p) => p,
+            Err(e) => return ApiResponse::error(e),
         };
 
         // Connect to SQL Server
-        let mut conn = match SqlServerConnection::connect(profile).await {
+        let mut conn = match SqlServerConnection::connect(&profile).await {
             Ok(c) => c,
             Err(e) => return ApiResponse::error(format!("Failed to connect: {}", e)),
         };
@@ -185,18 +209,19 @@ pub async fn delete_group(id: String) -> ApiResponse<()> {
 
     // If there are snapshots, we need to drop them from SQL Server first
     if !group_snapshots.is_empty() {
-        let config = match crate::config::AppConfig::load() {
-            Ok(c) => c,
-            Err(e) => return ApiResponse::error(format!("Failed to load config: {}", e)),
+        let group = match group {
+            Some(g) => g,
+            None => return ApiResponse::error(format!("Group not found: {}", id)),
         };
 
-        let profile = match config.get_active_profile() {
-            Some(p) => p,
-            None => return ApiResponse::error("No active connection profile".to_string()),
+        // Get profile from metadata database using group's profile_id
+        let profile = match get_profile_for_group(&store, group) {
+            Ok(p) => p,
+            Err(e) => return ApiResponse::error(e),
         };
 
         // Connect to SQL Server and drop each snapshot database
-        match crate::db::SqlServerConnection::connect(profile).await {
+        match crate::db::SqlServerConnection::connect(&profile).await {
             Ok(mut conn) => {
                 for snapshot in &group_snapshots {
                     for db_snapshot in &snapshot.database_snapshots {

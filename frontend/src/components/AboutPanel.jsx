@@ -1,5 +1,6 @@
 import React from 'react';
 import { Heart, Code, Database, Palette, Shield, Zap, Github, ExternalLink } from 'lucide-react';
+import { APP_VERSION } from '../constants/version';
 
 const AboutPanel = () => {
   const features = [
@@ -59,7 +60,7 @@ const AboutPanel = () => {
           <div className="flex justify-center space-x-4 text-sm text-secondary-500 dark:text-secondary-400">
             <span className="flex items-center space-x-1">
               <Code className="w-4 h-4" />
-              <span>Version 1.1.0</span>
+              <span>Version {APP_VERSION}</span>
             </span>
             <span className="flex items-center space-x-1">
               <Heart className="w-4 h-4 text-red-500" />

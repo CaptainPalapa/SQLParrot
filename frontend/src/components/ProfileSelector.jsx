@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } f
 import PropTypes from 'prop-types';
 import { ChevronDown, Server, Check, Database } from 'lucide-react';
 import { api } from '../api/client';
+import { useNotification } from '../hooks/useNotification';
 
 /**
  * ProfileSelector - Header dropdown for switching between connection profiles
@@ -13,6 +14,7 @@ const ProfileSelector = forwardRef(({ onProfileChange }, ref) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const dropdownRef = useRef(null);
+  const { showError, showSuccess } = useNotification();
 
   // Expose refresh method to parent
   useImperativeHandle(ref, () => ({
@@ -56,13 +58,19 @@ const ProfileSelector = forwardRef(({ onProfileChange }, ref) => {
         // Refresh profiles to get updated active state
         await fetchProfiles();
         setIsOpen(false);
+        showSuccess('Profile switched successfully');
         // Notify parent component to refresh data
         if (onProfileChange) {
           onProfileChange(profileId);
         }
+      } else {
+        // Show error message from response
+        const errorMsg = response.messages?.error?.[0] || response.error || 'Failed to switch profile';
+        showError(errorMsg);
       }
     } catch (error) {
       console.error('Failed to set active profile:', error);
+      showError(error.message || 'Failed to switch profile');
     }
   };
 

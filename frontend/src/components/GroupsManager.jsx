@@ -188,15 +188,21 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     }
   }, [activeProfileId, showError]);
 
+  // Open profile creation modal (for "Setup Required" case)
+  const handleCreateProfile = useCallback(() => {
+    setEditingProfileData(null);
+    setIsEditingProfile(true);
+  }, []);
+
   // Handle profile edit save - close modal and retry connection
   const handleProfileEditSave = useCallback(() => {
     setIsEditingProfile(false);
     setEditingProfileData(null);
     // Refresh header selector (group counts may have changed)
     onGroupsChanged?.();
-    // Retry connection with updated profile
-    handleReconnect();
-  }, [onGroupsChanged, handleReconnect]);
+    // Reload data to check if we now have an active profile
+    loadData();
+  }, [onGroupsChanged, loadData]);
 
   // Initial load
   useEffect(() => {
@@ -948,14 +954,14 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       {/* Connection Status Banner - shown inline, doesn't block UI */}
       {connectionStatus === 'needs_config' && (
         <div
-          onClick={onNavigateSettings}
-          className="bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800 rounded-lg p-6 text-center cursor-pointer hover:bg-primary-100 dark:hover:bg-primary-900/50 transition-colors"
+          onClick={handleCreateProfile}
+          className="bg-primary-50 dark:bg-secondary-700 border border-primary-200 dark:border-primary-700 rounded-lg p-6 text-center cursor-pointer hover:bg-primary-100 dark:hover:bg-secondary-600 transition-colors"
         >
-          <Settings className="w-12 h-12 text-primary-500 mx-auto mb-3" />
-          <h3 className="text-lg font-semibold text-primary-800 dark:text-primary-200 mb-2">
+          <Settings className="w-12 h-12 text-primary-500 dark:text-primary-400 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-primary-800 dark:text-white mb-2">
             Setup Required
           </h3>
-          <p className="text-primary-600 dark:text-primary-300">
+          <p className="text-primary-700 dark:text-primary-100">
             Click here to configure your first connection profile
           </p>
         </div>

@@ -65,7 +65,7 @@ impl MetadataStore {
 
             for bundled_path in bundled_paths {
                 if bundled_path.exists() {
-                    // Copy bundled database to target location
+                    // Copy bundled database to target location (AppData)
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
@@ -167,8 +167,27 @@ impl MetadataStore {
             CREATE INDEX IF NOT EXISTS idx_snapshots_group ON snapshots(group_id);
             CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
             CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(is_active);
-            CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id);
             "#,
+        )?;
+
+        // Conditionally add profile_id column and create index if needed
+        // This handles cases where the database has an old schema without profile_id
+        // (e.g., from an old bundled database)
+        let mut stmt = conn.prepare("PRAGMA table_info('groups')")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if !columns.contains(&"profile_id".to_string()) {
+            // Column doesn't exist - add it (for old databases)
+            conn.execute("ALTER TABLE groups ADD COLUMN profile_id TEXT", [])?;
+        }
+
+        // Now create the index (column should exist now)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)",
+            [],
         )?;
 
         // Initialize settings if not exists
@@ -431,7 +450,7 @@ impl MetadataStore {
     }
 
     /// Migrate preferences from config.json to SQLite settings
-    fn migrate_config_preferences(&self, config_path: &std::path::Path) -> Result<(), MetadataError> {
+    fn migrate_config_preferences(&self, _config_path: &std::path::Path) -> Result<(), MetadataError> {
         use crate::config::AppConfig;
 
         // Load config.json to get preferences
@@ -804,6 +823,9 @@ impl MetadataStore {
 
     /// Get all profiles
     pub fn get_profiles(&self) -> Result<Vec<Profile>, MetadataError> {
+        // Ensure at least one profile is active before getting profiles
+        let _ = self.ensure_active_profile();
+
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles ORDER BY is_active DESC, name",
@@ -841,6 +863,9 @@ impl MetadataStore {
 
     /// Get active profile
     pub fn get_active_profile(&self) -> Result<Option<Profile>, MetadataError> {
+        // Ensure at least one profile is active before getting it
+        let _ = self.ensure_active_profile();
+
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, name, platform_type, host, port, username, password, trust_certificate, snapshot_path, description, notes, is_active, created_at, updated_at FROM profiles WHERE is_active = 1 LIMIT 1",
@@ -1024,5 +1049,250 @@ impl MetadataStore {
         conn.execute("UPDATE profiles SET is_active = 0", [])?;
         conn.execute("UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?", params![Utc::now().to_rfc3339(), profile_id])?;
         Ok(())
+    }
+
+    /// Ensure at least one profile is active (if profiles exist)
+    /// If no profile is active and profiles exist, activates the first profile
+    pub fn ensure_active_profile(&self) -> Result<(), MetadataError> {
+        let conn = self.conn.lock().unwrap();
+
+        // Check if any profile is active
+        let active_count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM profiles WHERE is_active = 1",
+            [],
+            |row| row.get(0),
+        )?;
+
+        // If no active profile and profiles exist, activate the first one
+        if active_count == 0 {
+            let total_count: i32 = conn.query_row(
+                "SELECT COUNT(*) FROM profiles",
+                [],
+                |row| row.get(0),
+            )?;
+
+            if total_count > 0 {
+                // Get the first profile (by created_at or id)
+                let first_profile_id: Option<String> = conn.query_row(
+                    "SELECT id FROM profiles ORDER BY created_at ASC, id ASC LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                ).ok();
+
+                if let Some(profile_id) = first_profile_id {
+                    conn.execute(
+                        "UPDATE profiles SET is_active = 1, updated_at = ? WHERE id = ?",
+                        params![Utc::now().to_rfc3339(), profile_id],
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+    use std::sync::Mutex;
+    use tempfile::TempDir;
+
+    fn create_test_store() -> (MetadataStore, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        // Create a new connection for testing
+        let conn = Connection::open(&db_path).unwrap();
+
+        // Initialize schema
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                platform_type TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                trust_certificate INTEGER NOT NULL,
+                snapshot_path TEXT NOT NULL,
+                description TEXT,
+                notes TEXT,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        ).unwrap();
+
+        let store = MetadataStore {
+            conn: Mutex::new(conn),
+        };
+
+        (store, temp_dir)
+    }
+
+    #[test]
+    fn test_ensure_active_profile_activates_first_when_none_active() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create two profiles, both inactive
+        let profile1 = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile 1".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password1".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let profile2 = Profile {
+            id: "profile-2".to_string(),
+            name: "Test Profile 2".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password2".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Insert profiles
+        store.create_profile(&profile1).unwrap();
+        store.create_profile(&profile2).unwrap();
+
+        // Ensure active profile - should activate the first one
+        store.ensure_active_profile().unwrap();
+
+        // Verify first profile is now active
+        let active = store.get_active_profile().unwrap();
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().id, "profile-1");
+    }
+
+    #[test]
+    fn test_ensure_active_profile_does_nothing_when_one_active() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create a profile and set it as active
+        let profile = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile).unwrap();
+
+        // Get the active profile before ensure
+        let active_before = store.get_active_profile().unwrap().unwrap();
+
+        // Ensure active profile - should do nothing
+        store.ensure_active_profile().unwrap();
+
+        // Verify same profile is still active
+        let active_after = store.get_active_profile().unwrap().unwrap();
+        assert_eq!(active_before.id, active_after.id);
+    }
+
+    #[test]
+    fn test_ensure_active_profile_does_nothing_when_no_profiles() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Ensure active profile with no profiles - should do nothing
+        store.ensure_active_profile().unwrap();
+
+        // Verify no active profile
+        let active = store.get_active_profile().unwrap();
+        assert!(active.is_none());
+    }
+
+    #[test]
+    fn test_get_profiles_ensures_active_profile() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create a profile but set it as inactive
+        let profile = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile).unwrap();
+
+        // Get profiles - should ensure one is active
+        let profiles = store.get_profiles().unwrap();
+
+        // Verify at least one is active
+        let active_count = profiles.iter().filter(|p| p.is_active).count();
+        assert_eq!(active_count, 1);
+    }
+
+    #[test]
+    fn test_get_active_profile_ensures_active_profile() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create a profile but set it as inactive
+        let profile = Profile {
+            id: "profile-1".to_string(),
+            name: "Test Profile".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile).unwrap();
+
+        // Get active profile - should ensure one is active and return it
+        let active = store.get_active_profile().unwrap();
+
+        assert!(active.is_some());
+        assert_eq!(active.unwrap().id, "profile-1");
     }
 }

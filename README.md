@@ -2,7 +2,7 @@
 
 A beautiful, modern tool for managing SQL Server database snapshots with a stunning theme system.
 
-![SQL Parrot](https://img.shields.io/badge/Version-1.1.0-blue.svg)
+![SQL Parrot](https://img.shields.io/badge/Version-1.3.0-blue.svg)
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3.3+-38bdf8.svg)
@@ -20,6 +20,9 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 - **Unique Database Ownership**: Each database can only belong to one group
 
 ### 🔧 **Advanced Features**
+- **Multi-Profile Support**: Create and switch between multiple SQL Server connection profiles
+- **Profile-Specific Groups**: Groups are tied to specific profiles for clean organization
+- **UI Password Protection**: Optional password protection for the SQL Parrot interface
 - **Local SQLite Metadata Storage**: All metadata stored locally in SQLite database (no SQL Server metadata database needed)
 - **Connection Testing**: Test SQL Server connections before operations
 - **Orphaned Snapshot Cleanup**: Clean up orphaned snapshot databases and files
@@ -239,6 +242,12 @@ npm run dev:backend
 | POST | `/api/snapshots/:snapshotId/rollback` | Rollback to specific snapshot |
 | POST | `/api/snapshots/:snapshotId/cleanup` | Cleanup invalid snapshot |
 | DELETE | `/api/snapshots/:snapshotId` | Delete specific snapshot |
+| GET | `/api/profiles` | Get all connection profiles |
+| GET | `/api/profiles/:id` | Get specific profile |
+| POST | `/api/profiles` | Create new profile |
+| PUT | `/api/profiles/:id` | Update profile |
+| DELETE | `/api/profiles/:id` | Delete profile |
+| POST | `/api/profiles/:id/activate` | Set profile as active |
 
 ## 🐳 Docker Support
 

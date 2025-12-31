@@ -21,17 +21,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let conn = Connection::open(&db_path)?;
 
-    // Create schema
+    // Create schema (matches current schema in metadata.rs)
     conn.execute_batch(
         r#"
-        -- Groups table
+        -- Groups table (profile_id links groups to connection profiles)
         CREATE TABLE groups (
             id TEXT PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
             databases TEXT NOT NULL,
+            profile_id TEXT,
             created_by TEXT,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            UNIQUE(name, profile_id)
         );
 
         -- Snapshots table
@@ -69,9 +71,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             value TEXT NOT NULL
         );
 
+        -- Connection profiles table (for multiple database profiles)
+        CREATE TABLE profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            platform_type TEXT NOT NULL DEFAULT 'Microsoft SQL Server',
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL DEFAULT 1433,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            trust_certificate INTEGER DEFAULT 1,
+            snapshot_path TEXT NOT NULL DEFAULT '/var/opt/mssql/snapshots',
+            description TEXT,
+            notes TEXT,
+            is_active INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         -- Indexes
         CREATE INDEX idx_snapshots_group ON snapshots(group_id);
         CREATE INDEX idx_history_timestamp ON history(timestamp);
+        CREATE INDEX idx_profiles_active ON profiles(is_active);
+        CREATE INDEX idx_groups_profile_id ON groups(profile_id);
         "#,
     )?;
 

@@ -104,12 +104,16 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
     setEditingProfile(null);
   };
 
-  const handleModalSave = async () => {
+  const handleModalSave = async (activatedProfileId) => {
     await fetchProfiles();
     setIsModalOpen(false);
     setEditingProfile(null);
     // Notify parent to refresh header selector (for renames, etc.)
     onProfilesChanged?.();
+    // If a profile was activated, notify parent to refresh Groups tab
+    if (activatedProfileId && onProfileChange) {
+      onProfileChange(activatedProfileId);
+    }
   };
 
   if (isLoading) {
@@ -148,15 +152,9 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
           <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-2">
             No Profiles
           </h3>
-          <p className="text-secondary-600 dark:text-secondary-400 mb-4">
-            Get started by creating your first connection profile.
+          <p className="text-secondary-600 dark:text-secondary-400">
+            Click the + Add Profile button above to create your first connection profile.
           </p>
-          <button
-            onClick={handleAddProfile}
-            className="btn-primary"
-          >
-            Add Profile
-          </button>
         </div>
       ) : (
         <div className="grid gap-4">

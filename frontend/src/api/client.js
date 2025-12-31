@@ -254,6 +254,14 @@ const extractPathParams = (endpoint) => {
     params.id = segments[1];
   }
 
+  // profiles/:id/... - use 'profileId' for all profile operations (Tauri v2 converts camelCase to snake_case)
+  // Handle both direct operations (profiles/:id) and nested operations (profiles/:id/activate)
+  if (segments[0] === 'profiles' && segments.length >= 2) {
+    // Extract profileId from the second segment (works for both /profiles/:id and /profiles/:id/activate)
+    // Tauri v2 converts camelCase profileId to snake_case profile_id in Rust
+    params.profileId = segments[1];
+  }
+
   return params;
 };
 
@@ -380,7 +388,8 @@ export const api = {
     method: 'DELETE'
   }),
   setActiveProfile: (id) => apiCall(`/api/profiles/${id}/activate`, {
-    method: 'POST'
+    method: 'POST',
+    body: { profileId: id } // Use camelCase for Tauri v2 (converts to profile_id in Rust)
   }),
 };
 

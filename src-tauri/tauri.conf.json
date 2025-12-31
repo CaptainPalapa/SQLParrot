@@ -43,7 +43,8 @@
     "windows": {
       "wix": null,
       "nsis": {
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerHooks": "nsis/hooks.nsh"
       }
     },
     "resources": [

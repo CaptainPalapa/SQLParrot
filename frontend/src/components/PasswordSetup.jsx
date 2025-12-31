@@ -76,7 +76,7 @@ const PasswordSetup = ({ onComplete }) => {
               <Lock className="w-8 h-8 text-primary-600 dark:text-primary-400" />
             </div>
             <h2 className="text-2xl font-bold text-secondary-900 dark:text-white mb-2">
-              Set Up Password Protection
+              Password Protection
             </h2>
             <p className="text-secondary-600 dark:text-secondary-400">
               Protect SQL Parrot with a password (optional)
