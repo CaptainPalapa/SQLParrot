@@ -32,7 +32,15 @@
 
 services:
   sql-parrot:
-    build: .
+    # OPTION 1: Use published image from GitHub Container Registry (recommended)
+    # This pulls the latest release automatically. For a specific version, use:
+    # image: ghcr.io/captainpalapa/sqlparrot:v1.3.0
+    image: ghcr.io/captainpalapa/sqlparrot:latest
+
+    # OPTION 2: Build from local Dockerfile (for development or custom builds)
+    # Uncomment the line below and comment out the 'image:' line above
+    # build: .
+
     ports:
       - "${SQL_PARROT_BACKEND_PORT:-3000}:3000"  # Web UI and API served together
     environment:
