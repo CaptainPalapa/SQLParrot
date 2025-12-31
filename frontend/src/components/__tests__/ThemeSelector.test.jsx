@@ -41,7 +41,7 @@ describe('ThemeSelector', () => {
 
     // Wait for the API call to complete
     await waitFor(() => {
-      expect(screen.getByText('Choose Your Theme')).toBeInTheDocument()
+      expect(screen.getByText('Appearance')).toBeInTheDocument()
     })
 
     expect(screen.getByText('Ocean Blue')).toBeInTheDocument()
@@ -51,7 +51,7 @@ describe('ThemeSelector', () => {
   it('does not render when closed', () => {
     renderWithTheme(<ThemeSelector isOpen={false} onClose={mockOnClose} />)
 
-    expect(screen.queryByText('Choose Your Theme')).not.toBeInTheDocument()
+    expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
   })
 
   it('calls onClose when close button is clicked', async () => {
@@ -60,7 +60,7 @@ describe('ThemeSelector', () => {
 
     // Wait for the API call to complete
     await waitFor(() => {
-      expect(screen.getByText('Choose Your Theme')).toBeInTheDocument()
+      expect(screen.getByText('Appearance')).toBeInTheDocument()
     })
 
     const closeButton = screen.getByLabelText('Close theme selector')
@@ -74,7 +74,7 @@ describe('ThemeSelector', () => {
 
     // Wait for the API call to complete
     await waitFor(() => {
-      expect(screen.getByText('Choose Your Theme')).toBeInTheDocument()
+      expect(screen.getByText('Appearance')).toBeInTheDocument()
     })
 
     const modal = screen.getByRole('dialog')
