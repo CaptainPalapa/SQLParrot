@@ -100,15 +100,14 @@ jobs:
       timeout-minutes: 10
       continue-on-error: true  # Frontend tests are optional for now
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
       timeout-minutes: 5
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage/coverage-final.json,./frontend/coverage/coverage-final.json
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false  # Don't fail if coverage upload fails
-        token: ${{ secrets.CODECOV_TOKEN }}  # Optional - only needed for private repos
-        directory: ./
         verbose: true
 
