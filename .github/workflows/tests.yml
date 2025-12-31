@@ -24,11 +24,20 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-
+    
+    - name: Check npm version
+      run: npm --version
+    
     - name: Install root dependencies
       run: |
+        echo "Installing root dependencies..."
         if [ -f package-lock.json ]; then
-          npm ci
+          echo "package-lock.json found, using npm ci"
+          npm ci --verbose || {
+            echo "npm ci failed, trying npm install instead..."
+            rm -rf node_modules
+            npm install --no-package-lock
+          }
         else
           echo "No package-lock.json found, using npm install"
           npm install
@@ -38,19 +47,31 @@ jobs:
     - name: Install frontend dependencies
       run: |
         cd frontend
+        echo "Installing frontend dependencies..."
         if [ -f package-lock.json ]; then
-          npm ci
+          echo "package-lock.json found, using npm ci"
+          npm ci --verbose || {
+            echo "npm ci failed, trying npm install instead..."
+            rm -rf node_modules
+            npm install --no-package-lock
+          }
         else
           echo "No package-lock.json found, using npm install"
           npm install
         fi
       timeout-minutes: 5
-
+    
     - name: Install backend dependencies
       run: |
         cd backend
+        echo "Installing backend dependencies..."
         if [ -f package-lock.json ]; then
-          npm ci
+          echo "package-lock.json found, using npm ci"
+          npm ci --verbose || {
+            echo "npm ci failed, trying npm install instead..."
+            rm -rf node_modules
+            npm install --no-package-lock
+          }
         else
           echo "No package-lock.json found, using npm install"
           npm install
