@@ -306,6 +306,7 @@ jest.mock('../backend/utils/metadataStorageSqlite', () => {
 // Import the Express app (after mocking)
 // The mock will be used when server.js requires metadataStorageSqlite
 const app = require('../backend/server');
+const { cleanupTimers } = require('../backend/server');
 
 const sql = require('mssql');
 const MetadataStorage = require('../backend/utils/metadataStorageSqlite');
@@ -1240,5 +1241,10 @@ describe('Profile Management API Tests', () => {
       expect(getResponse.body.data.isActive).toBe(true);
     });
   });
+});
+
+// Cleanup timers after all tests
+afterAll(() => {
+  cleanupTimers();
 });
 

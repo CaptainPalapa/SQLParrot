@@ -80,7 +80,14 @@ function cleanupExpiredSessions() {
 }
 
 // Run cleanup every hour
-setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
+const sessionCleanupInterval = setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
+
+// Cleanup function for tests
+function cleanupTimers() {
+  if (sessionCleanupInterval) {
+    clearInterval(sessionCleanupInterval);
+  }
+}
 
 // Password check middleware (UI Security - protects access to SQL Parrot UI)
 async function requirePasswordAuth(req, res, next) {
@@ -3078,6 +3085,9 @@ app.post('/api/save-connection', async (req, res) => {
 
 // Export app for testing
 module.exports = app;
+
+// Export cleanup function for tests
+module.exports.cleanupTimers = cleanupTimers;
 
 // Start server only if not in test environment
 if (process.env.NODE_ENV !== 'test') {

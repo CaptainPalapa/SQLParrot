@@ -81,6 +81,7 @@ jest.mock('../backend/utils/metadataStorageSqlite', () => {
 
 // Import the Express app (after mocking)
 const app = require('../backend/server');
+const { cleanupTimers } = require('../backend/server');
 
 // Helper to get storage instance
 function getStorage() {
@@ -444,5 +445,10 @@ describe('History API Tests', () => {
       expect(mockHistory[0].type).toBe('create_snapshots');
     });
   });
+});
+
+// Cleanup timers after all tests
+afterAll(() => {
+  cleanupTimers();
 });
 
