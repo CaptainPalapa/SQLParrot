@@ -1125,7 +1125,7 @@ describe('Profile Management API Tests', () => {
       expect(response.body.configured).toBe(true);
     });
 
-    test('should return fallback path when no active profile', async () => {
+    test('should return error when no active profile', async () => {
       // Ensure no active profile
       mockProfiles.clear();
       activeProfileId = null;
@@ -1133,10 +1133,9 @@ describe('Profile Management API Tests', () => {
       const response = await request(app)
         .get('/api/test-snapshot-path');
 
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(response.body.snapshotPath).toBeDefined();
-      expect(response.body.configured).toBe(false);
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('No snapshot path configured');
     });
   });
 
@@ -1239,6 +1238,144 @@ describe('Profile Management API Tests', () => {
       const getResponse = await request(app).get(`/api/profiles/${testProfileId}`);
       expect(getResponse.body.data.snapshotPath).toBe('/new/path');
       expect(getResponse.body.data.isActive).toBe(true);
+    });
+  });
+
+  describe('Environment Variable Substitution', () => {
+    beforeEach(() => {
+      // Clear environment variables before each test
+      delete process.env.TEST_SERVER;
+      delete process.env.TEST_USER;
+      delete process.env.TEST_PASS;
+      delete process.env.SQL_SERVER;
+      delete process.env.SQL_SERVER_1;
+      delete process.env.SQL_SERVER_2;
+    });
+
+    test('should substitute environment variables in test-connection', async () => {
+      process.env.TEST_SERVER = 'env-test-server';
+      process.env.TEST_USER = 'env-user';
+      process.env.TEST_PASS = 'env-password';
+
+      const response = await request(app)
+        .post('/api/test-connection')
+        .send({
+          host: '${TEST_SERVER}',
+          port: 1433,
+          username: '${TEST_USER}',
+          password: '${TEST_PASS}',
+          trustCertificate: true
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      // The mssql mock should have been called with resolved values
+    });
+
+    test('should return error when environment variable is missing', async () => {
+      const response = await request(app)
+        .post('/api/test-connection')
+        .send({
+          host: '${MISSING_VAR}',
+          port: 1433,
+          username: 'test',
+          password: 'test',
+          trustCertificate: true
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('Environment variable(s) not found');
+      expect(response.body.error).toContain('${MISSING_VAR}');
+    });
+
+    test('should support fallback for SQL_SERVER_1 to SQL_SERVER', async () => {
+      process.env.SQL_SERVER = 'fallback-server';
+      // SQL_SERVER_1 not set, should fallback to SQL_SERVER
+
+      const response = await request(app)
+        .post('/api/test-connection')
+        .send({
+          host: '${SQL_SERVER_1}',
+          port: 1433,
+          username: 'test',
+          password: 'test',
+          trustCertificate: true
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+    });
+
+    test('should not fallback for SQL_SERVER_2 (only _1 falls back)', async () => {
+      process.env.SQL_SERVER = 'fallback-server';
+      // SQL_SERVER_2 not set, should NOT fallback
+
+      const response = await request(app)
+        .post('/api/test-connection')
+        .send({
+          host: '${SQL_SERVER_2}',
+          port: 1433,
+          username: 'test',
+          password: 'test',
+          trustCertificate: true
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('${SQL_SERVER_2}');
+    });
+
+    test('should resolve environment variables in profile snapshot path', async () => {
+      process.env.SNAPSHOT_PATH = '/custom/snapshots';
+
+      // Create a profile with env var in snapshot path
+      const createResponse = await request(app)
+        .post('/api/profiles')
+        .send({
+          name: 'Env Test Profile',
+          host: 'localhost',
+          port: 1433,
+          username: 'test',
+          password: 'test',
+          snapshotPath: '${SNAPSHOT_PATH}',
+          isActive: true
+        });
+
+      expect(createResponse.status).toBe(200);
+
+      // Test snapshot path endpoint
+      const pathResponse = await request(app)
+        .get('/api/test-snapshot-path');
+
+      expect(pathResponse.status).toBe(200);
+      expect(pathResponse.body.success).toBe(true);
+      expect(pathResponse.body.snapshotPath).toBe('/custom/snapshots');
+    });
+
+    test('should return error when profile snapshot path has missing env var', async () => {
+      // Create a profile with missing env var in snapshot path
+      const createResponse = await request(app)
+        .post('/api/profiles')
+        .send({
+          name: 'Missing Env Profile',
+          host: 'localhost',
+          port: 1433,
+          username: 'test',
+          password: 'test',
+          snapshotPath: '${MISSING_SNAPSHOT_PATH}',
+          isActive: true
+        });
+
+      expect(createResponse.status).toBe(200);
+
+      // Test snapshot path endpoint should fail
+      const pathResponse = await request(app)
+        .get('/api/test-snapshot-path');
+
+      expect(pathResponse.status).toBe(400);
+      expect(pathResponse.body.success).toBe(false);
+      expect(pathResponse.body.error).toContain('Environment variable(s) not found');
     });
   });
 });
