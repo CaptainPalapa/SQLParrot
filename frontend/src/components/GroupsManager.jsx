@@ -492,10 +492,10 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       const data = await api.post(`/api/groups/${groupId}/snapshots`, { snapshotName });
 
       if (data.success) {
-        // Rust ApiResponse returns snapshot directly in data.data
-        const snapshot = data.data;
+        // Backend returns { snapshot: newSnapshot, results: results } in data.data
+        const snapshot = data.data?.snapshot || data.data;
         await fetchSnapshots(groupId, false, true);
-        showSuccess(`Snapshot "${snapshot.displayName}" created successfully!`);
+        showSuccess(`Snapshot "${snapshot?.displayName || 'snapshot'}" created successfully!`);
       } else {
         // Show specific error message from server response
         const errorMessage = data.messages?.error?.[0] || data.error || data.message || 'Failed to create snapshot. Please try again.';
