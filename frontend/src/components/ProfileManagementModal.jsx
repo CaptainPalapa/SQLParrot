@@ -1,8 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, Loader2, Eye, EyeOff, CheckCircle, AlertCircle, Network } from 'lucide-react';
+import { X, Save, Loader2, Eye, EyeOff, CheckCircle, AlertCircle, Network, HelpCircle } from 'lucide-react';
 import { api } from '../api/client';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
+
+// Helper component for env var info popover
+const EnvVarInfoPopover = () => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="ml-1 text-secondary-400 hover:text-secondary-600 dark:text-secondary-500 dark:hover:text-secondary-300 transition-colors"
+        onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+      >
+        <HelpCircle className="w-4 h-4" />
+      </button>
+      {isOpen && (
+        <div className="absolute left-0 top-6 z-50 w-80 p-3 bg-white dark:bg-secondary-800 border border-secondary-200 dark:border-secondary-700 rounded-lg shadow-lg text-sm">
+          <p className="font-semibold text-secondary-900 dark:text-white mb-2">
+            Environment Variable Substitution
+          </p>
+          <p className="text-secondary-700 dark:text-secondary-300 mb-2">
+            You can use <code className="px-1 py-0.5 bg-secondary-100 dark:bg-secondary-700 rounded text-xs">${'{'}VAR_NAME{'}'}</code> syntax to reference <strong>ANY</strong> environment variable from your <code className="px-1 py-0.5 bg-secondary-100 dark:bg-secondary-700 rounded text-xs">.env</code> file.
+          </p>
+          <p className="text-secondary-700 dark:text-secondary-300 mb-2">
+            Examples:
+          </p>
+          <ul className="list-disc list-inside text-secondary-600 dark:text-secondary-400 space-y-1 text-xs ml-2">
+            <li><code>${'{'}SQL_SERVER{'}'}</code> - Uses SQL_SERVER from .env</li>
+            <li><code>${'{'}SQL_SERVER_1{'}'}</code> - Uses SQL_SERVER_1 from .env</li>
+            <li><code>${'{'}SNAPSHOT_PATH_2{'}'}</code> - Uses SNAPSHOT_PATH_2 from .env</li>
+            <li><code>${'{'}MY_CUSTOM_HOST{'}'}</code> - Uses any variable name you define!</li>
+          </ul>
+          <p className="text-secondary-600 dark:text-secondary-400 text-xs mt-2">
+            This keeps sensitive credentials in your <code className="px-1 py-0.5 bg-secondary-100 dark:bg-secondary-700 rounded">.env</code> file instead of the database.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => {
   const [formData, setFormData] = useState({
@@ -402,8 +442,9 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
           {/* Host and Port */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="profile-host" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+              <label htmlFor="profile-host" className="flex items-center text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
                 Host / Server *
+                <EnvVarInfoPopover />
               </label>
               <FormInput
                 id="profile-host"
@@ -434,8 +475,9 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Username */}
           <div>
-            <label htmlFor="profile-username" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-username" className="flex items-center text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Username *
+              <EnvVarInfoPopover />
             </label>
             <FormInput
               id="profile-username"
@@ -449,9 +491,10 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Password */}
           <div>
-            <label htmlFor="profile-password" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-password" className="flex items-center text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Password
               {editingProfile && <span className="text-xs text-secondary-500 ml-1">(leave blank to keep existing)</span>}
+              <EnvVarInfoPopover />
             </label>
             <div className="relative">
               <FormInput
@@ -477,8 +520,9 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
 
           {/* Snapshot Path */}
           <div>
-            <label htmlFor="profile-snapshot-path" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            <label htmlFor="profile-snapshot-path" className="flex items-center text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
               Snapshot Storage Path *
+              <EnvVarInfoPopover />
             </label>
             <FormInput
               id="profile-snapshot-path"
@@ -502,8 +546,9 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
               onChange={(e) => setFormData({ ...formData, trustCertificate: e.target.checked })}
               className="w-4 h-4 text-primary-600 bg-secondary-100 border-secondary-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-secondary-800 focus:ring-2 dark:bg-secondary-700 dark:border-secondary-600"
             />
-            <label htmlFor="trustCertificate" className="text-sm text-secondary-700 dark:text-secondary-300">
+            <label htmlFor="trustCertificate" className="flex items-center text-sm text-secondary-700 dark:text-secondary-300">
               Trust server certificate (for self-signed certs)
+              <EnvVarInfoPopover />
             </label>
           </div>
 

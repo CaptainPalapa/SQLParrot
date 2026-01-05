@@ -59,6 +59,15 @@ const PORT = process.env.PORT || (process.env.npm_lifecycle_event === 'dev' ? 30
 app.use(cors());
 app.use(express.json());
 
+// Handle Chrome DevTools Protocol discovery (prevents CSP console errors for all users)
+// Chrome DevTools automatically checks for this endpoint when DevTools is opened
+// Returning a proper response prevents confusing console errors for end users
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
+  // Return empty JSON - this satisfies Chrome's request without enabling the feature
+  // This prevents CSP violations and console errors for users who open DevTools
+  res.status(200).json({});
+});
+
 // Session storage for authenticated users (in-memory, cleared on server restart)
 // Key: session token (random UUID), Value: { authenticated: true, timestamp: Date }
 const authenticatedSessions = new Map();
@@ -534,6 +543,60 @@ async function cleanupOrphanedSnapshots() {
 // SQL Server connection
 let sqlConfig = null;
 
+/**
+ * Resolves environment variable references in profile values.
+ * Supports ${VAR_NAME} syntax with fallback logic:
+ * - ${SQL_SERVER_1} will use SQL_SERVER_1 if set, otherwise falls back to SQL_SERVER
+ * - ${SQL_SERVER_2} requires SQL_SERVER_2 to be set (no fallback)
+ *
+ * @param {string} value - The profile value that may contain ${VAR_NAME} references
+ * @param {string} fieldName - Name of the field (for error messages)
+ * @returns {string} - Resolved value with env vars substituted
+ * @throws {Error} - If a required env var is missing
+ */
+function resolveEnvVarSubstitution(value, fieldName = 'field') {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+
+  // Match ${VAR_NAME} patterns
+  const envVarPattern = /\$\{([^}]+)\}/g;
+  let result = value;
+  const missingVars = [];
+
+  result = result.replace(envVarPattern, (match, varName) => {
+    // Check if the exact variable exists
+    if (process.env[varName] !== undefined) {
+      return process.env[varName];
+    }
+
+    // For numbered variables (e.g., SQL_SERVER_1), try fallback to base name
+    const numberedMatch = varName.match(/^(.+)_(\d+)$/);
+    if (numberedMatch) {
+      const [, baseName, number] = numberedMatch;
+      // Only fallback for _1, not _2, _3, etc.
+      if (number === '1' && process.env[baseName] !== undefined) {
+        return process.env[baseName];
+      }
+    }
+
+    // Variable not found
+    missingVars.push(varName);
+    return match; // Return original match so we can detect it
+  });
+
+  // Check if any substitutions failed
+  if (missingVars.length > 0) {
+    const missingList = missingVars.map(v => `\${${v}}`).join(', ');
+    throw new Error(
+      `Environment variable(s) not found for ${fieldName}: ${missingList}. ` +
+      `Please ensure these variables are set in your .env file or environment.`
+    );
+  }
+
+  return result;
+}
+
 async function getSqlConfig() {
   if (!sqlConfig) {
     try {
@@ -541,15 +604,24 @@ async function getSqlConfig() {
       const profile = metadataStorage.getActiveProfile();
 
       if (profile) {
+        // Resolve environment variable substitutions in profile values
+        const resolvedHost = resolveEnvVarSubstitution(profile.host, 'host');
+        const resolvedUsername = resolveEnvVarSubstitution(profile.username, 'username');
+        const resolvedPassword = resolveEnvVarSubstitution(profile.password, 'password');
+        const resolvedTrustCert = resolveEnvVarSubstitution(
+          profile.trustCertificate?.toString() || 'true',
+          'trustCertificate'
+        );
+
         sqlConfig = {
-          server: profile.host,
-          port: profile.port,
-          user: profile.username,
-          password: profile.password,
+          server: resolvedHost,
+          port: parseInt(profile.port) || 1433,
+          user: resolvedUsername,
+          password: resolvedPassword,
           database: 'master',
           options: {
             encrypt: false,
-            trustServerCertificate: profile.trustCertificate
+            trustServerCertificate: resolvedTrustCert === 'true' || resolvedTrustCert === true
           }
         };
       } else {
@@ -568,6 +640,10 @@ async function getSqlConfig() {
       }
     } catch (error) {
       console.error('Error getting SQL config:', error);
+      // Re-throw if it's an env var substitution error
+      if (error.message.includes('Environment variable(s) not found')) {
+        throw error;
+      }
       // Final fallback to environment variables only
       sqlConfig = {
         server: process.env.SQL_SERVER || 'localhost',
@@ -592,15 +668,24 @@ async function getFreshSqlConfig() {
     const profile = metadataStorage.getActiveProfile();
 
     if (profile) {
+      // Resolve environment variable substitutions in profile values
+      const resolvedHost = resolveEnvVarSubstitution(profile.host, 'host');
+      const resolvedUsername = resolveEnvVarSubstitution(profile.username, 'username');
+      const resolvedPassword = resolveEnvVarSubstitution(profile.password, 'password');
+      const resolvedTrustCert = resolveEnvVarSubstitution(
+        profile.trustCertificate?.toString() || 'true',
+        'trustCertificate'
+      );
+
       return {
-        server: profile.host,
+        server: resolvedHost,
         port: parseInt(profile.port) || 1433,
-        user: profile.username,
-        password: profile.password,
+        user: resolvedUsername,
+        password: resolvedPassword,
         database: 'master',
         options: {
           encrypt: false,
-          trustServerCertificate: profile.trustCertificate
+          trustServerCertificate: resolvedTrustCert === 'true' || resolvedTrustCert === true
         }
       };
     } else {
@@ -619,6 +704,10 @@ async function getFreshSqlConfig() {
     }
   } catch (error) {
     console.error('Error getting fresh SQL config:', error);
+    // Re-throw if it's an env var substitution error
+    if (error.message.includes('Environment variable(s) not found')) {
+      throw error;
+    }
     // Final fallback to environment variables only
     return {
       server: process.env.SQL_SERVER || 'localhost',
@@ -1417,83 +1506,147 @@ app.post('/api/test-connection', async (req, res) => {
 
     let config;
 
+    // Resolve environment variable substitutions in provided values
+    let resolvedHost = host;
+    let resolvedUsername = username;
+    let resolvedPassword = password;
+    let resolvedTrustCert = trustCertificate;
+
+    try {
+      if (host) resolvedHost = resolveEnvVarSubstitution(host, 'host');
+      if (username) resolvedUsername = resolveEnvVarSubstitution(username, 'username');
+      if (password) resolvedPassword = resolveEnvVarSubstitution(password, 'password');
+      if (trustCertificate !== undefined) {
+        const trustCertStr = trustCertificate?.toString() || 'true';
+        resolvedTrustCert = resolveEnvVarSubstitution(trustCertStr, 'trustCertificate') === 'true';
+      }
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+
     // If password is empty or whitespace, try to use saved password from profile (either active or the one being edited)
     // Check for empty string, null, undefined, or whitespace-only
-    const isEmptyPassword = !password || (typeof password === 'string' && password.trim() === '');
+    const isEmptyPassword = !resolvedPassword || (typeof resolvedPassword === 'string' && resolvedPassword.trim() === '');
 
     if (isEmptyPassword && host && port && username) {
       // If profileId is provided (editing mode), prioritize that profile
       if (profileId) {
         const profile = metadataStorage.getProfile(profileId);
         if (profile && profile.password) {
+          // Resolve env vars in profile password
+          let profilePassword;
+          try {
+            profilePassword = resolveEnvVarSubstitution(profile.password, 'password');
+          } catch (error) {
+            return res.status(400).json({
+              success: false,
+              error: `Profile password references missing environment variable: ${error.message}`
+            });
+          }
           // When editing, use saved password from the profile being edited
           config = {
-            server: host,
+            server: resolvedHost,
             port: parseInt(port) || 1433,
-            user: username,
-            password: profile.password, // Use saved password from the profile being edited
+            user: resolvedUsername,
+            password: profilePassword,
             database: 'master',
             options: {
               encrypt: false,
-              trustServerCertificate: trustCertificate !== false
+              trustServerCertificate: resolvedTrustCert !== false
             }
           };
         } else {
           // Profile not found - allow test without password
           config = {
-            server: host,
+            server: resolvedHost,
             port: parseInt(port) || 1433,
-            user: username,
+            user: resolvedUsername,
             password: '', // Empty password - let SQL Server handle it
             database: 'master',
             options: {
               encrypt: false,
-              trustServerCertificate: trustCertificate !== false
+              trustServerCertificate: resolvedTrustCert !== false
             }
           };
         }
       } else {
         // No profileId - try active profile
         const profile = metadataStorage.getActiveProfile();
-        if (profile && profile.host === host && profile.port === port && profile.username === username) {
-          // Use saved password from active profile if connection details match
-          config = {
-            server: profile.host,
-            port: profile.port,
-            user: profile.username,
-            password: profile.password,
-            database: 'master',
-            options: {
-              encrypt: false,
-              trustServerCertificate: profile.trustCertificate
+        if (profile) {
+          // Resolve env vars in profile values for comparison
+          let profileHost, profileUsername;
+          try {
+            profileHost = resolveEnvVarSubstitution(profile.host, 'host');
+            profileUsername = resolveEnvVarSubstitution(profile.username, 'username');
+          } catch (error) {
+            // If profile has env var issues, continue without matching
+          }
+
+          if (profile && profileHost === resolvedHost && profile.port === port && profileUsername === resolvedUsername) {
+            // Use saved password from active profile if connection details match
+            let profilePassword;
+            try {
+              profilePassword = resolveEnvVarSubstitution(profile.password, 'password');
+            } catch (error) {
+              return res.status(400).json({
+                success: false,
+                error: `Active profile password references missing environment variable: ${error.message}`
+              });
             }
-          };
+            config = {
+              server: profileHost,
+              port: profile.port,
+              user: profileUsername,
+              password: profilePassword,
+              database: 'master',
+              options: {
+                encrypt: false,
+                trustServerCertificate: profile.trustCertificate
+              }
+            };
+          } else {
+            // No matching profile found - allow test without password (maybe no password needed)
+            config = {
+              server: resolvedHost,
+              port: parseInt(port) || 1433,
+              user: resolvedUsername,
+              password: '', // Empty password - let SQL Server handle it
+              database: 'master',
+              options: {
+                encrypt: false,
+                trustServerCertificate: resolvedTrustCert !== false
+              }
+            };
+          }
         } else {
-          // No matching profile found - allow test without password (maybe no password needed)
+          // No active profile - allow test without password
           config = {
-            server: host,
+            server: resolvedHost,
             port: parseInt(port) || 1433,
-            user: username,
+            user: resolvedUsername,
             password: '', // Empty password - let SQL Server handle it
             database: 'master',
             options: {
               encrypt: false,
-              trustServerCertificate: trustCertificate !== false
+              trustServerCertificate: resolvedTrustCert !== false
             }
           };
         }
       }
-    } else if (host && port && username && password) {
+    } else if (resolvedHost && port && resolvedUsername && resolvedPassword) {
       // Use provided credentials
       config = {
-        server: host,
+        server: resolvedHost,
         port: parseInt(port) || 1433,
-        user: username,
-        password: password,
+        user: resolvedUsername,
+        password: resolvedPassword,
         database: 'master',
         options: {
           encrypt: false,
-          trustServerCertificate: trustCertificate !== false
+          trustServerCertificate: resolvedTrustCert !== false
         }
       };
     } else {
@@ -1505,15 +1658,29 @@ app.post('/api/test-connection', async (req, res) => {
           error: 'No connection profile configured. Please provide connection details or configure a profile.'
         });
       }
+      // Resolve env vars in profile
+      let profileHost, profileUsername, profilePassword, profileTrustCert;
+      try {
+        profileHost = resolveEnvVarSubstitution(profile.host, 'host');
+        profileUsername = resolveEnvVarSubstitution(profile.username, 'username');
+        profilePassword = resolveEnvVarSubstitution(profile.password, 'password');
+        const trustCertStr = profile.trustCertificate?.toString() || 'true';
+        profileTrustCert = resolveEnvVarSubstitution(trustCertStr, 'trustCertificate') === 'true';
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          error: `Active profile references missing environment variable: ${error.message}`
+        });
+      }
       config = {
-        server: profile.host,
+        server: profileHost,
         port: profile.port,
-        user: profile.username,
-        password: profile.password,
+        user: profileUsername,
+        password: profilePassword,
         database: 'master',
         options: {
           encrypt: false,
-          trustServerCertificate: profile.trustCertificate
+          trustServerCertificate: profileTrustCert
         }
       };
     }
@@ -2385,10 +2552,19 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
     const checkpointDatabaseSnapshots = [];
     const checkpointResults = [];
 
+    // Get snapshot path from active profile with env var substitution
+    const checkpointProfile = metadataStorage.getActiveProfile();
+    if (!checkpointProfile || !checkpointProfile.snapshotPath) {
+      return res.status(400).json({
+        success: false,
+        error: 'No snapshot path configured in active profile. Please configure a snapshot path in your profile settings.'
+      });
+    }
+    const snapshotBasePath = resolveEnvVarSubstitution(checkpointProfile.snapshotPath, 'snapshotPath');
+
     for (const database of group.databases) {
       try {
         const fullSnapshotName = `${checkpointId}_${database}`;
-        const snapshotBasePath = process.env.SNAPSHOT_PATH || 'C:\\Snapshots';
         const snapshotPath = `${snapshotBasePath}/${fullSnapshotName}.ss`;
 
         // Get database files (exclude log files - only data files allowed in snapshots)
@@ -2690,6 +2866,15 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
     const snapshotId = generateSnapshotId(group.name, snapshotName);
     const displayName = generateDisplayName(snapshotName);
 
+    // Get snapshot path from active profile with env var substitution
+    const snapshotProfile = metadataStorage.getActiveProfile();
+    if (!snapshotProfile || !snapshotProfile.snapshotPath) {
+      return res.status(400).json({
+        error: 'No snapshot path configured in active profile. Please configure a snapshot path in your profile settings.'
+      });
+    }
+    const snapshotBasePath = resolveEnvVarSubstitution(snapshotProfile.snapshotPath, 'snapshotPath');
+
     const pool = await sql.connect(config);
     const databaseSnapshots = [];
     const results = [];
@@ -2697,8 +2882,6 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
     for (const database of group.databases) {
       try {
         const fullSnapshotName = `${snapshotId}_${database}`;
-        // Use configurable snapshot path (Windows/Linux compatible)
-        const snapshotBasePath = process.env.SNAPSHOT_PATH || 'C:\\Snapshots';
         const snapshotPath = `${snapshotBasePath}/${fullSnapshotName}.ss`;
 
         // Get database files (exclude log files - only data files allowed in snapshots)
@@ -2809,19 +2992,26 @@ app.get('/api/test-snapshot-path', async (req, res) => {
     // Get active profile from SQLite
     const profile = metadataStorage.getActiveProfile();
 
-    if (profile) {
-      res.json({
-        success: true,
-        snapshotPath: profile.snapshotPath,
-        configured: true
-      });
+    if (profile && profile.snapshotPath) {
+      try {
+        // Resolve environment variable substitutions
+        const resolvedPath = resolveEnvVarSubstitution(profile.snapshotPath, 'snapshotPath');
+        res.json({
+          success: true,
+          snapshotPath: resolvedPath,
+          configured: true
+        });
+      } catch (error) {
+        // If env var substitution fails, return error
+        res.status(400).json({
+          success: false,
+          error: error.message
+        });
+      }
     } else {
-      // Fallback to environment variable
-      const snapshotBasePath = process.env.SNAPSHOT_PATH || '/var/opt/mssql/snapshots';
-      res.json({
-        success: true,
-        snapshotPath: snapshotBasePath,
-        configured: false
+      res.status(400).json({
+        success: false,
+        error: 'No snapshot path configured in active profile. Please configure a snapshot path in your profile settings.'
       });
     }
   } catch (error) {

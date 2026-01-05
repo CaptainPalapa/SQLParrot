@@ -22,13 +22,6 @@
 #   See "SAME STACK EXAMPLE" at the bottom of this file.
 #
 # ============================================================================
-# CREDENTIAL OPTIONS
-# ============================================================================
-# 1. Create a .env file with SQL_SERVER, SQL_USERNAME, SQL_PASSWORD
-# 2. Or set environment variables directly below
-# 3. Or leave empty and configure via the web UI Settings tab
-#    (saved to SQLite, persists across restarts)
-# ============================================================================
 
 services:
   sql-parrot:
@@ -42,28 +35,58 @@ services:
     # build: .
 
     ports:
+      # Format: "HOST_PORT:CONTAINER_PORT"
+      # Maps host port (left) to container port (right)
+      # PORT=3000 below tells the app to listen on port 3000 inside the container
       - "${SQL_PARROT_BACKEND_PORT:-3000}:3000"  # Web UI and API served together
+
+    # ========================================================================
+    # APPROACH 1: Use .env file (Recommended - Keeps secrets out of compose file)
+    # ========================================================================
+    # Pass through all variables from .env file automatically.
+    # This allows you to use ANY variable name in your profiles - just define
+    # them in .env and reference them in profile fields with ${VAR_NAME} syntax.
+    env_file:
+      - .env
+
     environment:
-      # SQL Server Connection
-      # See scenarios above - host.docker.internal works for Scenarios 1 & 2
-      - SQL_SERVER=${SQL_SERVER:-host.docker.internal}
-      - SQL_USERNAME=${SQL_USERNAME:-}
-      - SQL_PASSWORD=${SQL_PASSWORD:-}
-      - SQL_TRUST_CERTIFICATE=${SQL_TRUST_CERTIFICATE:-true}
-
-      # Application Settings
+      # Application Settings (these override .env if set)
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=3000  # Port the Node.js app listens on INSIDE the container
 
-      # Snapshot Storage Path - where SQL Server stores snapshot files
-      # This path must be accessible to SQL Server, not this container. We need the value
-      # because the SQL commands require us to pass it when creating snapshots.
-      # Examples:
-      #   Windows host: C:\Snapshots (or any path SQL Server can write to)
-      #   Docker SQL Server: /var/opt/mssql/snapshots (Linux path - the container runs Linux internally)
-      # Note: Docker SQL Server requires a Docker volume, not a bind mount.
-      # See documentation for more details.
-      - SNAPSHOT_PATH=${SNAPSHOT_PATH:-/var/opt/mssql/snapshots}
+    # ========================================================================
+    # APPROACH 2: Define variables directly in compose file (Alternative)
+    # ========================================================================
+    # If you prefer not to use a .env file, you can define variables directly
+    # here. Uncomment the section below and comment out the env_file section above.
+    #
+    # environment:
+    #   # Application Settings
+    #   - NODE_ENV=production
+    #   - PORT=3000
+    #
+    #   # SQL Server Connection (for use in profiles via ${VAR_NAME} syntax)
+    #   - SQL_SERVER=host.docker.internal
+    #   - SQL_USERNAME=your_username_here
+    #   - SQL_PASSWORD=your_password_here
+    #   - SQL_TRUST_CERTIFICATE=true
+    #   - SNAPSHOT_PATH=/var/opt/mssql/snapshots
+    #
+    #   # For multiple profiles, add numbered variables:
+    #   - SQL_SERVER_1=dev-server.example.com
+    #   - SQL_USERNAME_1=dev_user
+    #   - SQL_PASSWORD_1=dev_password
+    #   - SNAPSHOT_PATH_1=/var/opt/mssql/snapshots
+    #
+    #   - SQL_SERVER_2=prod-server.example.com
+    #   - SQL_USERNAME_2=prod_user
+    #   - SQL_PASSWORD_2=prod_password
+    #   - SNAPSHOT_PATH_2=C:\Snapshots
+    #
+    #   # Optional settings
+    #   - SQLPARROT_USER_NAME=your_name_here
+    #   - UI_PASSWORD=your_ui_password_here
+
     volumes:
       # IMPORTANT: Persist SQLite database (groups, snapshots metadata, settings, history)
       # Without this volume, your data is lost when the container is recreated!
@@ -71,6 +94,7 @@ services:
       - ./sqlparrot-data:/app/backend/data
       # Or use a named volume (Docker manages location):
       # - sqlparrot-data:/app/backend/data
+
     restart: unless-stopped
     healthcheck:
       # Using wget (available in Alpine) instead of curl
@@ -99,3 +123,7 @@ services:
 # volumes:
 #   sql-data:
 #     driver: local
+#
+# networks:
+#   sql-server-network:
+#     driver: bridge

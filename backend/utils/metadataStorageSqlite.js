@@ -161,7 +161,6 @@ class MetadataStorage {
         CREATE INDEX IF NOT EXISTS idx_snapshots_group ON snapshots(group_id);
         CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp);
         CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(is_active);
-        CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id);
       `);
 
       // Initialize metadata version if not exists
@@ -172,7 +171,32 @@ class MetadataStorage {
       // Check version and migrate if needed (this adds profile_id column if needed)
       await this.checkAndMigrate();
 
-      // Create profile_id index AFTER migrations have run (column may have just been added)
+      // Safety check: Ensure profile_id column exists in groups table (regardless of version)
+      // This handles edge cases where the table was created without the column
+      try {
+        const tableInfo = db.prepare("PRAGMA table_info('groups')").all();
+        const hasProfileId = tableInfo.some(col => col.name === 'profile_id');
+
+        if (!hasProfileId) {
+          console.log('⚠️ profile_id column missing from groups table, adding it...');
+          db.exec('ALTER TABLE groups ADD COLUMN profile_id TEXT');
+
+          // Assign existing groups to active profile (or first profile if none active)
+          let activeProfile = db.prepare('SELECT id FROM profiles WHERE is_active = 1 LIMIT 1').get();
+          if (!activeProfile) {
+            activeProfile = db.prepare('SELECT id FROM profiles LIMIT 1').get();
+          }
+
+          if (activeProfile) {
+            db.prepare('UPDATE groups SET profile_id = ? WHERE profile_id IS NULL').run(activeProfile.id);
+          }
+        }
+      } catch (e) {
+        console.error('⚠️ Failed to ensure profile_id column exists:', e.message);
+        // Continue anyway - this is a safety check
+      }
+
+      // Create profile_id index AFTER ensuring column exists
       try {
         db.exec('CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)');
       } catch (e) {
