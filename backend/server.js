@@ -3273,6 +3273,31 @@ app.post('/api/save-connection', async (req, res) => {
   }
 });
 
+// Serve static files from frontend/dist (must be before catch-all route)
+const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(frontendDistPath));
+
+// Catch-all handler: serve index.html for any non-API routes (for client-side routing)
+// This must be after all API routes
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({
+      success: false,
+      error: 'API endpoint not found'
+    });
+  }
+
+  // Serve index.html for all other routes (React Router will handle routing)
+  const indexPath = path.join(frontendDistPath, 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('Error serving index.html:', err);
+      res.status(500).send('Error loading application');
+    }
+  });
+});
+
 // Export app for testing
 module.exports = app;
 
