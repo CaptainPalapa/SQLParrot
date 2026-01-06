@@ -5,6 +5,29 @@ All notable changes to SQL Parrot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-05
+*Dependency Updates & Dependabot Configuration*
+
+### Changed
+- **Major Dependency Updates**
+  - lucide-react: 0.294.0 → 0.562.0
+  - dotenv: 16.6.1 → 17.2.3
+  - tailwindcss: 3.4.18 → 4.1.18
+  - bcryptjs: 2.4.3 → 3.0.3
+  - concurrently: 8.2.2 → 9.2.1
+  - express: 4.18.2 → 4.22.1
+- **Minor/Patch Updates**
+  - mssql: 12.0.0 → 12.2.0
+  - nodemon: 3.1.10 → 3.1.11
+  - eslint-plugin-react-refresh: 0.4.23 → 0.4.26
+
+### Added
+- Dependabot configuration to manage dependency updates
+- Automated dependency update workflow
+
+### Fixed
+- All tests passing (104 tests: 70 backend + 34 frontend)
+
 ## [1.3.0] - 2025-12-31
 *Multi-Profile Support & Profile-Specific Groups*
 
@@ -102,8 +125,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
+[1.4.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.3.2...v1.4.0
 [1.3.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.2.0...v1.3.0
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.4.0...HEAD
 [1.2.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.0.0.0...v1.1.0
 [1.0.0]: https://github.com/CaptainPalapa/SQLParrot/releases/tag/v1.0.0.0
