@@ -20,10 +20,15 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
-    # Ignore transitive dependencies
+    # Ignore transitive dependencies and major version bumps
+    # Major updates require manual review and testing
     ignore:
       - dependency-name: "qs"
       - dependency-name: "jws"
+      - dependency-name: "uuid"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   # Frontend package.json
   - package-ecosystem: "npm"
@@ -31,8 +36,15 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
-    # Ignore transitive dependencies
+    # Ignore transitive dependencies and major version bumps
+    # Major updates require manual review and testing
     ignore:
       - dependency-name: "js-yaml"
       - dependency-name: "glob"
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
 
