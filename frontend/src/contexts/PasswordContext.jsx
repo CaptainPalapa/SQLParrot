@@ -32,19 +32,38 @@ export const PasswordProvider = ({ children }) => {
         // If password is skipped or not set, user is authenticated
         if (response.data.status === 'skipped' || response.data.status === 'not-set') {
           setIsAuthenticated(true);
-        } else {
-          // Check if we have a session token
+          // Clear any stale session token when password is not set/skipped
+          sessionStorage.removeItem('sessionToken');
+        } else if (response.data.status === 'set') {
+          // Password is set - check if we have a valid session token
           const sessionToken = sessionStorage.getItem('sessionToken');
-          setIsAuthenticated(!!sessionToken);
+          if (sessionToken) {
+            // Validate token by making a lightweight API call that requires auth
+            // This ensures the token is still valid (e.g., backend didn't restart)
+            const validationResponse = await api.get('/api/settings');
+            if (validationResponse.requiresAuth || !validationResponse.success) {
+              // Token is invalid (401 or other error) - clear it and require re-auth
+              sessionStorage.removeItem('sessionToken');
+              setIsAuthenticated(false);
+            } else {
+              // Token is valid - user is authenticated
+              setIsAuthenticated(true);
+            }
+          } else {
+            // No token - user needs to authenticate
+            setIsAuthenticated(false);
+          }
         }
       } else {
         setPasswordStatus({ status: 'not-set', passwordSet: false, passwordSkipped: false });
         setIsAuthenticated(true); // Default to authenticated if check fails
+        sessionStorage.removeItem('sessionToken'); // Clear stale token on error
       }
     } catch (error) {
       console.error('Error checking password status:', error);
       setPasswordStatus({ status: 'not-set', passwordSet: false, passwordSkipped: false });
       setIsAuthenticated(true); // Default to authenticated on error
+      sessionStorage.removeItem('sessionToken'); // Clear stale token on error
     } finally {
       setIsLoading(false);
     }

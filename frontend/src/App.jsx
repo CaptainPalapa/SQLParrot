@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Database, Settings, History, Palette, Info, LogOut, Server } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PasswordProvider, usePassword } from './contexts/PasswordContext';
@@ -11,14 +11,21 @@ import HistoryView from './components/HistoryView';
 import AboutPanel from './components/AboutPanel';
 import PasswordGate from './components/PasswordGate';
 import PasswordSetup from './components/PasswordSetup';
+import logoIcon from './assets/sql-parrot-icon.png';
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState('groups');
   const [isThemeSelectorOpen, setIsThemeSelectorOpen] = useState(false);
-  const { passwordStatus, isAuthenticated, isLoading, logout } = usePassword();
-  const [setupComplete, setSetupComplete] = useState(false);
+  const { passwordStatus, isAuthenticated, isLoading, logout, refreshStatus } = usePassword();
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const profileSelectorRef = useRef(null);
+
+  // Refresh password status on mount to get current state from backend
+  // This ensures we have the latest state, especially when switching between backend instances
+  useEffect(() => {
+    refreshStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
 
   // Called when active profile changes - forces re-render and switches to Groups tab
   const handleProfileChange = useCallback(() => {
@@ -53,11 +60,12 @@ function AppContent() {
     );
   }
 
-  // Show password setup on first launch
-  if (passwordStatus?.status === 'not-set' && !setupComplete) {
+  // Show password setup only if status is 'not-set' (not 'skipped' or 'set')
+  // Rely on backend status, not local state, to avoid showing setup screen incorrectly
+  if (passwordStatus?.status === 'not-set') {
     return (
       <ThemeProvider>
-        <PasswordSetup onComplete={() => setSetupComplete(true)} />
+        <PasswordSetup onComplete={() => refreshStatus()} />
       </ThemeProvider>
     );
   }
@@ -81,7 +89,7 @@ function AppContent() {
               <div className="flex items-center justify-between h-16">
                 <div className="flex items-center space-x-3">
                   <img
-                    src="/sql-parrot-icon.png"
+                    src={logoIcon}
                     alt="SQL Parrot"
                     className="w-8 h-8 object-contain"
                   />

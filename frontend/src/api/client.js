@@ -307,7 +307,9 @@ export async function apiCall(endpoint, options = {}) {
     // HTTP path - use fetch
     const fetchOptions = {
       method,
-      headers: {}
+      headers: {},
+      // Prevent browser caching - always fetch fresh data on refresh
+      cache: 'no-cache'
     };
 
     // Add session token if available (for password-protected routes)

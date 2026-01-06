@@ -221,13 +221,16 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           setEditingGroup(null);
           groupForm.reset();
           setSelectedDatabases([]);
+        } else if (showVerificationModal) {
+          setShowVerificationModal(false);
+          setVerificationResults(null);
         }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isCreatingGroup, editingGroup, groupForm]);
+  }, [isCreatingGroup, editingGroup, groupForm, showVerificationModal]);
 
   // Refresh snapshots when groups change (new group created)
   useEffect(() => {
@@ -1504,8 +1507,17 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           role="dialog"
           aria-modal="true"
           aria-labelledby="verification-title"
+          onClick={() => {
+            if (!isVerifying) {
+              setShowVerificationModal(false);
+              setVerificationResults(null);
+            }
+          }}
         >
-          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div
+            className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 id="verification-title" className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
               Snapshot Issues Found
             </h3>

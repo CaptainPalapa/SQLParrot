@@ -59,6 +59,16 @@ const PORT = process.env.PORT || (process.env.npm_lifecycle_event === 'dev' ? 30
 app.use(cors());
 app.use(express.json());
 
+// Prevent browser caching of API responses - always return fresh data
+app.use('/api', (req, res, next) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+  });
+  next();
+});
+
 // Handle Chrome DevTools Protocol discovery (prevents CSP console errors for all users)
 // Chrome DevTools automatically checks for this endpoint when DevTools is opened
 // Returning a proper response prevents confusing console errors for end users
