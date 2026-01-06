@@ -1,0 +1,38 @@
+version: 2
+updates:
+  # Root package.json
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    # Ignore transitive dependencies that we can't directly control
+    # These will be updated automatically when parent packages are updated
+    ignore:
+      - dependency-name: "qs"
+      - dependency-name: "jws"
+      - dependency-name: "glob"
+      - dependency-name: "js-yaml"
+
+  # Backend package.json
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    # Ignore transitive dependencies
+    ignore:
+      - dependency-name: "qs"
+      - dependency-name: "jws"
+
+  # Frontend package.json
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    # Ignore transitive dependencies
+    ignore:
+      - dependency-name: "js-yaml"
+      - dependency-name: "glob"
+
