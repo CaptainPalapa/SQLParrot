@@ -1,6 +1,7 @@
 import React from 'react';
 import { Heart, Code, Database, Palette, Shield, Zap, Github, ExternalLink } from 'lucide-react';
 import { APP_VERSION } from '../constants/version';
+import splashImage from '../assets/sql-parrot-splash.png';
 
 const AboutPanel = () => {
   const features = [
@@ -45,7 +46,7 @@ const AboutPanel = () => {
       <div className="text-center space-y-6">
         <div className="flex justify-center">
           <img
-            src="/sql-parrot-splash.png"
+            src={splashImage}
             alt="SQL Parrot"
             className="w-32 h-32 object-contain"
           />
