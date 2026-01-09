@@ -7,7 +7,7 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 ![Coverage](https://codecov.io/gh/CaptainPalapa/SQLParrot/branch/main/graph/badge.svg)
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3.3+-38bdf8.svg)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4.1+-38bdf8.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.77+-orange.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-2.9+-ffc131.svg)
 
