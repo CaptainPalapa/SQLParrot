@@ -114,7 +114,7 @@ export const ConfirmationModal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50">
       <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-xl mx-4">
         <div className="flex items-center space-x-3 mb-4">
           {getIcon()}
@@ -191,7 +191,7 @@ export const InputModal = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50">
       <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
         <h3 className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
           {title}
@@ -273,7 +273,7 @@ const Modal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50">
       <div className={`bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full ${getSizeClass()} mx-4`}>
         {title && (
           <div className="flex items-center justify-between mb-4">
