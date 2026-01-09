@@ -393,7 +393,7 @@ const ProfileManagementModal = ({ isOpen, onClose, onSave, editingProfile }) => 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-50 p-4">
       <div className={`bg-white dark:bg-secondary-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative ${showSaveConfirm ? 'pointer-events-none' : ''}`}>
         <div className="sticky top-0 bg-white dark:bg-secondary-800 border-b border-secondary-200 dark:border-secondary-700 px-6 py-4 flex items-center justify-between">
           <h2 className="text-xl font-bold text-secondary-900 dark:text-white">
