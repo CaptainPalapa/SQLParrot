@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-01-08
+*Tailwind CSS v4 Migration & Modal Improvements*
+
 ### Changed
 - **Tailwind CSS v4 Migration**
   - Migrated from Tailwind CSS v3.4.19 to v4.1.18
@@ -147,9 +150,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
+[1.5.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.3.2...v1.4.0
 [1.3.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.2.0...v1.3.0
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.0...HEAD
 [1.2.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.0.0.0...v1.1.0
 [1.0.0]: https://github.com/CaptainPalapa/SQLParrot/releases/tag/v1.0.0.0
