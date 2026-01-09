@@ -1,0 +1,155 @@
+name: Dependabot Major Update Helper
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  detect-major-update:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Detect major version update
+        id: detect
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          
+          echo "PR Title: $PR_TITLE"
+          
+          # Extract package name and versions from PR title
+          # Format: "Bump <package> from <old> to <new> in <dir>"
+          # Also handles: "Bump <package> and <package2> in <dir>"
+          IS_MAJOR=false
+          OLD_VERSION=""
+          NEW_VERSION=""
+          
+          if echo "$PR_TITLE" | grep -qiE "bump.*from.*to"; then
+            # Extract old and new versions - handle various formats
+            # Try to match "from X.Y.Z to A.B.C" pattern
+            VERSION_PATTERN="from ([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?) to ([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?)"
+            
+            if echo "$PR_TITLE" | grep -qiE "$VERSION_PATTERN"; then
+              # Extract versions using sed or awk
+              OLD_VERSION=$(echo "$PR_TITLE" | sed -nE 's/.*from ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)
+              NEW_VERSION=$(echo "$PR_TITLE" | sed -nE 's/.*to ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1)
+              
+              if [ -n "$OLD_VERSION" ] && [ -n "$NEW_VERSION" ]; then
+                OLD_MAJOR=$(echo "$OLD_VERSION" | cut -d. -f1 | cut -d'-' -f1)
+                NEW_MAJOR=$(echo "$NEW_VERSION" | cut -d. -f1 | cut -d'-' -f1)
+                
+                if [ "$OLD_MAJOR" != "$NEW_MAJOR" ]; then
+                  IS_MAJOR=true
+                  echo "Major version update detected: $OLD_VERSION -> $NEW_VERSION"
+                fi
+              fi
+            fi
+          fi
+          
+          echo "is_major=$IS_MAJOR" >> $GITHUB_OUTPUT
+          if [ "$IS_MAJOR" = "true" ]; then
+            echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          fi
+          
+          # Determine package directory from PR title or branch name
+          BRANCH_NAME="${{ github.head_ref }}"
+          if echo "$PR_TITLE" | grep -qiE "/backend|backend/" || echo "$BRANCH_NAME" | grep -qiE "backend"; then
+            echo "package_dir=backend" >> $GITHUB_OUTPUT
+            echo "test_npm=true" >> $GITHUB_OUTPUT
+            echo "test_docker=true" >> $GITHUB_OUTPUT
+            echo "test_exe=false" >> $GITHUB_OUTPUT
+          elif echo "$PR_TITLE" | grep -qiE "/frontend|frontend/" || echo "$BRANCH_NAME" | grep -qiE "frontend"; then
+            echo "package_dir=frontend" >> $GITHUB_OUTPUT
+            echo "test_npm=true" >> $GITHUB_OUTPUT
+            echo "test_docker=true" >> $GITHUB_OUTPUT
+            echo "test_exe=true" >> $GITHUB_OUTPUT
+          else
+            echo "package_dir=root" >> $GITHUB_OUTPUT
+            echo "test_npm=true" >> $GITHUB_OUTPUT
+            echo "test_docker=false" >> $GITHUB_OUTPUT
+            echo "test_exe=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Add major-update label
+        if: steps.detect.outputs.is_major == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['major-update']
+            });
+
+      - name: Comment with testing instructions
+        if: steps.detect.outputs.is_major == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const testNpm = '${{ steps.detect.outputs.test_npm }}' === 'true';
+            const testDocker = '${{ steps.detect.outputs.test_docker }}' === 'true';
+            const testExe = '${{ steps.detect.outputs.test_exe }}' === 'true';
+            const oldVersion = '${{ steps.detect.outputs.old_version }}';
+            const newVersion = '${{ steps.detect.outputs.new_version }}';
+            
+            const testInstructions = [];
+            if (testNpm) {
+              testInstructions.push('✅ **npm version** (local development)');
+            }
+            if (testDocker) {
+              testInstructions.push('✅ **docker version** (containerized deployment)');
+            }
+            if (testExe) {
+              testInstructions.push('✅ **.exe version** (Tauri desktop app)');
+            }
+            
+            let checklist = '- [ ] Local development (npm) works correctly\n';
+            if (testDocker) {
+              checklist += '- [ ] Docker container builds and runs correctly\n';
+            }
+            if (testExe) {
+              checklist += '- [ ] Tauri .exe builds and runs correctly\n';
+            }
+            checklist += '- [ ] All existing functionality works as expected\n';
+            checklist += '- [ ] No breaking changes affect critical features\n';
+            checklist += '- [ ] Review changelog/release notes for breaking changes';
+            
+            const comment = `## ⚠️ Major Version Update Detected
+            
+            This PR updates a package from **${oldVersion}** to **${newVersion}** (major version change).
+            
+            ### Required Testing
+            
+            Please test the following deployment methods before merging:
+            
+            ${testInstructions.join('\n')}
+            
+            ### Testing Checklist
+            
+            ${checklist}
+            
+            ---
+            *This comment was automatically generated by the Dependabot Major Update Helper workflow.*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

@@ -1,11 +1,16 @@
 version: 2
 updates:
   # Root package.json
+  # Root packages are test-only (supertest) - affects npm testing only
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    versioning-strategy: increase
+    labels:
+      - "dependencies"
+      - "testing"
     # Ignore transitive dependencies that we can't directly control
     # These will be updated automatically when parent packages are updated
     ignore:
@@ -13,26 +18,57 @@ updates:
       - dependency-name: "jws"
       - dependency-name: "glob"
       - dependency-name: "js-yaml"
+    # Add labels for major updates to require manual testing
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
 
   # Backend package.json
+  # Backend packages affect: npm (dev), docker
   - package-ecosystem: "npm"
     directory: "/backend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    versioning-strategy: increase
+    labels:
+      - "dependencies"
+      - "backend"
+      - "test-npm"
+      - "test-docker"
     # Ignore transitive dependencies that we can't directly control
     ignore:
       - dependency-name: "qs"
       - dependency-name: "jws"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
 
   # Frontend package.json
+  # Frontend packages affect: npm (dev), docker, .exe (Tauri)
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    versioning-strategy: increase
+    labels:
+      - "dependencies"
+      - "frontend"
+      - "test-npm"
+      - "test-docker"
+      - "test-exe"
     # Ignore transitive dependencies that we can't directly control
     ignore:
       - dependency-name: "js-yaml"
       - dependency-name: "glob"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
 
