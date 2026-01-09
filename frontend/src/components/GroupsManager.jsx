@@ -1054,7 +1054,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       {/* Create Group Modal */}
       {isCreatingGroup && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50"
           role="dialog"
           aria-modal="true"
           aria-labelledby="create-group-title"
@@ -1118,7 +1118,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       {/* Edit Group Modal */}
       {editingGroup && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50"
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-group-title"
@@ -1503,7 +1503,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       {/* Verification Modal */}
       {showVerificationModal && verificationResults && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50"
           role="dialog"
           aria-modal="true"
           aria-labelledby="verification-title"

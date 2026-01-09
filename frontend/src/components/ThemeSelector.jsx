@@ -35,7 +35,7 @@ const ThemeSelector = ({ isOpen, onClose }) => {
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50"
       role="dialog"
       aria-modal="true"
       aria-labelledby="theme-selector-title"
