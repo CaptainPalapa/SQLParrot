@@ -5,6 +5,28 @@ All notable changes to SQL Parrot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Tailwind CSS v4 Migration**
+  - Migrated from Tailwind CSS v3.4.19 to v4.1.18
+  - Updated PostCSS configuration to use @tailwindcss/postcss plugin
+  - Replaced @tailwind directives with @import 'tailwindcss'
+  - Converted @layer components to @utility directives
+  - Removed autoprefixer (now handled by Tailwind v4 internally)
+
+### Fixed
+- Modal backdrop blur now properly visible with improved opacity (60%) and subtle blur (1px)
+- ESC key handling added to PasswordManagementModal and ThemeSelector
+- All modals now consistently support ESC key to close
+
+### Added
+- Comprehensive test coverage for modal components (38 new tests)
+  - Modal.test.jsx: 30 tests covering ConfirmationModal, InputModal, and generic Modal
+  - PasswordManagementModal.test.jsx: 7 tests covering ESC key, validation, and form behavior
+  - Updated ThemeSelector.test.jsx with ESC key test
+- Total test count: 142 tests (70 backend + 72 frontend, up from 104)
+
 ## [1.4.0] - 2026-01-05
 *Dependency Updates & Dependabot Configuration*
 
