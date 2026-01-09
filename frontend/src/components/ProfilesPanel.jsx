@@ -276,7 +276,7 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm.isOpen && deleteConfirm.profile && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-center space-x-3 mb-4">
               <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full">
