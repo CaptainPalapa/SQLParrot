@@ -6,7 +6,107 @@ on:
       - 'v*'  # Trigger on version tags like v1.3.0
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install root dependencies
+      run: |
+        echo "Installing root dependencies..."
+        if [ -f package-lock.json ]; then
+          echo "package-lock.json found, using npm ci"
+          npm ci --verbose || {
+            echo "npm ci failed, trying npm install instead..."
+            rm -rf node_modules
+            npm install --no-package-lock
+          }
+        else
+          echo "No package-lock.json found, using npm install"
+          npm install
+        fi
+      timeout-minutes: 5
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        echo "Installing frontend dependencies..."
+        if [ -f package-lock.json ]; then
+          echo "package-lock.json found, using npm ci"
+          npm ci --verbose || {
+            echo "npm ci failed, trying npm install instead..."
+            rm -rf node_modules
+            npm install --no-package-lock
+          }
+        else
+          echo "No package-lock.json found, using npm install"
+          npm install
+        fi
+      timeout-minutes: 5
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        echo "Installing backend dependencies..."
+        if [ -f package-lock.json ]; then
+          echo "package-lock.json found, using npm ci"
+          npm ci --verbose || {
+            echo "npm ci failed, trying npm install instead..."
+            rm -rf node_modules
+            npm install --no-package-lock
+          }
+        else
+          echo "No package-lock.json found, using npm install"
+          npm install
+        fi
+      timeout-minutes: 5
+
+    - name: Create data directories for tests
+      run: |
+        mkdir -p data
+        mkdir -p backend/data
+        echo "Created test directories"
+
+    - name: Run Jest tests (backend) with coverage
+      run: npm test -- --coverage --maxWorkers=2
+      timeout-minutes: 10
+      env:
+        NODE_ENV: test
+        SQL_SERVER: localhost
+        SQL_USERNAME: test
+        SQL_PASSWORD: test
+        SQL_TRUST_CERTIFICATE: true
+
+    - name: Run frontend tests (Vitest) with coverage
+      run: cd frontend && npm run test:run -- --coverage
+      timeout-minutes: 10
+      continue-on-error: true
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      timeout-minutes: 5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/coverage-final.json,./frontend/coverage/coverage-final.json
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+        verbose: true
+
   build:
+    needs: test  # Only build if tests pass
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +170,7 @@ jobs:
           if-no-files-found: warn
 
   build-docker:
+    needs: test  # Only build if tests pass
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -109,7 +210,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   upload-release:
-    needs: build
+    needs: [test, build]  # Require both tests and build to pass
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -136,7 +237,7 @@ jobs:
 
   notify-failure:
     if: failure()
-    needs: [build, build-docker, upload-release]
+    needs: [test, build, build-docker, upload-release]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack on failure
