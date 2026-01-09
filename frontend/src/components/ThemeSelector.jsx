@@ -19,6 +19,18 @@ const ThemeSelector = ({ isOpen, onClose }) => {
     document.documentElement.setAttribute('data-theme', currentTheme);
   };
 
+  // Handle ESC key to close
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
