@@ -7,6 +7,6 @@
 //   - CHANGELOG.md
 // See docs/VERSION_BUMP_CHECKLIST.md for complete checklist
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.5.1';
 
 
