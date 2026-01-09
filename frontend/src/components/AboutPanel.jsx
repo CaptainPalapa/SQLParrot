@@ -30,7 +30,7 @@ const AboutPanel = () => {
   const techStack = [
     { name: "React 18", description: "Modern component-based UI" },
     { name: "Vite", description: "Lightning-fast development server" },
-    { name: "Tailwind CSS", description: "Utility-first CSS framework" },
+    { name: "Tailwind CSS v4", description: "Utility-first CSS framework" },
     { name: "Node.js", description: "JavaScript runtime" },
     { name: "Express", description: "Web application framework" },
     { name: "SQLite", description: "Local metadata storage" }
