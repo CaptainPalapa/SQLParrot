@@ -246,7 +246,7 @@ const AboutPanel = () => {
                 Flexible Deployment
               </h3>
               <ul className="text-sm text-secondary-600 dark:text-secondary-400 space-y-1">
-                <li>• Desktop app (.exe, .dmg, .AppImage)</li>
+                <li>• Desktop app (.exe for Windows, .dmg/.AppImage planned)</li>
                 <li>• Docker container deployment</li>
                 <li>• npm dev server mode</li>
                 <li>• Local SQLite metadata</li>

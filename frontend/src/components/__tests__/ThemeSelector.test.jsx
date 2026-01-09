@@ -81,4 +81,18 @@ describe('ThemeSelector', () => {
     expect(modal).toHaveAttribute('aria-modal', 'true')
     expect(modal).toHaveAttribute('aria-labelledby', 'theme-selector-title')
   })
+
+  it('calls onClose when ESC key is pressed', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(<ThemeSelector isOpen={true} onClose={mockOnClose} />)
+
+    // Wait for the API call to complete
+    await waitFor(() => {
+      expect(screen.getByText('Appearance')).toBeInTheDocument()
+    })
+
+    await user.keyboard('{Escape}')
+
+    expect(mockOnClose).toHaveBeenCalledTimes(1)
+  })
 })

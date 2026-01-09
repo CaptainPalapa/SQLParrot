@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Save, Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Loader2, Lock } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Loader2, Lock } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
@@ -20,11 +20,16 @@ const SettingsPanel = ({ onNavigateGroups }) => {
     }
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
   const [snapshotPath, setSnapshotPath] = useState('');
   const [metadataStatus, setMetadataStatus] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const { passwordStatus } = usePassword();
+  const saveTimeoutRef = useRef(null);
+  const savedTimeoutRef = useRef(null);
+  const isInitialLoadRef = useRef(true);
 
 
   // Form validation for settings (not currently used, but kept for future use)
@@ -38,6 +43,75 @@ const SettingsPanel = ({ onNavigateGroups }) => {
     fetchSnapshotPath();
     fetchMetadataStatus();
   }, []);
+
+  // Auto-save settings when they change (debounced)
+  useEffect(() => {
+    // Skip auto-save on initial load
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Capture current values to avoid stale closures
+    const maxHistoryEntries = settings.preferences?.maxHistoryEntries || 100;
+    const autoCreateCheckpoint = settings.preferences?.autoCreateCheckpoint ?? true;
+    const defaultGroup = settings.preferences?.defaultGroup || '';
+    const autoVerificationEnabled = settings.autoVerification?.enabled || false;
+    const autoVerificationInterval = settings.autoVerification?.intervalMinutes || 15;
+
+    // Set new timeout for debounced save
+    saveTimeoutRef.current = setTimeout(async () => {
+      setIsSaving(true);
+      setIsSaved(false);
+      try {
+        const updatedSettings = {
+          preferences: {
+            defaultGroup,
+            maxHistoryEntries,
+            autoCreateCheckpoint
+          },
+          autoVerification: {
+            enabled: autoVerificationEnabled,
+            intervalMinutes: autoVerificationInterval
+          }
+        };
+
+        await api.put('/api/settings', updatedSettings);
+        // Show subtle "Saved" indicator instead of toast
+        setIsSaving(false);
+        setIsSaved(true);
+        
+        // Hide "Saved" indicator after 2 seconds
+        if (savedTimeoutRef.current) {
+          clearTimeout(savedTimeoutRef.current);
+        }
+        savedTimeoutRef.current = setTimeout(() => {
+          setIsSaved(false);
+        }, 2000);
+      } catch (error) {
+        console.error('Error saving settings:', error);
+        setIsSaving(false);
+        // Only show error notification for failures
+        showError('Failed to save settings. Please try again.');
+      }
+    }, 500); // 500ms debounce
+
+    // Cleanup on unmount
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      if (savedTimeoutRef.current) {
+        clearTimeout(savedTimeoutRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.preferences.maxHistoryEntries, settings.preferences.autoCreateCheckpoint]);
 
   const fetchSnapshotPath = useCallback(async () => {
     try {
@@ -121,37 +195,6 @@ const SettingsPanel = ({ onNavigateGroups }) => {
     }
   };
 
-  const handleSaveSettings = async () => {
-    setIsLoading(true);
-    try {
-      const updatedSettings = {
-        preferences: {
-          defaultGroup: settings.preferences?.defaultGroup || '',
-          maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100,
-          autoCreateCheckpoint: settings.preferences?.autoCreateCheckpoint ?? true
-        },
-        autoVerification: {
-          enabled: settings.autoVerification?.enabled || false,
-          intervalMinutes: settings.autoVerification?.intervalMinutes || 15
-        }
-      };
-
-      await api.put('/api/settings', updatedSettings);
-
-      setSettings(updatedSettings);
-      showSuccess('Settings saved successfully!');
-
-      // Navigate to Groups tab after successful save
-      if (onNavigateGroups) {
-        setTimeout(() => onNavigateGroups(), 1000);
-      }
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      showError('Failed to save settings. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -346,18 +389,28 @@ const SettingsPanel = ({ onNavigateGroups }) => {
         </div>
       </div>
 
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <button
-          onClick={handleSaveSettings}
-          disabled={isLoading}
-          className="btn-primary flex items-center space-x-2"
-          aria-label="Save application settings"
-        >
-          <Save className="w-4 h-4" aria-hidden="true" />
-          <span>{isLoading ? 'Saving...' : 'Save Settings'}</span>
-        </button>
-      </div>
+      {/* Auto-save indicator */}
+      {(isSaving || isSaved) && (
+        <div className="flex justify-end">
+          <p className={`text-sm flex items-center space-x-2 ${
+            isSaving 
+              ? 'text-secondary-500 dark:text-secondary-400' 
+              : 'text-green-600 dark:text-green-400'
+          }`}>
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-4 h-4" />
+                <span>Saved</span>
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* Toast Notification */}
       <Toast
