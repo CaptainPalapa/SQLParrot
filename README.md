@@ -2,9 +2,9 @@
 
 A beautiful, modern tool for managing SQL Server database snapshots with a stunning theme system.
 
-![SQL Parrot](https://img.shields.io/badge/Version-1.5.0-blue.svg)
+![SQL Parrot](https://img.shields.io/badge/Version-1.5.1-blue.svg)
 ![Tests](https://github.com/CaptainPalapa/SQLParrot/actions/workflows/tests.yml/badge.svg)
-![Coverage](https://codecov.io/gh/CaptainPalapa/SQLParrot/branch/main/graph/badge.svg)
+[![Coverage](https://codecov.io/gh/CaptainPalapa/SQLParrot/branch/main/graph/badge.svg)](https://github.com/apps/codecov/installations/new)
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)
 ![React](https://img.shields.io/badge/React-18+-61dafb.svg)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4.1+-38bdf8.svg)
