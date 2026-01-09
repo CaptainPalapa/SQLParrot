@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-01-08
+*Security Dependency Updates & Vulnerability Mitigation*
+
+### Security
+- **Fixed Critical Security Vulnerabilities**
+  - Updated `qs` from 6.13.0/6.14.0 to 6.14.1 (fixes GHSA-6rw7-vpxm-498p - DoS via arrayLimit bypass)
+  - Updated `jws` from 3.2.2 to 3.2.3 (fixes GHSA-869p-cjfg-cm3x - HMAC signature verification bypass)
+  - Updated `js-yaml` from 4.1.0 to 4.1.1 (fixes GHSA-mh29-5h37-fv8m - prototype pollution)
+  - Updated `glob` from 10.4.5 to 10.5.0 (fixes GHSA-5j98-mcp5-4vw2 - command injection)
+- **Dependency Updates**
+  - Updated `supertest` from 7.1.4 to 7.2.2
+  - Updated `mssql` in backend from 12.0.0 to 12.2.0 (matching root package.json)
+
+### Added
+- **Security Vulnerability Tests** (`tests/security-vulnerabilities.spec.js`)
+  - Tests for qs arrayLimit DoS protection (GHSA-6rw7-vpxm-498p)
+  - Tests for js-yaml prototype pollution protection (GHSA-mh29-5h37-fv8m)
+  - Tests for jws HMAC verification (GHSA-869p-cjfg-cm3x)
+  - Tests for glob command injection protection (GHSA-5j98-mcp5-4vw2)
+  - Integration tests for Express query parsing with qs protection
+  - Version verification tests for all patched dependencies
+- Total test count: 92 tests (81 backend + 11 security, up from 81)
+
+### Changed
+- All security vulnerabilities resolved via `npm audit fix`
+- No npm overrides used (relying on upstream package updates for compatibility)
+
 ## [1.5.1] - 2026-01-08
 
 ### Changed
