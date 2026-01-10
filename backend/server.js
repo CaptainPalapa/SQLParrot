@@ -2361,16 +2361,21 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         }
       });
 
+      console.log(`[Rollback] Target snapshots to preserve: ${Array.from(targetSnapshotNames).join(', ')}`);
+      console.log(`[Rollback] Found ${groupSnapshotsResult.recordset.length} snapshots matching pattern '${snapshotPattern}'`);
+
       // Drop ALL snapshot databases for our group and source databases EXCEPT the target ones
       for (const snapshotDb of groupSnapshotsResult.recordset) {
         if (!targetSnapshotNames.has(snapshotDb.name)) {
           try {
+            console.log(`[Rollback] Dropping snapshot: ${snapshotDb.name}`);
             await pool.request().query(`DROP DATABASE [${snapshotDb.name}]`);
             droppedSnapshots.push(snapshotDb.name);
           } catch (error) {
             console.error(`Failed to drop group+source snapshot database ${snapshotDb.name}: ${error.message}`);
           }
         } else {
+          console.log(`[Rollback] Preserving target snapshot: ${snapshotDb.name}`);
         }
       }
     } catch (error) {
