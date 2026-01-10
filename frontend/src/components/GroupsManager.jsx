@@ -674,8 +674,15 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               hideCancelButton: true,
               type: 'warning',
               dismissOnEnter: true,
-              onConfirm: () => {}
+              onConfirm: async () => {
+                // Refresh snapshots after showing external snapshots warning
+                // User may have manually removed them, so refresh to show current state
+                await fetchSnapshots(snapshot.groupId, false, true);
+              }
             });
+            // Refresh snapshots immediately (don't wait for modal close)
+            // This ensures UI reflects actual state even if user doesn't close modal
+            await fetchSnapshots(snapshot.groupId, false, true);
             return;
           }
 
@@ -704,8 +711,15 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               confirmText: 'Close',
               hideCancelButton: true,
               type: 'warning',
-              onConfirm: () => {}
+              onConfirm: async () => {
+                // Always refresh snapshots after rollback attempt, even on failure
+                // The backend may have partially succeeded or cleaned up snapshots before failing
+                await fetchSnapshots(snapshot.groupId, false, true);
+              }
             });
+            // Refresh snapshots immediately (don't wait for modal close)
+            // This ensures UI reflects actual state even if user doesn't close modal
+            await fetchSnapshots(snapshot.groupId, false, true);
           }
         } catch (error) {
           console.error('Error rolling back snapshot:', error);
@@ -727,8 +741,14 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
             confirmText: 'Close',
             hideCancelButton: true,
             type: 'warning',
-            onConfirm: () => {}
+            onConfirm: async () => {
+              // Always refresh snapshots after rollback attempt, even on error
+              await fetchSnapshots(snapshot.groupId, false, true);
+            }
           });
+          // Refresh snapshots immediately (don't wait for modal close)
+          // This ensures UI reflects actual state even if user doesn't close modal
+          await fetchSnapshots(snapshot.groupId, false, true);
         } finally {
           setOperationLoading(prev => ({ ...prev, rollback: false }));
           setLockedGroupId(null);
