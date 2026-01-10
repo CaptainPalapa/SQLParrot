@@ -81,30 +81,54 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       const profiles = profilesResponse.data || [];
 
       if (profiles.length === 0) {
-        // No profiles exist - show setup screen to create one
-        setConnectionStatus('needs_config');
-        setActiveProfileName('');
-        setActiveProfileId(null);
-        setIsInitialLoading(false);
-        setIsLoading(false);
-        return;
+        // No profiles exist - but check if groups exist first
+        // If groups exist, they might have been created before profile system
+        // Try to load groups to see if we should still show them
+        try {
+          const groupsResponse = await api.get('/api/groups');
+          const existingGroups = groupsResponse.data?.groups || groupsResponse.data || [];
+          
+          if (existingGroups.length > 0) {
+            // Groups exist but no profiles - this is a migration issue
+            // Show setup banner but don't hide groups
+            setConnectionStatus('needs_config');
+            setActiveProfileName('');
+            setActiveProfileId(null);
+            // Continue to load groups below
+          } else {
+            // No profiles and no groups - truly needs setup
+            setConnectionStatus('needs_config');
+            setActiveProfileName('');
+            setActiveProfileId(null);
+            setIsInitialLoading(false);
+            setIsLoading(false);
+            return;
+          }
+        } catch (groupsError) {
+          // Can't check groups, assume needs setup
+          setConnectionStatus('needs_config');
+          setActiveProfileName('');
+          setActiveProfileId(null);
+          setIsInitialLoading(false);
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        // Check if any profile is active and store its info
+        const activeProfile = profiles.find(p => p.isActive);
+        if (!activeProfile) {
+          // Profiles exist but none are active - backend should auto-activate
+          // But if it didn't, show setup banner but try to continue
+          setConnectionStatus('needs_config');
+          setActiveProfileName('');
+          setActiveProfileId(null);
+          // Continue to try loading groups - backend might fix this
+        } else {
+          // Store active profile info for connection status messages and edit button
+          setActiveProfileName(activeProfile.name);
+          setActiveProfileId(activeProfile.id);
+        }
       }
-
-      // Check if any profile is active and store its info
-      const activeProfile = profiles.find(p => p.isActive);
-      if (!activeProfile) {
-        // Profiles exist but none are active - show setup screen
-        setConnectionStatus('needs_config');
-        setActiveProfileName('');
-        setActiveProfileId(null);
-        setIsInitialLoading(false);
-        setIsLoading(false);
-        return;
-      }
-
-      // Store active profile info for connection status messages and edit button
-      setActiveProfileName(activeProfile.name);
-      setActiveProfileId(activeProfile.id);
     } catch (e) {
       // If profiles check fails in Tauri mode, assume no config
       if (isTauriApp) {
