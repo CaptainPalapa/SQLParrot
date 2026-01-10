@@ -604,11 +604,36 @@ impl MetadataStore {
     /// Update an existing group
     pub fn update_group(&self, group: &Group) -> Result<(), MetadataError> {
         let conn = self.conn.lock().unwrap();
+        
+        // Get profile_id - use provided one or preserve existing
+        let profile_id = if let Some(ref pid) = group.profile_id {
+            Some(pid.clone())
+        } else {
+            // If not provided, get existing profile_id from database
+            conn.query_row(
+                "SELECT profile_id FROM groups WHERE id = ?",
+                params![group.id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+            .or_else(|| {
+                // If no existing profile_id, use active profile
+                conn.query_row(
+                    "SELECT id FROM profiles WHERE is_active = 1 LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok()
+            })
+        };
+        
         conn.execute(
-            "UPDATE groups SET name = ?, databases = ?, updated_at = ? WHERE id = ?",
+            "UPDATE groups SET name = ?, databases = ?, profile_id = ?, updated_at = ? WHERE id = ?",
             params![
                 group.name,
                 serde_json::to_string(&group.databases)?,
+                profile_id,
                 group.updated_at.to_rfc3339(),
                 group.id,
             ],
@@ -1095,7 +1120,7 @@ impl MetadataStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
+    use rusqlite::{Connection, params};
     use std::sync::Mutex;
     use tempfile::TempDir;
 
@@ -1124,6 +1149,25 @@ mod tests {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                databases TEXT NOT NULL,
+                profile_id TEXT,
+                created_by TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(name, profile_id)
+            )",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_groups_profile_id ON groups(profile_id)",
             [],
         ).unwrap();
 
@@ -1294,5 +1338,278 @@ mod tests {
 
         assert!(active.is_some());
         assert_eq!(active.unwrap().id, "profile-1");
+    }
+
+    #[test]
+    fn test_create_group_with_profile_id() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create two profiles
+        let profile1 = Profile {
+            id: "profile-1".to_string(),
+            name: "Profile 1".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let profile2 = Profile {
+            id: "profile-2".to_string(),
+            name: "Profile 2".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile1).unwrap();
+        store.create_profile(&profile2).unwrap();
+
+        // Create group with explicit profile_id
+        let group = Group {
+            id: "group-1".to_string(),
+            name: "Test Group".to_string(),
+            databases: vec!["db1".to_string()],
+            profile_id: Some("profile-2".to_string()), // Explicitly assign to profile 2
+            created_by: Some("test_user".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_group(&group).unwrap();
+
+        // Verify group was created with correct profile_id
+        // get_groups() filters by active profile, so we need to query directly or use get_all_groups if it exists
+        // For now, let's verify by checking the database directly
+        let conn = store.conn.lock().unwrap();
+        let profile_id: Option<String> = conn.query_row(
+            "SELECT profile_id FROM groups WHERE id = ?",
+            params!["group-1"],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(profile_id, Some("profile-2".to_string()));
+    }
+
+    #[test]
+    fn test_create_group_without_profile_id_uses_active() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create active profile
+        let profile1 = Profile {
+            id: "profile-1".to_string(),
+            name: "Profile 1".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile1).unwrap();
+
+        // Create group without profile_id
+        let group = Group {
+            id: "group-1".to_string(),
+            name: "Test Group".to_string(),
+            databases: vec!["db1".to_string()],
+            profile_id: None, // Should use active profile
+            created_by: Some("test_user".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_group(&group).unwrap();
+
+        // Verify group was created with active profile_id
+        // get_groups() filters by active profile, so it should return this group
+        let groups = store.get_groups().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].profile_id, Some("profile-1".to_string()));
+    }
+
+    #[test]
+    fn test_update_group_with_profile_id() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create two profiles
+        let profile1 = Profile {
+            id: "profile-1".to_string(),
+            name: "Profile 1".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let profile2 = Profile {
+            id: "profile-2".to_string(),
+            name: "Profile 2".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile1).unwrap();
+        store.create_profile(&profile2).unwrap();
+
+        // Create group with profile 1
+        let group = Group {
+            id: "group-1".to_string(),
+            name: "Test Group".to_string(),
+            databases: vec!["db1".to_string()],
+            profile_id: Some("profile-1".to_string()),
+            created_by: Some("test_user".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_group(&group).unwrap();
+
+        // Update group to use profile 2
+        let updated_group = Group {
+            id: "group-1".to_string(),
+            name: "Updated Group".to_string(),
+            databases: vec!["db1".to_string(), "db2".to_string()],
+            profile_id: Some("profile-2".to_string()), // Change to profile 2
+            created_by: Some("test_user".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.update_group(&updated_group).unwrap();
+
+        // Verify group was updated with new profile_id
+        // Since we changed to profile-2 (inactive), get_groups() won't return it
+        // So we check directly in the database
+        let conn = store.conn.lock().unwrap();
+        let (name, profile_id): (String, Option<String>) = conn.query_row(
+            "SELECT name, profile_id FROM groups WHERE id = ?",
+            params!["group-1"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(profile_id, Some("profile-2".to_string()));
+        assert_eq!(name, "Updated Group".to_string());
+    }
+
+    #[test]
+    fn test_update_group_preserves_profile_id_when_not_provided() {
+        let (store, _temp_dir) = create_test_store();
+
+        // Create two profiles
+        let profile1 = Profile {
+            id: "profile-1".to_string(),
+            name: "Profile 1".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let profile2 = Profile {
+            id: "profile-2".to_string(),
+            name: "Profile 2".to_string(),
+            platform_type: "Microsoft SQL Server".to_string(),
+            host: "localhost".to_string(),
+            port: 1433,
+            username: "sa".to_string(),
+            password: "password".to_string(),
+            trust_certificate: true,
+            snapshot_path: "/var/opt/mssql/snapshots".to_string(),
+            description: None,
+            notes: None,
+            is_active: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_profile(&profile1).unwrap();
+        store.create_profile(&profile2).unwrap();
+
+        // Create group with profile 2
+        let group = Group {
+            id: "group-1".to_string(),
+            name: "Test Group".to_string(),
+            databases: vec!["db1".to_string()],
+            profile_id: Some("profile-2".to_string()),
+            created_by: Some("test_user".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.create_group(&group).unwrap();
+
+        // Update group without providing profile_id (should preserve existing)
+        let updated_group = Group {
+            id: "group-1".to_string(),
+            name: "Updated Group".to_string(),
+            databases: vec!["db1".to_string(), "db2".to_string()],
+            profile_id: None, // Not provided - should preserve existing
+            created_by: Some("test_user".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        store.update_group(&updated_group).unwrap();
+
+        // Verify group profile_id was preserved
+        // Since group is on profile-2 (inactive), get_groups() won't return it
+        // So we check directly in the database
+        let conn = store.conn.lock().unwrap();
+        let (name, profile_id): (String, Option<String>) = conn.query_row(
+            "SELECT name, profile_id FROM groups WHERE id = ?",
+            params!["group-1"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(profile_id, Some("profile-2".to_string())); // Should still be profile-2
+        assert_eq!(name, "Updated Group".to_string());
     }
 }
