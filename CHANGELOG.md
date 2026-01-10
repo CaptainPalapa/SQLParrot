@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Express 5 Migration**
+  - Upgraded Express from v4.22.1 to v5.2.1
+  - Updated catch-all route from `*` to `/*splat` (Express 5 requirement)
+  - Configured static middleware to allow dotfiles (for .well-known endpoints)
+  - Added error handling to `app.listen` callback (Express 5 passes error as first arg)
+
+### Fixed
+- **Rollback Improvements**
+  - Fixed undefined `groupName` error in `generateSnapshotId` when creating checkpoint after rollback
+  - Improved error messages when snapshot database doesn't exist (now lists existing snapshots)
+  - Always refresh snapshots UI after rollback attempt (success or failure)
+  - Show detailed per-database error messages in rollback failure modal
+  - **Respect `autoCreateCheckpoint` setting** - checkpoint only created when enabled in settings
+- **Settings Persistence**
+  - Fixed `autoCreateCheckpoint` checkbox not persisting changes (backend now saves and returns the setting)
+  - Added missing dependencies to settings auto-save `useEffect` to ensure immediate save
+
+### Added
+- Comprehensive test coverage for Express 5 compatibility
+- Rollback error handling tests
+- Settings API persistence tests
+- Rollback checkpoint setting tests
+- SettingsPanel component tests
+- Total test count: 110+ tests (up from 92)
+
+### Changed
 - Updated Codecov workflow to use GitHub App instead of token (requires Codecov GitHub App installation)
 
 ## [1.5.2] - 2026-01-08
