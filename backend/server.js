@@ -224,7 +224,8 @@ function generateSnapshotId(groupName, snapshotName, timestamp = null) {
   const crypto = require('crypto');
 
   // Clean group name: lowercase, no spaces or special characters
-  const cleanGroupName = groupName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Handle undefined/null groupName gracefully
+  const cleanGroupName = (groupName || 'sf').toLowerCase().replace(/[^a-z0-9]/g, '');
 
   // Create a unique hash from snapshot name + timestamp
   const timeStr = timestamp || new Date().toISOString();
@@ -2567,7 +2568,8 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
     // Create checkpoint snapshot using the same logic as regular snapshot creation
     const sequence = 1; // Reset sequence numbering
     const checkpointDisplayName = `Automatic - ${new Date().toLocaleString()}`;
-    const checkpointId = generateSnapshotId(snapshot.groupName, checkpointDisplayName);
+    // Use group.name instead of snapshot.groupName (which may be undefined)
+    const checkpointId = generateSnapshotId(group.name, checkpointDisplayName);
 
     // Reconnect to database for checkpoint creation
     const checkpointPool = await sql.connect(config);
