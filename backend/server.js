@@ -224,7 +224,8 @@ function generateSnapshotId(groupName, snapshotName, timestamp = null) {
   const crypto = require('crypto');
 
   // Clean group name: lowercase, no spaces or special characters
-  const cleanGroupName = groupName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Handle undefined/null groupName gracefully
+  const cleanGroupName = (groupName || 'sf').toLowerCase().replace(/[^a-z0-9]/g, '');
 
   // Create a unique hash from snapshot name + timestamp
   const timeStr = timestamp || new Date().toISOString();
@@ -1409,7 +1410,8 @@ app.get('/api/settings', async (req, res) => {
     const formattedSettings = {
       preferences: {
         maxHistoryEntries: settings.maxHistoryEntries || 100,
-        defaultGroup: settings.defaultGroup || ''
+        defaultGroup: settings.defaultGroup || '',
+        autoCreateCheckpoint: settings.autoCreateCheckpoint ?? true
       },
       autoVerification: {
         enabled: settings.autoVerificationEnabled || false,
@@ -1454,6 +1456,7 @@ app.put('/api/settings', async (req, res) => {
         const dbSettings = {
           maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100,
           defaultGroup: settings.preferences?.defaultGroup || '',
+          autoCreateCheckpoint: settings.preferences?.autoCreateCheckpoint ?? true,
           autoVerificationEnabled: settings.autoVerification?.enabled || false,
           autoVerificationIntervalMinutes: settings.autoVerification?.intervalMinutes || 15,
           // Preserve password fields (not updated through this endpoint)
@@ -1474,7 +1477,8 @@ app.put('/api/settings', async (req, res) => {
           const responseSettings = {
             preferences: {
               maxHistoryEntries: dbSettings.maxHistoryEntries,
-              defaultGroup: dbSettings.defaultGroup
+              defaultGroup: dbSettings.defaultGroup,
+              autoCreateCheckpoint: dbSettings.autoCreateCheckpoint
             },
             autoVerification: {
               enabled: dbSettings.autoVerificationEnabled,
@@ -2361,16 +2365,21 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         }
       });
 
+      console.log(`[Rollback] Target snapshots to preserve: ${Array.from(targetSnapshotNames).join(', ')}`);
+      console.log(`[Rollback] Found ${groupSnapshotsResult.recordset.length} snapshots matching pattern '${snapshotPattern}'`);
+
       // Drop ALL snapshot databases for our group and source databases EXCEPT the target ones
       for (const snapshotDb of groupSnapshotsResult.recordset) {
         if (!targetSnapshotNames.has(snapshotDb.name)) {
           try {
+            console.log(`[Rollback] Dropping snapshot: ${snapshotDb.name}`);
             await pool.request().query(`DROP DATABASE [${snapshotDb.name}]`);
             droppedSnapshots.push(snapshotDb.name);
           } catch (error) {
             console.error(`Failed to drop group+source snapshot database ${snapshotDb.name}: ${error.message}`);
           }
         } else {
+          console.log(`[Rollback] Preserving target snapshot: ${snapshotDb.name}`);
         }
       }
     } catch (error) {
@@ -2393,7 +2402,14 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           `);
 
           if (snapshotExists.recordset.length === 0) {
-            throw new Error(`Snapshot database '${dbSnapshot.snapshotName}' does not exist`);
+            // Check if it was accidentally dropped - list all snapshots for this database
+            const allSnapshotsForDb = await pool.request().query(`
+              SELECT d.name as snapshot_name, DB_NAME(d.source_database_id) as source_db
+              FROM sys.databases d
+              WHERE d.source_database_id = DB_ID('${sourceDbName}')
+            `);
+            const existingSnapshots = allSnapshotsForDb.recordset.map(r => r.snapshot_name);
+            throw new Error(`Snapshot database '${dbSnapshot.snapshotName}' does not exist. Existing snapshots for this database: ${existingSnapshots.length > 0 ? existingSnapshots.join(', ') : 'none'}`);
           }
 
           // Comprehensive connection cleanup and restore
@@ -2534,7 +2550,12 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       const deleteResult = await metadataStorage.deleteSnapshot(groupSnapshot.id);
     }
 
-    // Step 4: Create a new checkpoint snapshot after restore
+    // Step 4: Create a new checkpoint snapshot after restore (if enabled)
+    
+    // Check if auto-create checkpoint is enabled
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success && settingsResult.settings ? settingsResult.settings : {};
+    const autoCreateCheckpoint = settings.autoCreateCheckpoint ?? true;
 
     // Get the group details for creating the checkpoint
     const groups = await metadataStorage.getAllGroups();
@@ -2552,10 +2573,34 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       });
     }
 
+    // Only create checkpoint if autoCreateCheckpoint is enabled
+    if (!autoCreateCheckpoint) {
+      // Log restore operation to history
+      await addToHistory({
+        type: 'restore_snapshot',
+        groupName: snapshot.groupName,
+        snapshotName: snapshot.displayName,
+        snapshotId: snapshot.id,
+        rolledBackDatabases: rolledBackDatabases,
+        droppedSnapshots: droppedSnapshots.length,
+        results: rolledBackDatabases.map(db => ({ database: db, success: true }))
+      });
+
+      return res.json({
+        success: true,
+        message: `Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
+        rolledBackDatabases: rolledBackDatabases.length,
+        droppedSnapshots: droppedSnapshots.length,
+        checkpointCreated: false,
+        note: "Auto-create checkpoint is disabled"
+      });
+    }
+
     // Create checkpoint snapshot using the same logic as regular snapshot creation
     const sequence = 1; // Reset sequence numbering
     const checkpointDisplayName = `Automatic - ${new Date().toLocaleString()}`;
-    const checkpointId = generateSnapshotId(snapshot.groupName, checkpointDisplayName);
+    // Use group.name instead of snapshot.groupName (which may be undefined)
+    const checkpointId = generateSnapshotId(group.name, checkpointDisplayName);
 
     // Reconnect to database for checkpoint creation
     const checkpointPool = await sql.connect(config);
@@ -3285,11 +3330,15 @@ app.post('/api/save-connection', async (req, res) => {
 
 // Serve static files from frontend/dist (must be before catch-all route)
 const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
-app.use(express.static(frontendDistPath));
+// Express 5 defaults dotfiles to 'ignore', but we need to serve .well-known files
+app.use(express.static(frontendDistPath, {
+  dotfiles: 'allow'
+}));
 
 // Catch-all handler: serve index.html for any non-API routes (for client-side routing)
 // This must be after all API routes
-app.get('*', (req, res) => {
+// Express 5 requires named wildcards - use /*splat instead of *
+app.get('/*splat', (req, res) => {
   // Don't serve index.html for API routes
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({
@@ -3316,7 +3365,13 @@ module.exports.cleanupTimers = cleanupTimers;
 
 // Start server only if not in test environment
 if (process.env.NODE_ENV !== 'test') {
-  const server = app.listen(PORT, async () => {
+  // Express 5 passes error as first argument to callback if server fails to start
+  const server = app.listen(PORT, async (err) => {
+    if (err) {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    }
+    
     console.log(`SQL Parrot backend running on port ${PORT}`);
 
     // Initialize SQLite metadata storage (local, should always work)

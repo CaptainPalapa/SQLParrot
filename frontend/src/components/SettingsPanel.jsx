@@ -111,7 +111,13 @@ const SettingsPanel = ({ onNavigateGroups }) => {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.preferences.maxHistoryEntries, settings.preferences.autoCreateCheckpoint]);
+  }, [
+    settings.preferences?.maxHistoryEntries, 
+    settings.preferences?.autoCreateCheckpoint,
+    settings.preferences?.defaultGroup,
+    settings.autoVerification?.enabled,
+    settings.autoVerification?.intervalMinutes
+  ]);
 
   const fetchSnapshotPath = useCallback(async () => {
     try {
