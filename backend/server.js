@@ -2550,7 +2550,12 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       const deleteResult = await metadataStorage.deleteSnapshot(groupSnapshot.id);
     }
 
-    // Step 4: Create a new checkpoint snapshot after restore
+    // Step 4: Create a new checkpoint snapshot after restore (if enabled)
+    
+    // Check if auto-create checkpoint is enabled
+    const settingsResult = await metadataStorage.getSettings();
+    const settings = settingsResult.success && settingsResult.settings ? settingsResult.settings : {};
+    const autoCreateCheckpoint = settings.autoCreateCheckpoint ?? true;
 
     // Get the group details for creating the checkpoint
     const groups = await metadataStorage.getAllGroups();
@@ -2565,6 +2570,29 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         droppedSnapshots: droppedSnapshots.length,
         checkpointCreated: false,
         note: "Group not found for checkpoint creation"
+      });
+    }
+
+    // Only create checkpoint if autoCreateCheckpoint is enabled
+    if (!autoCreateCheckpoint) {
+      // Log restore operation to history
+      await addToHistory({
+        type: 'restore_snapshot',
+        groupName: snapshot.groupName,
+        snapshotName: snapshot.displayName,
+        snapshotId: snapshot.id,
+        rolledBackDatabases: rolledBackDatabases,
+        droppedSnapshots: droppedSnapshots.length,
+        results: rolledBackDatabases.map(db => ({ database: db, success: true }))
+      });
+
+      return res.json({
+        success: true,
+        message: `Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
+        rolledBackDatabases: rolledBackDatabases.length,
+        droppedSnapshots: droppedSnapshots.length,
+        checkpointCreated: false,
+        note: "Auto-create checkpoint is disabled"
       });
     }
 
