@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Updated Codecov workflow to use GitHub App instead of token (requires Codecov GitHub App installation)
+
 ## [1.5.2] - 2026-01-08
 *Security Dependency Updates & Vulnerability Mitigation*
 

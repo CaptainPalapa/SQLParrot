@@ -104,7 +104,9 @@ jobs:
       uses: codecov/codecov-action@v5
       timeout-minutes: 5
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+        # Using GitHub App (no token needed after app installation)
+        # If GitHub App is not installed, uncomment token line below:
+        # token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage/coverage-final.json,./frontend/coverage/coverage-final.json
         flags: unittests
         name: codecov-umbrella
