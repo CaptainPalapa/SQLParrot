@@ -3,7 +3,8 @@
  * 
  * Tests for settings panel auto-save functionality:
  * - Verifies autoCreateCheckpoint is in useEffect dependency array
- * - This ensures checkbox changes trigger immediate save
+ * - Verifies all settings fields are in dependency array
+ * - Ensures checkbox changes trigger immediate save
  */
 
 import { describe, it, expect } from 'vitest';
@@ -39,5 +40,18 @@ describe('SettingsPanel Auto-Save Fix', () => {
     expect(fileContent).toMatch(/settings\.preferences\?\.defaultGroup/);
     expect(fileContent).toMatch(/settings\.autoVerification\?\.enabled/);
     expect(fileContent).toMatch(/settings\.autoVerification\?\.intervalMinutes/);
+  });
+
+  it('should send autoCreateCheckpoint in PUT request', () => {
+    const filePath = path.join(__dirname, '../SettingsPanel.jsx');
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    
+    // Verify that autoCreateCheckpoint is included in the settings object sent to API
+    // Look for the updatedSettings object that includes autoCreateCheckpoint
+    expect(fileContent).toMatch(/autoCreateCheckpoint.*updatedSettings|updatedSettings.*autoCreateCheckpoint/);
+    
+    // More specific: check it's in the preferences object within updatedSettings
+    const settingsPattern = /updatedSettings\s*=\s*\{[^}]*preferences:\s*\{[^}]*autoCreateCheckpoint/s;
+    expect(fileContent).toMatch(settingsPattern);
   });
 });
