@@ -1085,7 +1085,7 @@ app.get('/api/groups', async (req, res) => {
 // Create a new group
 app.post('/api/groups', async (req, res) => {
   try {
-    const { name, databases } = req.body;
+    const { name, databases, profileId } = req.body;
 
     // Use database-based groups
     try {
@@ -1131,7 +1131,8 @@ app.post('/api/groups', async (req, res) => {
       const newGroup = {
         id: `group-${Date.now()}`,
         name,
-        databases: databases || []
+        databases: databases || [],
+        profileId: profileId || null // Use provided profileId or let createGroup use active profile
       };
 
       const createResult = await metadataStorage.createGroup(newGroup);
@@ -1172,7 +1173,7 @@ app.post('/api/groups', async (req, res) => {
 app.put('/api/groups/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, databases, deleteSnapshots = false } = req.body;
+    const { name, databases, deleteSnapshots = false, profileId } = req.body;
     const groups = await metadataStorage.getAllGroups();
 
     const groupIndex = groups.findIndex(g => g.id === id);
@@ -1239,6 +1240,10 @@ app.put('/api/groups/:id', async (req, res) => {
 
     // Update group using SQL metadata storage
     const updatedGroup = { ...groups[groupIndex], name, databases };
+    // Include profileId if provided (allows changing group's profile)
+    if (profileId !== undefined) {
+      updatedGroup.profileId = profileId;
+    }
     const updateResult = await metadataStorage.updateGroup(id, updatedGroup);
     if (!updateResult.success) {
       return res.status(500).json(createErrorResponse(
