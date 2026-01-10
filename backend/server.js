@@ -3285,11 +3285,15 @@ app.post('/api/save-connection', async (req, res) => {
 
 // Serve static files from frontend/dist (must be before catch-all route)
 const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
-app.use(express.static(frontendDistPath));
+// Express 5 defaults dotfiles to 'ignore', but we need to serve .well-known files
+app.use(express.static(frontendDistPath, {
+  dotfiles: 'allow'
+}));
 
 // Catch-all handler: serve index.html for any non-API routes (for client-side routing)
 // This must be after all API routes
-app.get('*', (req, res) => {
+// Express 5 requires named wildcards - use /*splat instead of *
+app.get('/*splat', (req, res) => {
   // Don't serve index.html for API routes
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({
@@ -3316,7 +3320,13 @@ module.exports.cleanupTimers = cleanupTimers;
 
 // Start server only if not in test environment
 if (process.env.NODE_ENV !== 'test') {
-  const server = app.listen(PORT, async () => {
+  // Express 5 passes error as first argument to callback if server fails to start
+  const server = app.listen(PORT, async (err) => {
+    if (err) {
+      console.error('Failed to start server:', err);
+      process.exit(1);
+    }
+    
     console.log(`SQL Parrot backend running on port ${PORT}`);
 
     // Initialize SQLite metadata storage (local, should always work)
