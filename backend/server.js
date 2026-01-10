@@ -2393,7 +2393,14 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
           `);
 
           if (snapshotExists.recordset.length === 0) {
-            throw new Error(`Snapshot database '${dbSnapshot.snapshotName}' does not exist`);
+            // Check if it was accidentally dropped - list all snapshots for this database
+            const allSnapshotsForDb = await pool.request().query(`
+              SELECT d.name as snapshot_name, DB_NAME(d.source_database_id) as source_db
+              FROM sys.databases d
+              WHERE d.source_database_id = DB_ID('${sourceDbName}')
+            `);
+            const existingSnapshots = allSnapshotsForDb.recordset.map(r => r.snapshot_name);
+            throw new Error(`Snapshot database '${dbSnapshot.snapshotName}' does not exist. Existing snapshots for this database: ${existingSnapshots.length > 0 ? existingSnapshots.join(', ') : 'none'}`);
           }
 
           // Comprehensive connection cleanup and restore
