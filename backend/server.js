@@ -1410,7 +1410,8 @@ app.get('/api/settings', async (req, res) => {
     const formattedSettings = {
       preferences: {
         maxHistoryEntries: settings.maxHistoryEntries || 100,
-        defaultGroup: settings.defaultGroup || ''
+        defaultGroup: settings.defaultGroup || '',
+        autoCreateCheckpoint: settings.autoCreateCheckpoint ?? true
       },
       autoVerification: {
         enabled: settings.autoVerificationEnabled || false,
@@ -1455,6 +1456,7 @@ app.put('/api/settings', async (req, res) => {
         const dbSettings = {
           maxHistoryEntries: settings.preferences?.maxHistoryEntries || 100,
           defaultGroup: settings.preferences?.defaultGroup || '',
+          autoCreateCheckpoint: settings.preferences?.autoCreateCheckpoint ?? true,
           autoVerificationEnabled: settings.autoVerification?.enabled || false,
           autoVerificationIntervalMinutes: settings.autoVerification?.intervalMinutes || 15,
           // Preserve password fields (not updated through this endpoint)
@@ -1475,7 +1477,8 @@ app.put('/api/settings', async (req, res) => {
           const responseSettings = {
             preferences: {
               maxHistoryEntries: dbSettings.maxHistoryEntries,
-              defaultGroup: dbSettings.defaultGroup
+              defaultGroup: dbSettings.defaultGroup,
+              autoCreateCheckpoint: dbSettings.autoCreateCheckpoint
             },
             autoVerification: {
               enabled: dbSettings.autoVerificationEnabled,
