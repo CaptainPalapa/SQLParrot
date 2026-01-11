@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-01-10
+*Express 5 Migration, Database Selector Improvements & Profile Management Enhancements*
+
 ### Changed
 - **Express 5 Migration**
   - Upgraded Express from v4.22.1 to v5.2.1
@@ -20,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed "Category • Created date" metadata text for more compact list items
   - Removed "Select All Available" and "Deselect All Visible" action links
   - Reorganized pagination controls: items per page dropdown on left, page navigation on right
+- Updated Codecov workflow to use GitHub App instead of token (requires Codecov GitHub App installation)
 
 ### Fixed
 - **Modal Viewport Issues**
@@ -57,9 +61,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Group profile assignment tests (5 new backend tests)
 - Rust/Tauri group profile assignment tests (4 new tests)
 - Total test count: 130 tests (119 backend + 11 Rust, up from 110+)
-
-### Changed
-- Updated Codecov workflow to use GitHub App instead of token (requires Codecov GitHub App installation)
 
 ## [1.5.2] - 2026-01-08
 *Security Dependency Updates & Vulnerability Mitigation*
@@ -236,10 +237,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.6.0
+[1.5.2]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.3.2...v1.4.0
 [1.3.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.2.0...v1.3.0
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.0...HEAD
 [1.2.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.0.0.0...v1.1.0
 [1.0.0]: https://github.com/CaptainPalapa/SQLParrot/releases/tag/v1.0.0.0

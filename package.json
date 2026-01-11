@@ -1,6 +1,6 @@
 {
   "name": "sql-parrot",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Database Server Snapshot Management Tool",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
