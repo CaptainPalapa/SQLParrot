@@ -99,6 +99,9 @@ describe('GroupsManager - Profile Change Validation', () => {
       if (endpoint === '/api/groups') {
         return Promise.resolve({ success: true, data: mockGroups });
       }
+      if (endpoint === '/api/health') {
+        return Promise.resolve({ connected: true });
+      }
       if (endpoint.includes('/snapshots')) {
         return Promise.resolve({
           success: true,
@@ -149,6 +152,9 @@ describe('GroupsManager - Profile Change Validation', () => {
       if (endpoint === '/api/groups') {
         return Promise.resolve({ success: true, data: mockGroups });
       }
+      if (endpoint === '/api/health') {
+        return Promise.resolve({ connected: true });
+      }
       if (endpoint.includes('/snapshots')) {
         return Promise.resolve({ success: true, data: [] });
       }
@@ -196,6 +202,9 @@ describe('GroupsManager - Profile Change Validation', () => {
     api.get.mockImplementation((endpoint) => {
       if (endpoint === '/api/groups') {
         return Promise.resolve({ success: true, data: emptyGroup });
+      }
+      if (endpoint === '/api/health') {
+        return Promise.resolve({ connected: true });
       }
       if (endpoint.includes('/snapshots')) {
         return Promise.resolve({ success: true, data: [] });

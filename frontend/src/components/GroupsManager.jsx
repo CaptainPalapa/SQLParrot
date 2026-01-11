@@ -1220,10 +1220,11 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               {/* Profile Selector/Display for Create */}
               {allProfiles.length > 1 ? (
                 <div>
-                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                  <label htmlFor="create-group-profile-select" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
                     Connection Profile
                   </label>
                   <select
+                    id="create-group-profile-select"
                     value={selectedProfileId || activeProfileId || ''}
                     onChange={(e) => setSelectedProfileId(e.target.value)}
                     className="w-full px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
@@ -1320,10 +1321,11 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               {/* Profile Selector/Display */}
               {allProfiles.length > 1 ? (
                 <div>
-                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                  <label htmlFor="edit-group-profile-select" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
                     Connection Profile
                   </label>
                   <select
+                    id="edit-group-profile-select"
                     value={selectedProfileId || ''}
                     onChange={(e) => handleProfileChange(e.target.value)}
                     className="w-full px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
