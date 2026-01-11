@@ -48,10 +48,12 @@ describe('SettingsPanel Auto-Save Fix', () => {
     
     // Verify that autoCreateCheckpoint is included in the settings object sent to API
     // Look for the updatedSettings object that includes autoCreateCheckpoint
-    expect(fileContent).toMatch(/autoCreateCheckpoint.*updatedSettings|updatedSettings.*autoCreateCheckpoint/);
+    // Use [\s\S] to match across newlines
+    expect(fileContent).toMatch(/autoCreateCheckpoint[\s\S]*?updatedSettings|updatedSettings[\s\S]*?autoCreateCheckpoint/);
     
     // More specific: check it's in the preferences object within updatedSettings
-    const settingsPattern = /updatedSettings\s*=\s*\{[^}]*preferences:\s*\{[^}]*autoCreateCheckpoint/s;
+    // Use [\s\S] instead of [^}] to match across newlines
+    const settingsPattern = /updatedSettings\s*=\s*\{[\s\S]*?preferences:\s*\{[\s\S]*?autoCreateCheckpoint[\s\S]*?\}[\s\S]*?\}/;
     expect(fileContent).toMatch(settingsPattern);
   });
 });
