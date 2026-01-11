@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Check, X, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Search, Check, X, AlertCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useNotification } from '../hooks/useNotification';
 import { api } from '../api';
 
@@ -23,15 +23,55 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     return '';
   });
   const [selected, setSelected] = useState(new Set(selectedDatabases));
+  const selectedRef = useRef(selected);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(5);
   const { showError } = useNotification();
+  const lastPropRef = useRef(selectedDatabases);
+  const skipCallbackRef = useRef(false);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  // Sync selected state when prop changes from parent (but avoid infinite loop)
+  useEffect(() => {
+    // Check if prop actually changed (deep comparison)
+    const propString = JSON.stringify([...selectedDatabases].sort());
+    const lastPropString = JSON.stringify([...lastPropRef.current].sort());
+
+    if (propString !== lastPropString) {
+      const propSet = new Set(selectedDatabases);
+      const currentSet = selectedRef.current;
+
+      // Only sync if sets are actually different
+      const setsEqual =
+        propSet.size === currentSet.size &&
+        [...propSet].every(db => currentSet.has(db));
+
+      if (!setsEqual) {
+        // This is an external change, sync our state
+        skipCallbackRef.current = true;
+        setSelected(propSet);
+      }
+      lastPropRef.current = selectedDatabases;
+    }
+  }, [selectedDatabases]);
 
   // Clear filters when clearFiltersOnMount prop is true (happens when modal opens)
   useEffect(() => {
     if (clearFiltersOnMount) {
       setFilter1('');
       setFilter2('');
+      setCurrentPage(1);
     }
   }, [clearFiltersOnMount]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter1, filter2]);
 
   // Save filters to localStorage when they change (only if not in "clear" mode)
   useEffect(() => {
@@ -61,28 +101,51 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     }
   }, [showError]);
 
-  // Load databases on component mount
+  // Load databases on component mount (only once)
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
-    fetchDatabases();
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchDatabases();
+    }
   }, [fetchDatabases]);
 
-  // Update parent when selection changes
+  // Track if component has mounted to avoid calling onSelectionChange on initial mount
+  const hasMountedRef = useRef(false);
+
+  // Update parent when selection changes (skip during sync to prevent infinite loops)
+  const prevSelectedRef = useRef(JSON.stringify([...selected].sort()));
   useEffect(() => {
-    onSelectionChange(Array.from(selected));
+    // Don't call callback if we're syncing from prop
+    if (skipCallbackRef.current) {
+      prevSelectedRef.current = JSON.stringify([...selected].sort());
+      skipCallbackRef.current = false;
+      hasMountedRef.current = true;
+      return;
+    }
+
+    // Only call if selection actually changed and component has mounted
+    const currentSelectedString = JSON.stringify([...selected].sort());
+
+    if (currentSelectedString !== prevSelectedRef.current && hasMountedRef.current) {
+      onSelectionChange([...selected].sort());
+      prevSelectedRef.current = currentSelectedString;
+    } else if (!hasMountedRef.current) {
+      // On mount, just update the ref without calling callback
+      prevSelectedRef.current = currentSelectedString;
+      hasMountedRef.current = true;
+    }
   }, [selected, onSelectionChange]);
 
-  // Filter databases based on both filters, but always show selected databases
+  // Filter databases based on both filters
   const filteredDatabases = useMemo(() => {
     return databases.filter(db => {
-      // Always show selected databases regardless of filter
-      if (selected.has(db.name)) return true;
-
       const name = db.name.toLowerCase();
       const filter1Match = filter1 ? name.includes(filter1.toLowerCase()) : true;
       const filter2Match = filter2 ? name.includes(filter2.toLowerCase()) : true;
       return filter1Match && filter2Match;
     });
-  }, [databases, filter1, filter2, selected]);
+  }, [databases, filter1, filter2]);
 
   // Determine which databases are already in use by other groups
   const databasesInUse = useMemo(() => {
@@ -99,16 +162,18 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     return inUse;
   }, [existingGroups, currentGroupId]);
 
-  // Group filtered databases by category
-  const groupedDatabases = useMemo(() => {
-    const groups = { 'Global': [], 'User': [], 'Data Warehouse': [] };
-    filteredDatabases.forEach(db => {
-      if (groups[db.category]) {
-        groups[db.category].push(db);
-      }
-    });
-    return groups;
-  }, [filteredDatabases]);
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    if (itemsPerPage === 'All') return 1;
+    return Math.ceil(filteredDatabases.length / itemsPerPage);
+  }, [filteredDatabases.length, itemsPerPage]);
+
+  const paginatedDatabases = useMemo(() => {
+    if (itemsPerPage === 'All') return filteredDatabases;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredDatabases.slice(startIndex, endIndex);
+  }, [filteredDatabases, currentPage, itemsPerPage]);
 
   const handleToggleDatabase = (dbName) => {
     // Don't allow selecting databases that are already in use by other groups
@@ -125,29 +190,72 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
     setSelected(newSelected);
   };
 
-  const handleSelectAll = () => {
-    const availableFilteredNames = filteredDatabases
-      .map(db => db.name)
-      .filter(name => !databasesInUse.has(name));
-    const newSelected = new Set(selected);
-    availableFilteredNames.forEach(name => newSelected.add(name));
-    setSelected(newSelected);
+  const handlePageChange = (e, newPage) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setCurrentPage(newPage);
   };
 
-  const handleDeselectAll = () => {
-    const allFilteredNames = filteredDatabases.map(db => db.name);
-    const newSelected = new Set(selected);
-    allFilteredNames.forEach(name => newSelected.delete(name));
-    setSelected(newSelected);
+  const handleItemsPerPageChange = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const value = e.target.value === 'All' ? 'All' : parseInt(e.target.value, 10);
+    setItemsPerPage(value);
+    setCurrentPage(1);
+  };
+
+  // Generate intelligent page numbers with ellipses
+  const getPageNumbers = () => {
+    if (totalPages <= 7) {
+      // Show all pages if 7 or fewer
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    const pages = [];
+    const current = currentPage;
+    const total = totalPages;
+
+    // Always show first page
+    pages.push(1);
+
+    if (current <= 4) {
+      // Near the beginning: 1 2 3 4 5 ... last
+      for (let i = 2; i <= Math.min(5, total); i++) {
+        pages.push(i);
+      }
+      if (total > 6) {
+        pages.push('ellipsis');
+        pages.push(total);
+      } else if (total > 5) {
+        pages.push(total);
+      }
+    } else if (current >= total - 3) {
+      // Near the end: 1 ... (total-4) (total-3) (total-2) (total-1) total
+      if (total > 6) {
+        pages.push('ellipsis');
+      }
+      for (let i = Math.max(2, total - 4); i <= total; i++) {
+        pages.push(i);
+      }
+    } else {
+      // In the middle: 1 ... (current-1) current (current+1) ... total
+      pages.push('ellipsis');
+      pages.push(current - 1);
+      pages.push(current);
+      pages.push(current + 1);
+      pages.push('ellipsis');
+      pages.push(total);
+    }
+
+    return pages;
   };
 
   // Calculate summary stats
   const totalDatabases = databases.length;
   const availableDatabases = filteredDatabases.filter(db => !databasesInUse.has(db.name));
   const visibleSelected = filteredDatabases.filter(db => selected.has(db.name)).length;
-  const hiddenSelected = Array.from(selected).filter(name =>
-    !filteredDatabases.some(db => db.name === name)
-  ).length;
   const totalSelected = selected.size;
   const unavailableCount = filteredDatabases.filter(db => databasesInUse.has(db.name)).length;
 
@@ -192,118 +300,76 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
                 type="text"
                 value={filter2}
                 onChange={(e) => setFilter2(e.target.value)}
-                placeholder="e.g., sun"
+                placeholder="e.g., test2"
                 className="w-full pl-10 pr-4 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-800 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
             </div>
           </div>
         </div>
 
-        {/* Summary and Controls */}
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-secondary-600 dark:text-secondary-400">
-            {totalSelected > 0 ? (
-              <span>
-                {visibleSelected} of {availableDatabases.length} Selected
-                {hiddenSelected > 0 && ` (${hiddenSelected} Hidden)`}
-                {unavailableCount > 0 && ` • ${unavailableCount} in use`}
-              </span>
-            ) : (
-              <span>
-                {availableDatabases.length} databases available
-                {unavailableCount > 0 && ` • ${unavailableCount} already in use`}
-              </span>
-            )}
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={handleSelectAll}
-              className="text-xs px-2 py-1 text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-              disabled={availableDatabases.length === 0}
-            >
-              Select All Available
-            </button>
-            <button
-              onClick={handleDeselectAll}
-              className="text-xs px-2 py-1 text-secondary-600 hover:text-secondary-700 dark:text-secondary-400 dark:hover:text-secondary-300"
-              disabled={visibleSelected === 0}
-            >
-              Deselect All Visible
-            </button>
-          </div>
+        {/* Summary */}
+        <div className="text-sm text-secondary-600 dark:text-secondary-400">
+          {totalSelected > 0 ? (
+            <span>
+              {visibleSelected} of {availableDatabases.length} Selected
+              {unavailableCount > 0 && ` • ${unavailableCount} in use`}
+            </span>
+          ) : (
+            <span>
+              {availableDatabases.length} databases available
+              {unavailableCount > 0 && ` • ${unavailableCount} already in use`}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Database List */}
-      <div className="max-h-96 overflow-y-auto border border-secondary-200 dark:border-secondary-700 rounded-lg">
-        {Object.entries(groupedDatabases).map(([category, categoryDatabases], categoryIndex) => (
-          <div key={category}>
-            {categoryDatabases.map((db, dbIndex) => {
-              const isSelected = selected.has(db.name);
-              const isInUse = databasesInUse.has(db.name);
-              const isFirstInCategory = dbIndex === 0;
-              const isFirstCategory = categoryIndex === 0;
+      <div className="border border-secondary-200 dark:border-secondary-700 rounded-lg">
+        {paginatedDatabases.map((db) => {
+          const isSelected = selected.has(db.name);
+          const isInUse = databasesInUse.has(db.name);
 
-              return (
-                <div key={db.name}>
-                  {/* Horizontal rule separator (except before first item) */}
-                  {isFirstInCategory && !isFirstCategory && (
-                    <hr className="border-secondary-200 dark:border-secondary-700" />
-                  )}
-
-                  <div
-                    className={`flex items-center justify-between p-3 transition-colors ${
-                      isInUse
-                        ? 'bg-gray-50 dark:bg-gray-800 cursor-not-allowed opacity-60'
-                        : 'hover:bg-secondary-50 dark:hover:bg-secondary-800 cursor-pointer'
-                    } ${
-                      isSelected ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : ''
-                    }`}
-                    onClick={() => !isInUse && handleToggleDatabase(db.name)}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        isInUse
-                          ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700'
-                          : isSelected
-                            ? 'bg-blue-600 border-blue-600 text-white'
-                            : 'border-secondary-300 dark:border-secondary-600 hover:border-primary-500'
-                      }`}>
-                        {isSelected && <Check className="w-3 h-3" />}
-                        {isInUse && <AlertCircle className="w-3 h-3 text-gray-400" />}
-                      </div>
-                      <div className="flex-1">
-                        <div className={`font-medium ${
-                          isInUse
-                            ? 'text-gray-500 dark:text-gray-400'
-                            : isSelected
-                              ? 'text-gray-900 dark:text-white'
-                              : 'text-secondary-900 dark:text-white'
-                        }`}>
-                          {db.name}
-                          {isInUse && (
-                            <span className="ml-2 text-xs text-orange-600 dark:text-orange-400">
-                              (Already in use)
-                            </span>
-                          )}
-                        </div>
-                        <div className={`text-xs ${
-                          isInUse
-                            ? 'text-gray-400 dark:text-gray-500'
-                            : isSelected
-                              ? 'text-gray-700 dark:text-gray-300'
-                              : 'text-secondary-500 dark:text-secondary-400'
-                        }`}>
-                          {category} • Created {new Date(db.createDate).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+          return (
+            <div
+              key={db.name}
+              className={`flex items-center justify-between px-3 py-2 transition-colors ${
+                isInUse
+                  ? 'bg-gray-50 dark:bg-gray-800 cursor-not-allowed opacity-60'
+                  : 'hover:bg-secondary-50 dark:hover:bg-secondary-800 cursor-pointer'
+              } ${
+                isSelected ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : ''
+              }`}
+              onClick={() => !isInUse && handleToggleDatabase(db.name)}
+            >
+              <div className="flex items-center space-x-3 flex-1">
+                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                  isInUse
+                    ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700'
+                    : isSelected
+                      ? 'bg-blue-600 border-blue-600 text-white'
+                      : 'border-secondary-300 dark:border-secondary-600 hover:border-primary-500'
+                }`}>
+                  {isSelected && <Check className="w-2.5 h-2.5" />}
+                  {isInUse && <AlertCircle className="w-2.5 h-2.5 text-gray-400" />}
                 </div>
-              );
-            })}
-          </div>
-        ))}
+                <div className={`font-medium text-sm ${
+                  isInUse
+                    ? 'text-gray-500 dark:text-gray-400'
+                    : isSelected
+                      ? 'text-gray-900 dark:text-white'
+                      : 'text-secondary-900 dark:text-white'
+                }`}>
+                  {db.name}
+                  {isInUse && (
+                    <span className="ml-2 text-xs text-orange-600 dark:text-orange-400">
+                      (Already in use)
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
 
         {filteredDatabases.length === 0 && (
           <div className="p-6 text-center text-secondary-500 dark:text-secondary-400">
@@ -325,6 +391,89 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
           </div>
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {filteredDatabases.length > 0 && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <select
+              value={itemsPerPage}
+              onChange={handleItemsPerPageChange}
+              className="px-2 py-1 text-sm border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value="All">All</option>
+            </select>
+            <label className="text-sm text-secondary-600 dark:text-secondary-400">Items per page</label>
+          </div>
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              onClick={(e) => handlePageChange(e, 1)}
+              disabled={currentPage === 1}
+              className="p-1.5 rounded border border-secondary-300 dark:border-secondary-600 bg-white dark:bg-secondary-700 text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label="First page"
+            >
+              <ChevronsLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handlePageChange(e, currentPage - 1)}
+              disabled={currentPage === 1}
+              className="p-1.5 rounded border border-secondary-300 dark:border-secondary-600 bg-white dark:bg-secondary-700 text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {getPageNumbers().map((page, index) => {
+              if (page === 'ellipsis') {
+                return (
+                  <span key={`ellipsis-${index}`} className="px-2 text-secondary-500 dark:text-secondary-400">
+                    ...
+                  </span>
+                );
+              }
+              const isCurrent = page === currentPage;
+              return (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={(e) => handlePageChange(e, page)}
+                  className={`px-3 py-1.5 text-sm rounded border border-secondary-300 dark:border-secondary-600 transition-colors ${
+                    isCurrent
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'bg-white dark:bg-secondary-700 text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-600'
+                  }`}
+                  aria-label={`Page ${page}`}
+                  aria-current={isCurrent ? 'page' : undefined}
+                >
+                  {page.toLocaleString()}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={(e) => handlePageChange(e, currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="p-1.5 rounded border border-secondary-300 dark:border-secondary-600 bg-white dark:bg-secondary-700 text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label="Next page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => handlePageChange(e, totalPages)}
+              disabled={currentPage === totalPages}
+              className="p-1.5 rounded border border-secondary-300 dark:border-secondary-600 bg-white dark:bg-secondary-700 text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label="Last page"
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Selected Databases Summary */}
       {totalSelected > 0 && (

@@ -89,7 +89,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
         try {
           const groupsResponse = await api.get('/api/groups');
           const existingGroups = groupsResponse.data?.groups || groupsResponse.data || [];
-          
+
           if (existingGroups.length > 0) {
             // Groups exist but no profiles - this is a migration issue
             // Show setup banner but don't hide groups
@@ -130,7 +130,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           setActiveProfileName(activeProfile.name);
           setActiveProfileId(activeProfile.id);
         }
-        
+
         // Store all profiles for group profile selector
         setAllProfiles(profiles);
       }
@@ -395,6 +395,65 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     setSelectedProfileId(group.profileId || activeProfileId);
   };
 
+  const handleProfileChange = (newProfileId) => {
+    if (!editingGroup) return;
+
+    const groupSnapshots = snapshots[editingGroup.id] || [];
+    const hasSnapshots = groupSnapshots.length > 0;
+    const hasSavedDatabases = originalGroupData?.databases?.length > 0;
+    const currentProfileId = selectedProfileId || activeProfileId;
+
+    // Only show warning if actually changing profiles
+    if (newProfileId === currentProfileId) {
+      setSelectedProfileId(newProfileId);
+      return;
+    }
+
+    // Only warn if there are snapshots or saved databases
+    if (hasSnapshots || hasSavedDatabases) {
+      const message = hasSnapshots ? (
+        <div>
+          <p className="mb-3">Changing the connection profile may affect this group:</p>
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
+            <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">⚠️ This group has {groupSnapshots.length} snapshot{groupSnapshots.length !== 1 ? 's' : ''}</p>
+            <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+              <li>All snapshots will be <strong>permanently deleted</strong></li>
+              <li>You will <strong>lose the ability to rollback</strong> to any previous state</li>
+              <li>Current database state becomes permanent</li>
+            </ul>
+          </div>
+          <p className="text-sm text-secondary-600 dark:text-secondary-400 mb-2">
+            Additionally, any databases that don't exist in the new profile will be removed from the group when you save.
+          </p>
+          <p className="text-sm text-secondary-600 dark:text-secondary-400">
+            This action cannot be undone.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <p className="mb-3">Changing the connection profile may remove databases that don't exist in the new profile.</p>
+          <p className="text-sm text-secondary-600 dark:text-secondary-400">
+            Invalid databases will be removed from the group when you save. This action cannot be undone.
+          </p>
+        </div>
+      );
+
+      showConfirmation({
+        title: 'Change Connection Profile',
+        message: message,
+        confirmText: hasSnapshots ? 'Change Profile & Delete Snapshots' : 'Change Profile',
+        cancelText: 'Cancel',
+        type: hasSnapshots ? 'danger' : 'warning',
+        onConfirm: () => {
+          setSelectedProfileId(newProfileId);
+        }
+      });
+    } else {
+      // No snapshots and no databases, safe to change
+      setSelectedProfileId(newProfileId);
+    }
+  };
+
   const handleUpdateGroup = async (e) => {
     e.preventDefault();
 
@@ -402,11 +461,14 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       return;
     }
 
+    // Validate databases exist in the selected profile
+    // Note: DatabaseSelector fetches databases for the active profile, so we validate against current list
+    // If profile changed, invalid databases should already be filtered, but double-check here
+    let validDatabases = selectedDatabases;
     if (selectedDatabases.length === 0) {
       showError('Please select at least one database for the group.');
       return;
     }
-
 
     // Check if changes were made
     const nameChanged = originalGroupData.name !== groupForm.values.name;
@@ -735,7 +797,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           } else {
             // Show helpful error with actual failure details
             const errorMsg = data.message || 'Failed to rollback snapshot.';
-            
+
             // Build detailed error message if failedRollbacks are provided
             let detailedError = null;
             if (data.failedRollbacks && Array.isArray(data.failedRollbacks) && data.failedRollbacks.length > 0) {
@@ -752,7 +814,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 </div>
               );
             }
-            
+
             showConfirmation({
               title: 'Rollback Failed',
               message: (
@@ -1134,13 +1196,13 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       {/* Create Group Modal */}
       {isCreatingGroup && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-50 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="create-group-title"
         >
-          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-2xl">
-            <h3 id="create-group-title" className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
+          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[calc(100vh-2rem)] flex flex-col overflow-y-auto">
+            <h3 id="create-group-title" className="text-lg font-semibold text-secondary-900 dark:text-white mb-4 flex-shrink-0">
               Create New Group
             </h3>
             <form onSubmit={handleCreateGroup} className="space-y-4">
@@ -1202,7 +1264,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 />
               </div>
 
-              <div className="flex space-x-3">
+              <div className="flex space-x-3 pt-2">
                 <LoadingButton
                   type="submit"
                   className="btn-primary flex-1"
@@ -1234,13 +1296,13 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       {/* Edit Group Modal */}
       {editingGroup && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-50 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-group-title"
         >
-          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-2xl">
-            <h3 id="edit-group-title" className="text-lg font-semibold text-secondary-900 dark:text-white mb-4">
+          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[calc(100vh-2rem)] flex flex-col overflow-y-auto">
+            <h3 id="edit-group-title" className="text-lg font-semibold text-secondary-900 dark:text-white mb-4 flex-shrink-0">
               Edit Group
             </h3>
             <form onSubmit={handleUpdateGroup} className="space-y-4">
@@ -1263,7 +1325,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                   </label>
                   <select
                     value={selectedProfileId || ''}
-                    onChange={(e) => setSelectedProfileId(e.target.value)}
+                    onChange={(e) => handleProfileChange(e.target.value)}
                     className="w-full px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                   >
                     {allProfiles.map((profile) => (
@@ -1303,7 +1365,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 />
               </div>
 
-              <div className="flex space-x-3">
+              <div className="flex space-x-3 pt-2">
                 <LoadingButton
                   type="submit"
                   className="btn-primary flex-1"

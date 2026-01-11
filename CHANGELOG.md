@@ -13,8 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated catch-all route from `*` to `/*splat` (Express 5 requirement)
   - Configured static middleware to allow dotfiles (for .well-known endpoints)
   - Added error handling to `app.listen` callback (Express 5 passes error as first arg)
+- **Database Selector UI Improvements**
+  - Added client-side pagination for database list (5, 10, 25, or All per page)
+  - Implemented intelligent page numbering with ellipses for large page counts
+  - Removed category grouping and separators (Global/User/Data Warehouse)
+  - Removed "Category • Created date" metadata text for more compact list items
+  - Removed "Select All Available" and "Deselect All Visible" action links
+  - Reorganized pagination controls: items per page dropdown on left, page navigation on right
 
 ### Fixed
+- **Modal Viewport Issues**
+  - Fixed modal content being cut off at top and bottom in smaller browser windows
+  - Modal now properly scrolls within viewport constraints with single scrollbar
+  - All modal content (including action buttons) remains accessible regardless of window size
 - **Rollback Improvements**
   - Fixed undefined `groupName` error in `generateSnapshotId` when creating checkpoint after rollback
   - Improved error messages when snapshot database doesn't exist (now lists existing snapshots)
@@ -27,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Profile Selector Refresh**
   - Fixed ProfileSelector not appearing immediately when second profile is created (now refreshes automatically)
   - Separated profile change callbacks from group change callbacks for proper refresh timing
+- **Profile Change Validation**
+  - Added warnings when changing group profile if snapshots or databases will be affected
+  - Prevents accidental data loss when switching connection profiles
 
 ### Added
 - **Group Profile Assignment**
