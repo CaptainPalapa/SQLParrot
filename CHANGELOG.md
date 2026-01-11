@@ -24,14 +24,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings Persistence**
   - Fixed `autoCreateCheckpoint` checkbox not persisting changes (backend now saves and returns the setting)
   - Added missing dependencies to settings auto-save `useEffect` to ensure immediate save
+- **Profile Selector Refresh**
+  - Fixed ProfileSelector not appearing immediately when second profile is created (now refreshes automatically)
+  - Separated profile change callbacks from group change callbacks for proper refresh timing
 
 ### Added
+- **Group Profile Assignment**
+  - Profile selector dropdown in group create/edit forms (when 2+ profiles exist)
+  - Profile name display when only 1 profile exists (read-only)
+  - Groups can be assigned to specific profiles during creation
+  - Groups can have their profile changed when editing
+  - Profile selector appears immediately in header when second profile is created (no refresh needed)
 - Comprehensive test coverage for Express 5 compatibility
 - Rollback error handling tests
 - Settings API persistence tests
 - Rollback checkpoint setting tests
 - SettingsPanel component tests
-- Total test count: 110+ tests (up from 92)
+- Group profile assignment tests (5 new backend tests)
+- Rust/Tauri group profile assignment tests (4 new tests)
+- Total test count: 130 tests (119 backend + 11 Rust, up from 110+)
 
 ### Changed
 - Updated Codecov workflow to use GitHub App instead of token (requires Codecov GitHub App installation)

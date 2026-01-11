@@ -1667,13 +1667,27 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
+      // Get profile ID - use provided one or keep existing
+      let profileId = group.profileId;
+      if (profileId === undefined) {
+        // If not provided, get existing profile_id from database
+        const existing = db.prepare('SELECT profile_id FROM groups WHERE id = ?').get(groupId);
+        profileId = existing?.profile_id || null;
+      }
+      // If still null, use active profile
+      if (!profileId) {
+        const activeProfile = this.getActiveProfile();
+        profileId = activeProfile?.id || null;
+      }
+
       db.prepare(`
         UPDATE groups
-        SET name = ?, databases = ?, updated_at = ?
+        SET name = ?, databases = ?, profile_id = ?, updated_at = ?
         WHERE id = ?
       `).run(
         group.name,
         JSON.stringify(group.databases || []),
+        profileId,
         new Date().toISOString(),
         groupId
       );

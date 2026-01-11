@@ -54,7 +54,11 @@ pub async fn get_groups() -> ApiResponse<Vec<Group>> {
 
 /// Create a new group
 #[tauri::command]
-pub async fn create_group(name: String, databases: Vec<String>) -> ApiResponse<Group> {
+pub async fn create_group(
+    name: String,
+    databases: Vec<String>,
+    profile_id: Option<String>,
+) -> ApiResponse<Group> {
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
@@ -65,7 +69,7 @@ pub async fn create_group(name: String, databases: Vec<String>) -> ApiResponse<G
         id: Uuid::new_v4().to_string(),
         name,
         databases,
-        profile_id: None, // Will be set by create_group based on active profile
+        profile_id, // Use provided profile_id or let create_group use active profile
         created_by: whoami::username_os().to_string_lossy().into_owned().into(),
         created_at: now,
         updated_at: now,
@@ -95,7 +99,12 @@ pub async fn create_group(name: String, databases: Vec<String>) -> ApiResponse<G
 
 /// Update an existing group
 #[tauri::command]
-pub async fn update_group(id: String, name: String, databases: Vec<String>) -> ApiResponse<Group> {
+pub async fn update_group(
+    id: String,
+    name: String,
+    databases: Vec<String>,
+    profile_id: Option<String>,
+) -> ApiResponse<Group> {
     let store = match MetadataStore::open() {
         Ok(s) => s,
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
@@ -162,7 +171,7 @@ pub async fn update_group(id: String, name: String, databases: Vec<String>) -> A
         id,
         name,
         databases,
-        profile_id: existing.profile_id.clone(),
+        profile_id: profile_id.or(existing.profile_id.clone()), // Use provided profile_id or preserve existing
         created_by: existing.created_by.clone(),
         created_at: existing.created_at,
         updated_at: Utc::now(),

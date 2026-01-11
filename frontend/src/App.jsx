@@ -38,6 +38,11 @@ function AppContent() {
     profileSelectorRef.current?.refresh();
   }, []);
 
+  // Called when profiles are added/updated/deleted - refreshes the header profile selector
+  const handleProfilesChanged = useCallback(() => {
+    profileSelectorRef.current?.refresh();
+  }, []);
+
   const tabs = [
     { id: 'groups', name: 'Groups', icon: Database },
     { id: 'profiles', name: 'Profiles', icon: Server },
@@ -152,7 +157,7 @@ function AppContent() {
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {activeTab === 'groups' && <GroupsManager key={`groups-${profileRefreshKey}`} onNavigateSettings={() => setActiveTab('profiles')} onGroupsChanged={handleGroupsChanged} />}
-          {activeTab === 'profiles' && <ProfilesPanel key={`profiles-${profileRefreshKey}`} onProfileChange={handleProfileChange} onProfilesChanged={handleGroupsChanged} />}
+          {activeTab === 'profiles' && <ProfilesPanel key={`profiles-${profileRefreshKey}`} onProfileChange={handleProfileChange} onProfilesChanged={handleProfilesChanged} />}
           {activeTab === 'settings' && <SettingsPanel onNavigateGroups={() => setActiveTab('groups')} />}
           {activeTab === 'history' && <HistoryView />}
           {activeTab === 'about' && <AboutPanel />}

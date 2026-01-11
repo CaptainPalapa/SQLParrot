@@ -29,6 +29,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
   const [verificationResults, setVerificationResults] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [settings, setSettings] = useState({});
+  const [allProfiles, setAllProfiles] = useState([]); // All profiles for selector
+  const [selectedProfileId, setSelectedProfileId] = useState(null); // Selected profile for group edit
 
   // Connection state management
   const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connected', 'connecting', 'error', 'needs_config'
@@ -128,6 +130,9 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           setActiveProfileName(activeProfile.name);
           setActiveProfileId(activeProfile.id);
         }
+        
+        // Store all profiles for group profile selector
+        setAllProfiles(profiles);
       }
     } catch (e) {
       // If profiles check fails in Tauri mode, assume no config
@@ -241,10 +246,13 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           setIsCreatingGroup(false);
           groupForm.reset();
           setSelectedDatabases([]);
+          setSelectedProfileId(null);
         } else if (editingGroup) {
           setEditingGroup(null);
           groupForm.reset();
           setSelectedDatabases([]);
+          setSelectedProfileId(null);
+          setOriginalGroupData(null);
         } else if (showVerificationModal) {
           setShowVerificationModal(false);
           setVerificationResults(null);
@@ -345,7 +353,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     try {
       const newGroup = {
         name: groupForm.values.name,
-        databases: selectedDatabases
+        databases: selectedDatabases,
+        profileId: selectedProfileId || activeProfileId // Include profileId if multiple profiles exist
       };
 
       const responseData = await api.post('/api/groups', newGroup);
@@ -356,6 +365,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
         await fetchGroups();
         groupForm.reset();
         setSelectedDatabases([]);
+        setSelectedProfileId(null);
         setIsCreatingGroup(false);
         // Notify parent to refresh header profile selector (group counts)
         onGroupsChanged?.();
@@ -376,10 +386,13 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     setEditingGroup(group);
     setOriginalGroupData({
       name: group.name,
-      databases: [...group.databases]
+      databases: [...group.databases],
+      profileId: group.profileId || activeProfileId
     });
     groupForm.setValue('name', group.name);
     setSelectedDatabases([...group.databases]);
+    // Set selected profile to group's profile or active profile
+    setSelectedProfileId(group.profileId || activeProfileId);
   };
 
   const handleUpdateGroup = async (e) => {
@@ -398,12 +411,14 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     // Check if changes were made
     const nameChanged = originalGroupData.name !== groupForm.values.name;
     const databasesChanged = JSON.stringify(originalGroupData.databases.sort()) !== JSON.stringify(selectedDatabases.sort());
+    const profileChanged = originalGroupData.profileId !== selectedProfileId;
 
-    if (!nameChanged && !databasesChanged) {
+    if (!nameChanged && !databasesChanged && !profileChanged) {
       // No changes made, just close the modal
       setEditingGroup(null);
       groupForm.reset();
       setSelectedDatabases([]);
+      setSelectedProfileId(null);
       setOriginalGroupData(null);
       return;
     }
@@ -433,7 +448,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       const updatedGroup = {
         name: groupForm.values.name,
         databases: selectedDatabases,
-        deleteSnapshots: deleteSnapshots
+        deleteSnapshots: deleteSnapshots,
+        profileId: selectedProfileId || activeProfileId // Include profileId if changed
       };
 
       const responseData = await api.put(`/api/groups/${editingGroup.id}`, updatedGroup);
@@ -444,6 +460,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
         await fetchGroups();
         groupForm.reset();
         setSelectedDatabases([]);
+        setSelectedProfileId(null);
         setEditingGroup(null);
         setOriginalGroupData(null);
       } else {
@@ -1138,6 +1155,41 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 required
               />
 
+              {/* Profile Selector/Display for Create */}
+              {allProfiles.length > 1 ? (
+                <div>
+                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                    Connection Profile
+                  </label>
+                  <select
+                    value={selectedProfileId || activeProfileId || ''}
+                    onChange={(e) => setSelectedProfileId(e.target.value)}
+                    className="w-full px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    {allProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} {profile.isActive ? '(Active)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                    Select which connection profile this group belongs to
+                  </p>
+                </div>
+              ) : allProfiles.length === 1 ? (
+                <div>
+                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                    Connection Profile
+                  </label>
+                  <div className="px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-secondary-50 dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300">
+                    {allProfiles[0].name}
+                  </div>
+                  <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                    This group will belong to your connection profile
+                  </p>
+                </div>
+              ) : null}
+
               <div>
                 <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
                   Select Databases <span className="text-red-500">*</span>
@@ -1166,6 +1218,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                     setIsCreatingGroup(false);
                     groupForm.reset();
                     setSelectedDatabases([]);
+                    setSelectedProfileId(null);
                   }}
                   className="btn-secondary flex-1"
                   disabled={isLoading}
@@ -1202,6 +1255,41 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 required
               />
 
+              {/* Profile Selector/Display */}
+              {allProfiles.length > 1 ? (
+                <div>
+                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                    Connection Profile
+                  </label>
+                  <select
+                    value={selectedProfileId || ''}
+                    onChange={(e) => setSelectedProfileId(e.target.value)}
+                    className="w-full px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-white dark:bg-secondary-700 text-secondary-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    {allProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} {profile.isActive ? '(Active)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                    Select which connection profile this group belongs to
+                  </p>
+                </div>
+              ) : allProfiles.length === 1 ? (
+                <div>
+                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                    Connection Profile
+                  </label>
+                  <div className="px-3 py-2 border border-secondary-300 dark:border-secondary-600 rounded-lg bg-secondary-50 dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300">
+                    {allProfiles[0].name}
+                  </div>
+                  <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
+                    This group belongs to your connection profile
+                  </p>
+                </div>
+              ) : null}
+
               <div>
                 <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
                   Select Databases <span className="text-red-500">*</span>
@@ -1231,6 +1319,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                     setEditingGroup(null);
                     groupForm.reset();
                     setSelectedDatabases([]);
+                    setSelectedProfileId(null);
+                    setOriginalGroupData(null);
                   }}
                   className="btn-secondary flex-1"
                   disabled={isLoading}

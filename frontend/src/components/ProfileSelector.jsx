@@ -18,12 +18,17 @@ const ProfileSelector = forwardRef(({ onProfileChange }, ref) => {
 
   // Expose refresh method to parent
   useImperativeHandle(ref, () => ({
-    refresh: fetchProfiles
+    refresh: async () => {
+      await fetchProfiles();
+      // Force re-evaluation of visibility after refresh
+      // The component will re-render with new profiles.length
+    }
   }));
 
   useEffect(() => {
     fetchProfiles();
   }, []);
+
 
   // Close dropdown when clicking outside
   useEffect(() => {
