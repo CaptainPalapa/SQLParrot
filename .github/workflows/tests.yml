@@ -98,7 +98,6 @@ jobs:
     - name: Run frontend tests (Vitest) with coverage
       run: cd frontend && npm run test:run -- --coverage
       timeout-minutes: 10
-      continue-on-error: true  # Frontend tests are optional for now
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
