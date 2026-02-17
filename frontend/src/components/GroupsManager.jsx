@@ -1582,7 +1582,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
 
                         {/* Action buttons based on snapshot success status */}
                         <div className="flex items-center space-x-2">
-                          {snapshot.databaseSnapshots.some(db => db.success) ? (
+                          {(snapshot.databaseSnapshots ?? []).some(db => db.success) ? (
                             // Snapshot has at least one successful database - show Keep Changes and Discard Changes buttons
                             <>
                               <button

@@ -93,8 +93,50 @@ describe('GroupsManager - Profile Change Validation', () => {
     });
   });
 
+  it('should not crash when snapshot has no databaseSnapshots (regression)', async () => {
+    // Snapshot shape without databaseSnapshots - component must not call .some on undefined
+    api.get.mockImplementation((endpoint) => {
+      if (endpoint === '/api/groups') {
+        return Promise.resolve({ success: true, data: mockGroups });
+      }
+      if (endpoint === '/api/health') {
+        return Promise.resolve({ connected: true });
+      }
+      if (endpoint.includes('/snapshots')) {
+        return Promise.resolve({
+          success: true,
+          data: [
+            {
+              id: 'snapshot-1',
+              groupId: 'group-1',
+              displayName: 'Snapshot Without databaseSnapshots',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ success: true, data: [] });
+    });
+
+    render(<GroupsManager />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Group')).toBeInTheDocument();
+    });
+
+    const editButton = screen.getByLabelText(/Edit group Test Group/i);
+    await userEvent.click(editButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit Group')).toBeInTheDocument();
+    });
+
+    // Component rendered without throwing; snapshot list can show cleanup/keep/discard buttons
+    expect(screen.getByText('Snapshot Without databaseSnapshots')).toBeInTheDocument();
+  });
+
   it('should show warning when changing profile with snapshots', async () => {
-    // Mock snapshots for the group
+    // Mock snapshots for the group (no databaseSnapshots - legacy/API shape)
     api.get.mockImplementation((endpoint) => {
       if (endpoint === '/api/groups') {
         return Promise.resolve({ success: true, data: mockGroups });
