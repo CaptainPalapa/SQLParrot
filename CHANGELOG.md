@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-02-17
+*Keep Changes / Discard Changes, Size Feature Removal, Discard UX Improvements*
+
+### Changed
+- **Snapshot action labels (UI and docs)**
+  - Renamed snapshot **Delete** to **Keep Changes** (green button): accept current database state and remove the snapshot
+  - Renamed snapshot **Rollback** to **Discard Changes** (red button): restore database to the snapshot (destructive)
+  - Updated confirmation dialogs, toasts, and error titles to use the new wording
+  - API response messages updated in both Node and Rust backends for consistency
+  - Documentation: [SNAPSHOT_BEHAVIOR.md](docs/SNAPSHOT_BEHAVIOR.md) and README now use Keep Changes / Discard Changes
+- **Discard Changes UX**
+  - Discard confirmation dialog shows "Going back further?" hint only when there is an earlier snapshot (e.g. hidden when discarding the oldest snapshot)
+  - Clarified in modal that all snapshots are removed and you can only restore to one point; pick the snapshot for the point you want
+  - Tooltip on Discard Changes button explains to use the earlier snapshot to go back further
+  - Removed redundant inline hint above the snapshot list (guidance remains in dialog and tooltip)
+- **Documentation**
+  - [SNAPSHOT_BEHAVIOR.md](docs/SNAPSHOT_BEHAVIOR.md): added note on which snapshot to choose when discarding (SQL Server allows only one restore; use the earlier snapshot to go back further)
+  - README: real-time monitoring now describes "creation dates and status" (snapshot size display removed)
+
+### Removed
+- **Database and snapshot size display**
+  - Removed all code that queried or displayed database sizes (badge) and snapshot sizes (on-disk or logical). Size reporting was unreliable (DMV returns 0 for snapshot sparse files in many environments) and required extra queries; removed to simplify the product.
+
 ## [1.6.0] - 2026-01-10
 *Express 5 Migration, Database Selector Improvements & Profile Management Enhancements*
 
@@ -237,7 +260,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.6.0
 [1.5.2]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.5.2
 [1.5.1]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.0...v1.5.1

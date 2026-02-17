@@ -19,8 +19,8 @@ A beautiful, modern tool for managing SQL Server database snapshots with a stunn
 
 ### 🗄️ **Database Management**
 - **Group Organization**: Create and manage database groups
-- **Snapshot Operations**: Create, restore, and delete snapshots
-- **Real-time Monitoring**: See snapshot sizes, creation dates, and status
+- **Snapshot Operations**: Create snapshots; **Keep Changes** (accept current state) or **Discard Changes** (restore to snapshot)
+- **Real-time Monitoring**: See snapshot creation dates and status
 - **Unique Database Ownership**: Each database can only belong to one group
 
 ### 🔧 **Advanced Features**
@@ -361,7 +361,7 @@ SQLPARROT_USER_NAME=your_name_here
 - Appropriate permissions for snapshot operations (see below)
 - Network access from the application server
 
-📖 **See [docs/SNAPSHOT_BEHAVIOR.md](docs/SNAPSHOT_BEHAVIOR.md) for detailed information about how snapshots work, Delete vs Rollback behavior, and version requirements.**
+📖 **See [docs/SNAPSHOT_BEHAVIOR.md](docs/SNAPSHOT_BEHAVIOR.md) for detailed information about how snapshots work, Keep Changes vs Discard Changes behavior, and version requirements.**
 
 ### 🔐 SQL Server Permissions Required
 

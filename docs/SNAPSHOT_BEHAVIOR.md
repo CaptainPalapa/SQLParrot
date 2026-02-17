@@ -55,9 +55,9 @@ SQL Server database snapshots capture the **entire database state** at the page 
 
 Full-text catalogs are NOT included in snapshots. When you query a snapshot, full-text searches run against the **source database's current catalog**, not the snapshot's point-in-time state. This is a SQL Server architectural limitation.
 
-**What this means after a rollback:**
+**What this means after Discard Changes:**
 - Relational data: Restored to snapshot point-in-time ✅
-- Full-text indexes: Still reflect the pre-rollback state ❌
+- Full-text indexes: Still reflect the state before Discard Changes ❌
 - Result: Full-text queries may return inconsistent results
 
 **Workaround:** After restoring from a snapshot, rebuild full-text catalogs:
@@ -76,18 +76,20 @@ ALTER FULLTEXT INDEX ON YourTable START FULL POPULATION;
 
 ---
 
-## Delete vs Rollback: The Core Difference
+## Keep Changes vs Discard Changes: The Core Difference
 
-This is the most important concept to understand:
+In the UI, each snapshot has two actions (the API still uses "delete" and "rollback" under the hood):
 
 | Operation | What It Does | Database Impact | Use When |
 |-----------|--------------|-----------------|----------|
-| **Delete** | Removes the snapshot file only | **NONE** - database is completely unchanged | "I don't need this safety net anymore" |
-| **Rollback** | Reverts database to snapshot's point-in-time state | **DESTRUCTIVE** - all changes since snapshot are lost | "Take me back to this checkpoint" |
+| **Keep Changes** | Removes the snapshot only | **NONE** - database is completely unchanged | "I accept the current state; I don't need this recovery point anymore" |
+| **Discard Changes** | Reverts database to snapshot's point-in-time state | **DESTRUCTIVE** - all changes since snapshot are lost | "Take me back to this checkpoint" |
 
-**Delete is safe.** It only removes the ability to rollback to that point. Your current data is untouched.
+**Keep Changes is safe.** It only removes the ability to restore to that point. Your current data is untouched.
 
-**Rollback is destructive.** Everything added, modified, or deleted after the snapshot was created will be lost or reverted.
+**Discard Changes is destructive.** Everything added, modified, or deleted after the snapshot was created will be lost or reverted.
+
+**Which snapshot to use when discarding:** SQL Server requires all snapshots to be removed before you can restore from any one. So when you click Discard Changes, every snapshot in the group is dropped and you restore only to the snapshot you chose. You can't "step back" to Test 2 and then later to Test 1 — you get one restore. **To go back to an earlier point in time** (e.g. before today's changes), use **Discard Changes on that earlier snapshot** (the one with the earlier date). Pick the snapshot that represents the point you want.
 
 ---
 
@@ -111,13 +113,13 @@ Let's walk through a realistic example to understand exactly what happens in dif
 
 ---
 
-### Scenario 1: Delete Snapshot B
+### Scenario 1: Keep Changes (remove snapshot B)
 
-**Action:** Delete B (the middle snapshot)
+**Action:** Keep Changes on B (the middle snapshot)
 
 **Result:**
 
-| Item | State After Delete |
+| Item | State After Keep Changes |
 |------|-------------------|
 | Database | **Unchanged** - still 180 rows, current schema |
 | Snapshot A | Still exists, still valid |
@@ -125,23 +127,23 @@ Let's walk through a realistic example to understand exactly what happens in dif
 | Snapshot C | Still exists, still valid |
 | Recoverable states | A (100 rows) and C (150 rows) only |
 
-**What this means:** You can still rollback to A or C, but B's state (120 rows with original StoredProc1 and StoredProc2) is **no longer recoverable**.
+**What this means:** You can still Discard Changes to A or C, but B's state (120 rows with original StoredProc1 and StoredProc2) is **no longer recoverable**.
 
 ---
 
-### Scenario 2: Rollback to Snapshot B
+### Scenario 2: Discard Changes (restore to snapshot B)
 
-**Action:** Rollback to B
+**Action:** Discard Changes — restore to B
 
 **Result:**
 
-| Item | State After Rollback |
+| Item | State After Discard Changes |
 |------|---------------------|
 | Database rows | **120 rows** (60 rows of data GONE FOREVER) |
 | StoredProc1 | **Reverted** to original version (modifications lost) |
 | StoredProc2 | **Restored** (it existed when B was created) |
 | Index1 | **Gone** (didn't exist when B was created) |
-| Snapshot A | **Gone** (SQL Parrot cleans up all snapshots) |
+| Snapshot A | **Gone** (SQL Parrot cleans up all snapshots when you discard changes) |
 | Snapshot B | **Gone** |
 | Snapshot C | **Gone** |
 | New snapshot | **Automatic** snapshot created at reverted state |
@@ -154,13 +156,13 @@ Let's walk through a realistic example to understand exactly what happens in dif
 
 ---
 
-### Scenario 3: Rollback to Snapshot A
+### Scenario 3: Discard Changes (restore to snapshot A)
 
-**Action:** Rollback to A (the oldest snapshot)
+**Action:** Discard Changes — restore to A (the oldest snapshot)
 
 **Result:**
 
-| Item | State After Rollback |
+| Item | State After Discard Changes |
 |------|---------------------|
 | Database rows | **100 rows** (80 rows of data GONE FOREVER) |
 | StoredProc1 | Original version only |
@@ -177,18 +179,18 @@ Let's walk through a realistic example to understand exactly what happens in dif
 
 ---
 
-### Scenario 4: Delete A, Delete C, Then Rollback
+### Scenario 4: Keep Changes for A and C, then Discard Changes to B
 
-**Action:** Delete snapshots A and C, leaving only B
+**Action:** Keep Changes on snapshots A and C, leaving only B
 
-**Result after deletes:**
+**Result after keeping changes:**
 - Database: unchanged (still 180 rows, current state)
 - Only Snapshot B remains
 
-**If you then want to rollback:**
-- Can **only** rollback to B
+**If you then Discard Changes to B:**
+- You can **only** restore to B
 - States captured by A (100 rows) and C (150 rows) are **no longer recoverable**
-- Deleting a snapshot permanently removes that recovery point
+- Keeping changes (removing a snapshot) permanently removes that recovery point
 
 ---
 
@@ -198,7 +200,7 @@ Snapshots capture the complete schema definition, not just data. This includes:
 
 | Schema Element | Snapshot Behavior |
 |----------------|-------------------|
-| Stored procedure code | Captured - rollback restores old code |
+| Stored procedure code | Captured - Discard Changes restores old code |
 | Index definitions | Captured - indexes removed/restored based on snapshot |
 | Table columns | Captured - schema changes reverted |
 | Constraints | Captured - FK, PK, CHECK constraints reverted |
@@ -207,11 +209,11 @@ Snapshots capture the complete schema definition, not just data. This includes:
 | Functions | Captured - function definitions restored |
 | User permissions | Captured - permissions as of snapshot time |
 
-**Example:** If you modify a stored procedure after creating a snapshot and then rollback, you get the **old version** of the procedure. Your code changes are gone.
+**Example:** If you modify a stored procedure after creating a snapshot and then Discard Changes, you get the **old version** of the procedure. Your code changes are gone.
 
 ---
 
-## Why Rollback Removes All Snapshots
+## Why Discard Changes Removes All Snapshots
 
 This is a **SQL Server requirement**, not a SQL Parrot design choice.
 
@@ -238,19 +240,19 @@ When you execute `RESTORE DATABASE [X] FROM DATABASE_SNAPSHOT = 'Y'`:
 
 ## SQL Parrot's Specific Behavior
 
-### Scorched Earth Rollback
+### What Happens When You Discard Changes
 
-When you rollback in SQL Parrot, it performs a "scorched earth" cleanup:
+When you choose **Discard Changes** in SQL Parrot, it performs a "scorched earth" cleanup:
 
 1. Restores the database to the selected snapshot
-2. **Deletes ALL snapshots** in that group
+2. **Removes ALL snapshots** in that group
 3. Creates one fresh **"Automatic"** checkpoint at the reverted state
 
-**Why?** This prevents confusion about what remaining snapshots represent. After a rollback, the timeline has changed - old snapshots would reference states that no longer make sense in the new timeline.
+**Why?** This prevents confusion about what remaining snapshots represent. After discarding changes, the timeline has changed — old snapshots would reference states that no longer make sense in the new timeline.
 
 ### Group Isolation
 
-Snapshots are organized into groups. Rolling back Group A's snapshots **does not affect** Group B's snapshots.
+Snapshots are organized into groups. Discarding changes for Group A's snapshots **does not affect** Group B's snapshots.
 
 Use groups to organize snapshots by:
 - Feature branch / task
@@ -267,7 +269,7 @@ SQL Server **will not allow you to restore a backup** if any snapshots exist for
 RESTORE cannot be performed on database 'MyDatabase' because it has one or more database snapshots.
 ```
 
-**Solution:** Use SQL Parrot to delete all snapshots for that database before restoring your backup.
+**Solution:** Use SQL Parrot to remove all snapshots for that database (Keep Changes on each, or use cleanup) before restoring your backup.
 
 **Note:** SQL Parrot's **Verify** button detects ALL snapshots on the server, including ones created outside of SQL Parrot. These show up as "orphaned snapshots" and can be cleaned up through the verification dialog.
 
@@ -296,27 +298,27 @@ Name snapshots descriptively so future-you knows what state they represent:
 
 ### Key Reminders
 
-1. **Rollback is destructive** - there is no way to recover changes made after the snapshot
-2. **Delete is safe** - only removes the safety net, doesn't touch your data
-3. **Snapshots are independent** - deleting one doesn't affect others
-4. **Schema is included** - stored procedures, indexes, everything reverts
-5. **Test in dev first** - if you're unsure, practice on a non-production database
+1. **Discard Changes is destructive** — there is no way to recover changes made after the snapshot
+2. **Keep Changes is safe** — only removes the recovery point, doesn't touch your data
+3. **Snapshots are independent** — keeping changes on one doesn't affect others
+4. **Schema is included** — stored procedures, indexes, everything reverts when you Discard Changes
+5. **Test in dev first** — if you're unsure, practice on a non-production database
 
 ---
 
 ## Quick Reference
 
 ### "I want to remove a snapshot I don't need"
-Use **Delete**. Your database stays exactly as it is.
+Use **Keep Changes**. Your database stays exactly as it is; only the snapshot is removed.
 
 ### "I want to undo changes and go back to a previous state"
-Use **Rollback**. Understand that:
+Use **Discard Changes**. Understand that:
 - All data/schema changes after that snapshot are lost
 - All snapshots in the group will be removed
 - You'll get a fresh "Automatic" snapshot at the reverted state
 
-### "Can I rollback and keep my other snapshots?"
-No. SQL Parrot's rollback is designed to clean up all snapshots to prevent timeline confusion. Create a new snapshot after rollback if you need a checkpoint.
+### "Can I Discard Changes and keep my other snapshots?"
+No. SQL Parrot's Discard Changes flow is designed to clean up all snapshots to prevent timeline confusion. Create a new snapshot after discarding changes if you need a checkpoint.
 
-### "I accidentally deleted a snapshot - can I recover that state?"
-No. Once a snapshot is deleted, that recovery point is gone. The only way to reach that state is if you have another snapshot from the same point in time (unlikely) or backups.
+### "I accidentally used Keep Changes on a snapshot — can I recover that state?"
+No. Once a snapshot is removed, that recovery point is gone. The only way to reach that state is if you have another snapshot from the same point in time (unlikely) or backups.

@@ -2191,13 +2191,13 @@ app.delete('/api/snapshots/:snapshotId', async (req, res) => {
     if (!deleteResult.success) {
       return res.status(500).json({
         success: false,
-        message: `Failed to delete snapshot metadata: ${deleteResult.error}`
+        message: `Failed to keep changes (metadata): ${deleteResult.error}`
       });
     }
 
     res.json({
       success: true,
-      message: `Snapshot "${snapshot.displayName}" deleted successfully`,
+      message: `Kept changes — snapshot "${snapshot.displayName}" removed.`,
       droppedDatabases: droppedDatabases.length
     });
 
@@ -2330,7 +2330,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       return res.status(409).json({
         success: false,
         message: 'External snapshots detected',
-        error: 'Cannot rollback: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.',
+        error: 'Cannot discard changes: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.',
         externalSnapshots: externalSnapshots.map(s => ({
           snapshotName: s.snapshot_name,
           sourceDatabase: s.source_db
@@ -2501,7 +2501,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       await pool.close();
       return res.status(500).json({
         success: false,
-        message: `Rollback failed for ${failedRollbacks.length} database(s)`,
+        message: `Discard changes failed for ${failedRollbacks.length} database(s)`,
         failedRollbacks: failedRollbacks,
         rolledBackDatabases: rolledBackDatabases.length
       });
@@ -2570,7 +2570,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       console.error('Group not found for checkpoint creation');
       return res.json({
         success: true,
-        message: `Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
+        message: `Discarded changes — restored to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
         rolledBackDatabases: rolledBackDatabases.length,
         droppedSnapshots: droppedSnapshots.length,
         checkpointCreated: false,
@@ -2593,7 +2593,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
 
       return res.json({
         success: true,
-        message: `Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
+        message: `Discarded changes — restored to snapshot "${snapshot.displayName}". All snapshots have been removed.`,
         rolledBackDatabases: rolledBackDatabases.length,
         droppedSnapshots: droppedSnapshots.length,
         checkpointCreated: false,
@@ -2724,7 +2724,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
         sequence: 1,
         databaseCount: checkpointDatabaseSnapshots.filter(s => s.success).length
       }
-    }, [`Successfully rolled back to snapshot "${snapshot.displayName}". All snapshots have been removed and automatic checkpoint created.`]));
+    }, [`Discarded changes — restored to snapshot "${snapshot.displayName}". All snapshots have been removed and automatic checkpoint created.`]));
 
   } catch (error) {
     console.error('Error rolling back snapshot:', error);
@@ -2829,8 +2829,6 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
           AND name LIKE '${id}_%'
         `);
 
-        await pool.close();
-
         // Get managed snapshot names
         const managedSnapshotNames = new Set();
         groupSnapshots.forEach(snapshot => {
@@ -2884,13 +2882,22 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
             groupSnapshots.unshift(checkpointSnapshot); // Add at beginning
           });
         }
+
+        await pool.close();
+
+        return res.json(createSuccessResponse({
+          snapshots: groupSnapshots
+        }));
       }
     } catch (error) {
       console.error('Error checking for orphaned checkpoints:', error.message);
       // Continue with normal operation if checkpoint detection fails
     }
 
-    res.json(createSuccessResponse(groupSnapshots));
+    // No SQL connection (e.g. no config): return snapshots only
+    res.json(createSuccessResponse({
+      snapshots: groupSnapshots
+    }));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

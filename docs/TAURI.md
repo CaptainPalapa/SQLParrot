@@ -226,9 +226,9 @@ The Tauri desktop app has full feature parity with the Docker/npm version:
 
 - Create and manage database groups
 - Create database snapshots
-- Rollback to snapshots
-- Delete snapshots
-- Automatic checkpoint after rollback
+- Keep Changes (accept current state, remove snapshot)
+- Discard Changes (restore to snapshot)
+- Automatic checkpoint after Discard Changes
 - Snapshot verification
 - History tracking
 - Theme selection

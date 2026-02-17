@@ -47,10 +47,12 @@ pub async fn get_snapshots(groupId: String) -> ApiResponse<Vec<Snapshot>> {
         Err(e) => return ApiResponse::error(format!("Failed to open metadata store: {}", e)),
     };
 
-    match store.get_snapshots(&groupId) {
-        Ok(snapshots) => ApiResponse::success(snapshots),
-        Err(e) => ApiResponse::error(format!("Failed to get snapshots: {}", e)),
-    }
+    let snapshots = match store.get_snapshots(&groupId) {
+        Ok(s) => s,
+        Err(e) => return ApiResponse::error(format!("Failed to get snapshots: {}", e)),
+    };
+
+    ApiResponse::success(snapshots)
 }
 
 /// Create a new snapshot for all databases in a group
@@ -263,7 +265,7 @@ pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
             let _ = store.add_history(&history_entry);
             ApiResponse::success(())
         }
-        Err(e) => ApiResponse::error(format!("Failed to delete snapshot metadata: {}", e)),
+        Err(e) => ApiResponse::error(format!("Failed to keep changes (metadata): {}", e)),
     }
 }
 
@@ -340,7 +342,7 @@ pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
 
     if !external_snapshots.is_empty() {
         return ApiResponse::error(format!(
-            "Cannot rollback: external snapshots exist for databases in this group: {:?}. These may have been created by another instance of SQL Parrot (npm, Docker, or exe). Please delete them manually or from the originating instance before rollback.",
+            "Cannot discard changes: external snapshots exist for databases in this group: {:?}. These may have been created by another instance of SQL Parrot (npm, Docker, or exe). Please delete them manually or from the originating instance before discarding changes.",
             external_snapshots
         ));
     }
@@ -545,7 +547,7 @@ pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
         ApiResponse::success(result)
     } else {
         ApiResponse::error_with_data(
-            format!("Rollback failed: {}/{} databases restored", success_count, total_count),
+            format!("Discard changes failed: {}/{} databases restored", success_count, total_count),
             result,
         )
     }

@@ -13,7 +13,6 @@ import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
 import { api, isTauri } from '../api';
 
-
 const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
   const [groups, setGroups] = useState([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -309,8 +308,9 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     try {
       const data = await api.get(`/api/groups/${groupId}/snapshots`);
 
-      // Extract snapshots from standardized response format
-      const snapshotsList = data.data;
+      // Response: { snapshots } or legacy array
+      const payload = data.data;
+      const snapshotsList = Array.isArray(payload) ? payload : (payload?.snapshots ?? []);
 
       setSnapshots(prev => ({ ...prev, [groupId]: snapshotsList }));
 
@@ -620,23 +620,25 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
   // Individual snapshot action handlers
   const handleDeleteSnapshot = async (snapshot) => {
     showConfirmation({
-      title: 'Delete Snapshot',
+      title: 'Keep Changes',
       message: (
         <div>
-          <p>Are you sure you want to delete snapshot</p>
+          <p>Keep your current database state and remove this snapshot?</p>
           <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
-          <p className="mb-3">This removes the snapshot - your <strong>database stays exactly as it is now</strong>. All current data and changes are preserved.</p>
+          <p className="mb-3">Your <strong>database stays exactly as it is now</strong>. All current data and changes are preserved. The snapshot will be removed so you can no longer roll back to the data how it was when the snapshot was created.</p>
           <p className="text-sm text-secondary-600 dark:text-secondary-400 mb-2">
-            <strong>What this means:</strong> You're removing the ability to rollback to this point in time. If you later want to undo changes made after this snapshot was created, you won't be able to.
+            <strong>What this means:</strong> You're accepting the current state. If you later want to undo changes made after this snapshot was created, you won't be able to use this snapshot.
           </p>
           <p className="text-sm text-secondary-500 dark:text-secondary-500">
-            Other snapshots in this group are not affected.
+            {(snapshots[snapshot.groupId]?.length ?? 0) > 1
+              ? 'Only this snapshot is removed. Other snapshots in this group (including any newer ones) will remain.'
+              : 'Other snapshots in this group are not affected.'}
           </p>
         </div>
       ),
-      confirmText: 'Delete',
+      confirmText: 'Keep Changes',
       cancelText: 'Cancel',
-      type: 'danger',
+      type: 'success',
       onConfirm: async () => {
         setOperationLoading(prev => ({ ...prev, delete: true }));
         setLockedGroupId(snapshot.groupId);
@@ -645,14 +647,14 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
 
           // Handle structured API response
           if (data.success) {
-            showSuccess(data.message || `Snapshot "${snapshot.displayName}" deleted successfully!`);
+            showSuccess(data.message || `Kept changes — snapshot "${snapshot.displayName}" removed.`);
             await fetchSnapshots(snapshot.groupId, false, true);
           } else {
-            showError(data.message || 'Failed to delete snapshot. Please try again.');
+            showError(data.message || 'Failed to keep changes. Please try again.');
           }
         } catch (error) {
-          console.error('Error deleting snapshot:', error);
-          showError('Failed to delete snapshot. Please try again.');
+          console.error('Error keeping changes (removing snapshot):', error);
+          showError('Failed to keep changes. Please try again.');
         } finally {
           setOperationLoading(prev => ({ ...prev, delete: false }));
           setLockedGroupId(null);
@@ -671,8 +673,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           title: 'External Snapshots Detected',
           message: (
             <div>
-              <p className="mb-2">Cannot rollback: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
-              <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots during rollback, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
+              <p className="mb-2">Cannot discard changes: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
+              <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots when discarding changes, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
               <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
                 <div className="bg-gray-100 dark:bg-gray-800 rounded p-2 font-mono text-xs text-gray-700 dark:text-gray-300">
                   {checkData.dropCommands.map((cmd, idx) => (
@@ -707,24 +709,33 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     const group = groups.find(g => g.id === snapshot.groupId);
     const createdDate = new Date(snapshot.createdAt);
     const timeAgo = formatTimeAgo(createdDate);
-    const groupSnapshotCount = snapshots[snapshot.groupId]?.length || 0;
+    const groupSnapshotsList = snapshots[snapshot.groupId] || [];
+    const groupSnapshotCount = groupSnapshotsList.length;
+    const hasEarlierSnapshot = groupSnapshotsList.some(s => s.sequence < snapshot.sequence);
 
     showConfirmation({
-      title: 'Rollback to Snapshot',
+      title: 'Discard Changes',
       message: (
         <div>
-          <p>Rollback all databases in group "{group?.name || 'Unknown'}" to snapshot</p>
+          <p className="mb-2">Your database will be restored to <strong>exactly how it was</strong> when this snapshot was created:</p>
           <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-            Created {timeAgo} ({createdDate.toLocaleDateString()} at {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})
+            {createdDate.toLocaleDateString()} at {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} — {timeAgo}
           </p>
+          <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">All databases in group "{group?.name || 'Unknown'}". Everything changed after that moment will be lost.</p>
+
+          {groupSnapshotCount > 1 && hasEarlierSnapshot && (
+            <p className="mb-3 text-sm text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-2">
+              <strong>Going back further?</strong> To restore to an <em>earlier</em> point (e.g. before other snapshots were created), cancel and use <strong>Discard Changes</strong> on that earlier snapshot instead. You can only restore to one point; all snapshots are removed afterward.
+            </p>
+          )}
 
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
             <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-1">⚠️ This is destructive</p>
             <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
               <li>All data changes made after this snapshot will be <strong>permanently lost</strong></li>
               <li>All schema changes (stored procs, indexes, etc.) will be reverted</li>
-              <li>{groupSnapshotCount === 1 ? 'The snapshot' : `All ${groupSnapshotCount} snapshots`} in this group will be removed</li>
+              <li>{groupSnapshotCount === 1 ? 'The snapshot' : `All ${groupSnapshotCount} snapshots`} in this group will be removed — you won&apos;t be able to restore to a different snapshot afterward</li>
             </ul>
           </div>
 
@@ -733,9 +744,9 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           </p>
         </div>
       ),
-      confirmText: 'Rollback',
+      confirmText: 'Discard Changes',
       cancelText: 'Cancel',
-      type: 'success',
+      type: 'danger',
       onConfirm: async () => {
         setOperationLoading(prev => ({ ...prev, rollback: true }));
         setLockedGroupId(snapshot.groupId);
@@ -750,8 +761,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               title: 'External Snapshots Detected',
               message: (
                 <div>
-                  <p className="mb-2">Cannot rollback: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
-                  <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots during rollback, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
+                  <p className="mb-2">Cannot discard changes: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
+                  <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots when discarding changes, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
                   <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
                     <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                       Remove these snapshots manually, then retry:
@@ -791,19 +802,19 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
 
           // Handle structured API response
           if (data.success) {
-            showSuccess(data.message || `Successfully rolled back to snapshot "${snapshot.displayName}"!`);
+            showSuccess(data.message || `Discarded changes — restored to snapshot "${snapshot.displayName}".`);
             // Refresh all data since rollback can affect multiple groups
             await loadData();
           } else {
             // Show helpful error with actual failure details
-            const errorMsg = data.message || 'Failed to rollback snapshot.';
+            const errorMsg = data.message || 'Failed to discard changes.';
 
             // Build detailed error message if failedRollbacks are provided
             let detailedError = null;
             if (data.failedRollbacks && Array.isArray(data.failedRollbacks) && data.failedRollbacks.length > 0) {
               detailedError = (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
-                  <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">❌ Rollback Errors:</p>
+                  <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">❌ Discard Changes Errors:</p>
                   <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
                     {data.failedRollbacks.map((failure, idx) => (
                       <li key={idx}>
@@ -816,7 +827,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
             }
 
             showConfirmation({
-              title: 'Rollback Failed',
+              title: 'Discard Changes Failed',
               message: (
                 <div>
                   <p className="mb-3">{errorMsg}</p>
@@ -834,7 +845,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               hideCancelButton: true,
               type: 'warning',
               onConfirm: async () => {
-                // Always refresh snapshots after rollback attempt, even on failure
+                // Always refresh snapshots after discard attempt, even on failure
                 // The backend may have partially succeeded or cleaned up snapshots before failing
                 await fetchSnapshots(snapshot.groupId, false, true);
               }
@@ -845,9 +856,9 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           }
         } catch (error) {
           console.error('Error rolling back snapshot:', error);
-          const errorMsg = error.message || 'Failed to rollback snapshot.';
+          const errorMsg = error.message || 'Failed to discard changes.';
           showConfirmation({
-            title: 'Rollback Failed',
+            title: 'Discard Changes Failed',
             message: (
               <div>
                 <p className="mb-3">{errorMsg}</p>
@@ -1459,9 +1470,9 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 {group.databases.map((db, index) => (
                   <span
                     key={index}
-                    className="px-2 py-1 bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200 text-xs rounded-md"
+                    className="px-2 py-1 bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200 text-xs rounded-md flex items-center gap-1.5"
                   >
-                    {db}
+                    <span>{db}</span>
                   </span>
                 ))}
               </div>
@@ -1476,7 +1487,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                       <div className="animate-spin rounded-full border-2 border-secondary-300 border-t-primary-600 w-4 h-4"></div>
                       <span className="text-sm font-medium text-secondary-700 dark:text-secondary-300">
                         {operationLoading.delete ? "Deleting snapshot..." :
-                         operationLoading.rollback ? "Rolling back to snapshot..." :
+                         operationLoading.rollback ? "Discarding changes..." :
                          operationLoading.cleanup ? "Cleaning up snapshots..." :
                          operationLoading.createSnapshot ? "Creating snapshot..." :
                          "Please wait..."}
@@ -1572,29 +1583,31 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                         {/* Action buttons based on snapshot success status */}
                         <div className="flex items-center space-x-2">
                           {snapshot.databaseSnapshots.some(db => db.success) ? (
-                            // Snapshot has at least one successful database - show Delete and Rollback buttons
+                            // Snapshot has at least one successful database - show Keep Changes and Discard Changes buttons
                             <>
                               <button
                                 onClick={() => handleDeleteSnapshot(snapshot)}
                                 disabled={lockedGroupId === group.id}
-                                className={`px-3 py-1 text-xs font-medium text-white rounded transition-colors ${
-                                  lockedGroupId === group.id
-                                    ? 'bg-red-400 cursor-not-allowed'
-                                    : 'bg-red-600 hover:bg-red-700'
-                                }`}
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => handleRollbackSnapshot(snapshot)}
-                                disabled={lockedGroupId === group.id}
+                                title="Accept current database state and remove this snapshot. You won't be able to restore to this point."
                                 className={`px-3 py-1 text-xs font-medium text-white rounded transition-colors ${
                                   lockedGroupId === group.id
                                     ? 'bg-green-400 cursor-not-allowed'
                                     : 'bg-green-600 hover:bg-green-700'
                                 }`}
                               >
-                                Rollback
+                                Keep Changes
+                              </button>
+                              <button
+                                onClick={() => handleRollbackSnapshot(snapshot)}
+                                disabled={lockedGroupId === group.id}
+                                title={`Restore database to this snapshot's state. To go back to an earlier point in time, use Discard Changes on that snapshot instead (all snapshots are removed when you discard).`}
+                                className={`px-3 py-1 text-xs font-medium text-white rounded transition-colors ${
+                                  lockedGroupId === group.id
+                                    ? 'bg-red-400 cursor-not-allowed'
+                                    : 'bg-red-600 hover:bg-red-700'
+                                }`}
+                              >
+                                Discard Changes
                               </button>
                             </>
                           ) : (

@@ -95,6 +95,8 @@ export const ConfirmationModal = ({
     switch (type) {
       case 'danger':
         return <AlertCircle className="w-6 h-6 text-red-600" />;
+      case 'success':
+        return <CheckCircle className="w-6 h-6 text-green-600" />;
       case 'warning':
         return <AlertTriangle className="w-6 h-6 text-yellow-600" />;
       default:
@@ -106,6 +108,8 @@ export const ConfirmationModal = ({
     switch (type) {
       case 'danger':
         return 'bg-red-600 hover:bg-red-700 text-white';
+      case 'success':
+        return 'bg-green-600 hover:bg-green-700 text-white';
       case 'warning':
         return 'bg-yellow-600 hover:bg-yellow-700 text-white';
       default:
