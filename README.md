@@ -107,7 +107,7 @@ See SQL Parrot in action:
 
 | Dashboard (Groups) | Profiles | New Profile |
 |:---:|:---:|:---:|
-| [![Dashboard - Groups](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) | [![New Profile](docs/screenshots/new-profile-dialog.png)](docs/screenshots/new-profile-dialog.png) |
+| [![Dashboard](docs/screenshots/dashboard.png)](docs/screenshots/dashboard-groups.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) | [![New Profile](docs/screenshots/new-profile-dialog.png)](docs/screenshots/new-profile-dialog.png) |
 | *Manage database groups and snapshots* | *Multi-profile SQL Server connections* | *Add a SQL Server connection profile* |
 
 | Profile (Docker MSSQL) | Settings | History | Theme Browser | About |
