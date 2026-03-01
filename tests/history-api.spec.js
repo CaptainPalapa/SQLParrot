@@ -372,6 +372,31 @@ describe('History API Tests', () => {
       expect(historyEntry).toHaveProperty('sequence');
     });
 
+    test('should have groupName for all group-related operation types (never undefined)', async () => {
+      const operationTypes = [
+        'create_snapshots',
+        'restore_snapshot',
+        'delete_snapshot',
+        'create_automatic_checkpoint'
+      ];
+
+      for (const type of operationTypes) {
+        const entry = createTestHistoryEntry(type);
+        mockHistory.push(entry);
+      }
+
+      const response = await request(app)
+        .get('/api/history');
+
+      expect(response.status).toBe(200);
+      expect(response.body.operations.length).toBe(operationTypes.length);
+
+      response.body.operations.forEach((op) => {
+        expect(op.groupName).toBeDefined();
+        expect(String(op.groupName)).not.toBe('undefined');
+      });
+    });
+
     test('should handle optional fields in history entry', async () => {
       const entry = createTestHistoryEntry('create_snapshots', {
         customField: 'custom_value',

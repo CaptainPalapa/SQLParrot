@@ -220,7 +220,7 @@ class MetadataStorage {
       const db = this.getDb();
       const versionResult = db.prepare('SELECT value FROM _metadata WHERE key = ?').get('last_version_seen');
       const lastVersion = versionResult ? versionResult.value : '0.0.0';
-      const currentVersion = '1.5.0';
+      const currentVersion = '1.7.0';
 
       if (this.compareVersions(lastVersion, currentVersion) < 0) {
         // Migration from versions < 1.3.0: Migrate config.json and env vars to profiles table
@@ -237,6 +237,11 @@ class MetadataStorage {
         // Migration from versions < 1.5.0: Schema alignment with Rust (snapshot->snapshots, type->operation_type, stats->settings)
         if (this.compareVersions(lastVersion, '1.5.0') < 0) {
           await this.migrateSchemaToRustCompatible();
+        }
+
+        // Migration from versions < 1.7.0: Add group_name to snapshots for history/display
+        if (this.compareVersions(lastVersion, '1.7.0') < 0) {
+          await this.migrateSnapshotsAddGroupName();
         }
 
         // Update version
@@ -285,6 +290,32 @@ class MetadataStorage {
       }
     } catch (error) {
       console.error('⚠️ Failed to add profile_id to groups:', error.message);
+      // Continue anyway
+    }
+  }
+
+  /**
+   * Migration: Add group_name to snapshots table
+   * Ensures group name is always available for history entries (captured at snapshot creation time)
+   */
+  async migrateSnapshotsAddGroupName() {
+    try {
+      const db = this.getDb();
+
+      const tableInfo = db.prepare("PRAGMA table_info('snapshots')").all();
+      const hasGroupName = tableInfo.some(col => col.name === 'group_name');
+
+      if (!hasGroupName) {
+        db.exec('ALTER TABLE snapshots ADD COLUMN group_name TEXT');
+        // Backfill from groups table for existing snapshots
+        db.prepare(`
+          UPDATE snapshots SET group_name = (
+            SELECT name FROM groups WHERE groups.id = snapshots.group_id
+          ) WHERE group_name IS NULL
+        `).run();
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to add group_name to snapshots:', error.message);
       // Continue anyway
     }
   }
@@ -1093,29 +1124,61 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
-      const stmt = db.prepare(`
-        INSERT INTO snapshots (
-          id,
-          group_id,
-          display_name,
-          sequence,
-          created_at,
-          created_by,
-          database_snapshots,
-          is_automatic
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      // Check if group_name column exists (for migration compatibility)
+      const tableInfo = db.prepare("PRAGMA table_info('snapshots')").all();
+      const hasGroupName = tableInfo.some(col => col.name === 'group_name');
 
-      stmt.run(
-        snapshot.id,
-        snapshot.groupId,
-        snapshot.displayName,
-        snapshot.sequence,
-        snapshot.createdAt || new Date().toISOString(),
-        this.userName,
-        JSON.stringify(snapshot.databaseSnapshots || []),
-        snapshot.isAutomatic ? 1 : 0
-      );
+      const groupName = snapshot.groupName ?? null;
+
+      if (hasGroupName) {
+        const stmt = db.prepare(`
+          INSERT INTO snapshots (
+            id,
+            group_id,
+            group_name,
+            display_name,
+            sequence,
+            created_at,
+            created_by,
+            database_snapshots,
+            is_automatic
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+          snapshot.id,
+          snapshot.groupId,
+          groupName,
+          snapshot.displayName,
+          snapshot.sequence,
+          snapshot.createdAt || new Date().toISOString(),
+          this.userName,
+          JSON.stringify(snapshot.databaseSnapshots || []),
+          snapshot.isAutomatic ? 1 : 0
+        );
+      } else {
+        const stmt = db.prepare(`
+          INSERT INTO snapshots (
+            id,
+            group_id,
+            display_name,
+            sequence,
+            created_at,
+            created_by,
+            database_snapshots,
+            is_automatic
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+          snapshot.id,
+          snapshot.groupId,
+          snapshot.displayName,
+          snapshot.sequence,
+          snapshot.createdAt || new Date().toISOString(),
+          this.userName,
+          JSON.stringify(snapshot.databaseSnapshots || []),
+          snapshot.isAutomatic ? 1 : 0
+        );
+      }
 
       return { success: true, mode: 'sqlite' };
 
@@ -1134,19 +1197,26 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
+      const tableInfo = db.prepare("PRAGMA table_info('snapshots')").all();
+      const hasGroupName = tableInfo.some(col => col.name === 'group_name');
+      const groupNameSelect = hasGroupName ? ', s.group_name as groupName' : ', g.name as groupName';
+      const groupJoin = hasGroupName ? '' : ' LEFT JOIN groups g ON g.id = s.group_id';
+
       const rows = db.prepare(`
         SELECT
-          id,
-          group_id as groupId,
-          display_name as displayName,
-          sequence,
-          created_at as createdAt,
-          created_by as createdBy,
-          database_snapshots as databaseSnapshots,
-          is_automatic as isAutomatic
-        FROM snapshots
-        WHERE group_id = ?
-        ORDER BY sequence DESC
+          s.id,
+          s.group_id as groupId,
+          s.display_name as displayName,
+          s.sequence,
+          s.created_at as createdAt,
+          s.created_by as createdBy,
+          s.database_snapshots as databaseSnapshots,
+          s.is_automatic as isAutomatic
+          ${groupNameSelect}
+        FROM snapshots s
+        ${groupJoin}
+        WHERE s.group_id = ?
+        ORDER BY s.sequence DESC
       `).all(groupId);
 
       // Parse JSON fields
@@ -1158,7 +1228,8 @@ class MetadataStorage {
         createdAt: row.createdAt,
         createdBy: row.createdBy,
         databaseSnapshots: row.databaseSnapshots ? JSON.parse(row.databaseSnapshots) : [],
-        isAutomatic: row.isAutomatic === 1
+        isAutomatic: row.isAutomatic === 1,
+        ...(row.groupName != null && { groupName: row.groupName })
       }));
 
     } catch (error) {
@@ -1196,18 +1267,25 @@ class MetadataStorage {
     try {
       const db = this.getDb();
 
+      const tableInfo = db.prepare("PRAGMA table_info('snapshots')").all();
+      const hasGroupName = tableInfo.some(col => col.name === 'group_name');
+      const groupNameSelect = hasGroupName ? ', s.group_name as groupName' : ', g.name as groupName';
+      const groupJoin = hasGroupName ? '' : ' LEFT JOIN groups g ON g.id = s.group_id';
+
       const rows = db.prepare(`
         SELECT
-          id,
-          group_id as groupId,
-          display_name as displayName,
-          sequence,
-          created_at as createdAt,
-          created_by as createdBy,
-          database_snapshots as databaseSnapshots,
-          is_automatic as isAutomatic
-        FROM snapshots
-        ORDER BY created_at DESC
+          s.id,
+          s.group_id as groupId,
+          s.display_name as displayName,
+          s.sequence,
+          s.created_at as createdAt,
+          s.created_by as createdBy,
+          s.database_snapshots as databaseSnapshots,
+          s.is_automatic as isAutomatic
+          ${groupNameSelect}
+        FROM snapshots s
+        ${groupJoin}
+        ORDER BY s.created_at DESC
       `).all();
 
       // Parse JSON fields
@@ -1219,7 +1297,8 @@ class MetadataStorage {
         createdAt: row.createdAt,
         createdBy: row.createdBy,
         databaseSnapshots: row.databaseSnapshots ? JSON.parse(row.databaseSnapshots) : [],
-        isAutomatic: row.isAutomatic === 1
+        isAutomatic: row.isAutomatic === 1,
+        ...(row.groupName != null && row.groupName !== '' && { groupName: row.groupName })
       }));
 
     } catch (error) {
