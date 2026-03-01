@@ -1298,8 +1298,23 @@ app.delete('/api/groups/:id', async (req, res) => {
           ));
         }
 
-        // Delete all snapshots for this group
-        const snapshotResult = await deleteGroupSnapshots(id);
+        // Try to delete SQL Server snapshot databases (best effort - don't block on connection/config failures)
+        let snapshotResult = { deletedCount: 0, deletedSnapshots: [] };
+        try {
+          snapshotResult = await deleteGroupSnapshots(id);
+        } catch (snapshotError) {
+          console.error('Error deleting SQL Server snapshots (continuing with metadata cleanup):', snapshotError.message);
+        }
+
+        // Delete snapshot metadata from SQLite (required before deleting group for FK consistency)
+        const groupSnapshots = await metadataStorage.getSnapshotsForGroup(id);
+        for (const snapshot of groupSnapshots) {
+          try {
+            await metadataStorage.deleteSnapshot(snapshot.id);
+          } catch (metaError) {
+            console.error(`Error deleting snapshot metadata ${snapshot.id}:`, metaError.message);
+          }
+        }
 
         // Delete the group from database
         const deleteResult = await metadataStorage.deleteGroup(id);
@@ -1341,8 +1356,23 @@ app.delete('/api/groups/:id', async (req, res) => {
 
     const deletedGroup = groups[groupIndex];
 
-    // Delete all snapshots for this group
-    const snapshotResult = await deleteGroupSnapshots(id);
+    // Try to delete SQL Server snapshot databases (best effort - don't block on connection/config failures)
+    let snapshotResult = { deletedCount: 0, deletedSnapshots: [] };
+    try {
+      snapshotResult = await deleteGroupSnapshots(id);
+    } catch (snapshotError) {
+      console.error('Error deleting SQL Server snapshots (continuing with metadata cleanup):', snapshotError.message);
+    }
+
+    // Delete snapshot metadata from SQLite (required before deleting group for FK consistency)
+    const groupSnapshots = await metadataStorage.getSnapshotsForGroup(id);
+    for (const snapshot of groupSnapshots) {
+      try {
+        await metadataStorage.deleteSnapshot(snapshot.id);
+      } catch (metaError) {
+        console.error(`Error deleting snapshot metadata ${snapshot.id}:`, metaError.message);
+      }
+    }
 
     // Delete group using SQL metadata storage
     const deleteResult = await metadataStorage.deleteGroup(id);
