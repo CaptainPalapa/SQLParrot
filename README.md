@@ -105,17 +105,20 @@ npm run dev
 
 See SQL Parrot in action:
 
-| Dashboard (Groups) | Profiles | Settings |
+| Dashboard (Groups) | New Group | Profiles |
 |:---:|:---:|:---:|
-| [![Dashboard - Groups](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) | [![Settings](docs/screenshots/settings.png)](docs/screenshots/settings.png) |
-| *Manage database groups and snapshots* | *Multi-profile SQL Server connections* | *Configure connection and preferences* |
+| [![Dashboard - Groups](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![New Group](docs/screenshots/new-group-dialog.png)](docs/screenshots/new-group-dialog.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) |
+| *Manage database groups and snapshots* | *Create a new database group* | *Multi-profile SQL Server connections* |
 
-| History | Theme Browser | About |
+| New Profile | Settings | History |
 |:---:|:---:|:---:|
-| [![History](docs/screenshots/history.png)](docs/screenshots/history.png) | [![Theme Browser](docs/screenshots/theme-browser.png)](docs/screenshots/theme-browser.png) | [![About](docs/screenshots/about.png)](docs/screenshots/about.png) |
-| *Operation history and audit trail* | *7 accent themes with live preview* | *Version and project info* |
+| [![New Profile](docs/screenshots/new-profile-dialog.png)](docs/screenshots/new-profile-dialog.png) | [![Settings](docs/screenshots/settings.png)](docs/screenshots/settings.png) | [![History](docs/screenshots/history.png)](docs/screenshots/history.png) |
+| *Add a SQL Server connection profile* | *Configure connection and preferences* | *Operation history and audit trail* |
 
-**Regenerating screenshots:** Run `npm run dev` in one terminal, then `npm run screenshots` in another. Screenshots are saved to `docs/screenshots/`. No SQL Server connection is required—the script skips password setup and captures the main UI.
+| Theme Browser | About |
+|:---:|:---:|
+| [![Theme Browser](docs/screenshots/theme-browser.png)](docs/screenshots/theme-browser.png) | [![About](docs/screenshots/about.png)](docs/screenshots/about.png) |
+| *7 accent themes with live preview* | *Version and project info* |
 
 ---
 

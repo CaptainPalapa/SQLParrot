@@ -57,11 +57,37 @@ async function captureScreenshots() {
     await page.screenshot({ path: path.join(OUTPUT_DIR, 'dashboard-groups.png'), fullPage: false });
     console.log('Captured: dashboard-groups.png');
 
+    // 1b. New Group dialog (enable button if disabled, then click)
+    const newGroupBtn = page.locator('button[aria-label="Create new database group"]');
+    await page.evaluate(() => {
+      const btn = document.querySelector('button[aria-label="Create new database group"]');
+      if (btn) btn.disabled = false;
+    });
+    if (await newGroupBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await newGroupBtn.click();
+      await new Promise(r => setTimeout(r, 600));
+      await page.screenshot({ path: path.join(OUTPUT_DIR, 'new-group-dialog.png'), fullPage: false });
+      console.log('Captured: new-group-dialog.png');
+      await page.keyboard.press('Escape');
+      await new Promise(r => setTimeout(r, 300));
+    }
+
     // 2. Profiles tab
     await page.locator('button:has-text("Profiles")').first().click();
     await new Promise(r => setTimeout(r, 800));
     await page.screenshot({ path: path.join(OUTPUT_DIR, 'profiles.png'), fullPage: false });
     console.log('Captured: profiles.png');
+
+    // 2b. New Profile dialog
+    const addProfileBtn = page.locator('button:has-text("Add Profile")');
+    if (await addProfileBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await addProfileBtn.click();
+      await new Promise(r => setTimeout(r, 600));
+      await page.screenshot({ path: path.join(OUTPUT_DIR, 'new-profile-dialog.png'), fullPage: false });
+      console.log('Captured: new-profile-dialog.png');
+      await page.keyboard.press('Escape');
+      await new Promise(r => setTimeout(r, 300));
+    }
 
     // 3. Settings tab
     await page.locator('button:has-text("Settings")').first().click();
