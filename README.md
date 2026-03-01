@@ -105,20 +105,15 @@ npm run dev
 
 See SQL Parrot in action:
 
-| Dashboard (Groups) | New Group | Profiles |
+| Dashboard (Groups) | Profiles | New Profile |
 |:---:|:---:|:---:|
-| [![Dashboard - Groups](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![New Group](docs/screenshots/new-group-dialog.png)](docs/screenshots/new-group-dialog.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) |
-| *Manage database groups and snapshots* | *Create a new database group* | *Multi-profile SQL Server connections* |
+| [![Dashboard - Groups](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) | [![New Profile](docs/screenshots/new-profile-dialog.png)](docs/screenshots/new-profile-dialog.png) |
+| *Manage database groups and snapshots* | *Multi-profile SQL Server connections* | *Add a SQL Server connection profile* |
 
-| New Profile | Settings | History |
-|:---:|:---:|:---:|
-| [![New Profile](docs/screenshots/new-profile-dialog.png)](docs/screenshots/new-profile-dialog.png) | [![Settings](docs/screenshots/settings.png)](docs/screenshots/settings.png) | [![History](docs/screenshots/history.png)](docs/screenshots/history.png) |
-| *Add a SQL Server connection profile* | *Configure connection and preferences* | *Operation history and audit trail* |
-
-| Theme Browser | About |
-|:---:|:---:|
-| [![Theme Browser](docs/screenshots/theme-browser.png)](docs/screenshots/theme-browser.png) | [![About](docs/screenshots/about.png)](docs/screenshots/about.png) |
-| *7 accent themes with live preview* | *Version and project info* |
+| Settings | History | Theme Browser | About |
+|:---:|:---:|:---:|:---:|
+| [![Settings](docs/screenshots/settings.png)](docs/screenshots/settings.png) | [![History](docs/screenshots/history.png)](docs/screenshots/history.png) | [![Theme Browser](docs/screenshots/theme-browser.png)](docs/screenshots/theme-browser.png) | [![About](docs/screenshots/about.png)](docs/screenshots/about.png) |
+| *Configure connection and preferences* | *Operation history and audit trail* | *7 accent themes with live preview* | *Version and project info* |
 
 ---
 
