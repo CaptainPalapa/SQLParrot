@@ -101,6 +101,24 @@ npm run dev
 
 ---
 
+## 📸 Screenshots
+
+See SQL Parrot in action:
+
+| Dashboard (Groups) | Profiles | Settings |
+|:---:|:---:|:---:|
+| [![Dashboard - Groups](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) | [![Settings](docs/screenshots/settings.png)](docs/screenshots/settings.png) |
+| *Manage database groups and snapshots* | *Multi-profile SQL Server connections* | *Configure connection and preferences* |
+
+| History | Theme Browser | About |
+|:---:|:---:|:---:|
+| [![History](docs/screenshots/history.png)](docs/screenshots/history.png) | [![Theme Browser](docs/screenshots/theme-browser.png)](docs/screenshots/theme-browser.png) | [![About](docs/screenshots/about.png)](docs/screenshots/about.png) |
+| *Operation history and audit trail* | *7 accent themes with live preview* | *Version and project info* |
+
+**Regenerating screenshots:** Run `npm run dev` in one terminal, then `npm run screenshots` in another. Screenshots are saved to `docs/screenshots/`. No SQL Server connection is required—the script skips password setup and captures the main UI.
+
+---
+
 ## 🎨 Theme Browser
 
 Access the theme browser by clicking the palette icon (🎨) in the header:
@@ -202,6 +220,7 @@ SQLParrot/
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 ├── docs/                    # Documentation
+│   ├── screenshots/        # App screenshots for README
 │   ├── SNAPSHOT_BEHAVIOR.md # Snapshot technical details
 │   └── TAURI.md            # Desktop app docs
 ├── docker-compose.example.yml
