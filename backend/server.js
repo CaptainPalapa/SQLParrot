@@ -2168,6 +2168,11 @@ app.delete('/api/snapshots/:snapshotId', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Snapshot not found' });
     }
 
+    // Capture group name BEFORE any destructive operations (group may still exist)
+    const groups = await metadataStorage.getAllGroups();
+    const group = groups.find(g => g.id === snapshot.groupId);
+    const groupName = group?.name;
+
     const config = await getSqlConfig();
     const pool = await sql.connect(config);
 
@@ -2194,6 +2199,17 @@ app.delete('/api/snapshots/:snapshotId', async (req, res) => {
         message: `Failed to keep changes (metadata): ${deleteResult.error}`
       });
     }
+
+    // Log to history (groupName captured before delete)
+    await addToHistory({
+      type: 'delete_snapshot',
+      groupName: groupName ?? snapshot.groupName,
+      snapshotName: snapshot.displayName,
+      snapshotId: snapshot.id,
+      results: (snapshot.databaseSnapshots || [])
+        .filter(ds => ds.success && ds.database)
+        .map(ds => ({ database: ds.database, success: true }))
+    });
 
     res.json({
       success: true,
@@ -2580,10 +2596,10 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
 
     // Only create checkpoint if autoCreateCheckpoint is enabled
     if (!autoCreateCheckpoint) {
-      // Log restore operation to history
+      // Log restore operation to history (group is looked up before any destructive operations)
       await addToHistory({
         type: 'restore_snapshot',
-        groupName: snapshot.groupName,
+        groupName: group.name,
         snapshotName: snapshot.displayName,
         snapshotId: snapshot.id,
         rolledBackDatabases: rolledBackDatabases,
@@ -2672,11 +2688,11 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
 
     await checkpointPool.close();
 
-    // Create the checkpoint snapshot metadata
+    // Create the checkpoint snapshot metadata (group looked up before any destructive operations)
     const checkpointSnapshot = {
       id: checkpointId,
       groupId: snapshot.groupId,
-      groupName: snapshot.groupName,
+      groupName: group.name,
       displayName: checkpointDisplayName,
       sequence: 1, // Reset sequence numbering
       createdAt: new Date().toISOString(),
@@ -2690,10 +2706,10 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       console.error(`❌ Failed to add checkpoint to metadata: ${checkpointResult.error}`);
     }
 
-    // Log restore operation to history
+    // Log restore operation to history (group looked up before any destructive operations)
     await addToHistory({
       type: 'restore_snapshot',
-      groupName: snapshot.groupName,
+      groupName: group.name,
       snapshotName: snapshot.displayName,
       snapshotId: snapshot.id,
       rolledBackDatabases: rolledBackDatabases,
@@ -2701,10 +2717,10 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
       results: rolledBackDatabases.map(db => ({ database: db, success: true }))
     });
 
-    // Log checkpoint creation to history using SQL metadata storage
+    // Log checkpoint creation to history (group looked up before any destructive operations)
     await metadataStorage.addHistory({
       type: 'create_automatic_checkpoint',
-      groupName: snapshot.groupName,
+      groupName: group.name,
       originalSnapshotName: snapshot.displayName,
       checkpointSnapshotName: checkpointDisplayName,
       checkpointId: checkpointId,

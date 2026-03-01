@@ -23,6 +23,12 @@ const createMockStorage = () => ({
   deleteSnapshot: jest.fn((id) => ({ success: true })),
   addSnapshot: jest.fn(() => ({ success: true })),
   addHistory: jest.fn(() => ({ success: true })),
+  addHistoryEntry: jest.fn(async () => ({ success: true })),
+  getActiveProfile: jest.fn(() => ({
+    id: 'profile-1',
+    name: 'Test Profile',
+    snapshotPath: '/var/opt/mssql/snapshots'
+  })),
   getPasswordStatus: jest.fn(async () => ({
     success: true,
     status: 'not-set',
@@ -31,8 +37,9 @@ const createMockStorage = () => ({
   })),
   getSettings: jest.fn(() => ({ 
     success: true, 
-    settings: { maxHistoryEntries: 100 } 
+    settings: { maxHistoryEntries: 100, autoCreateCheckpoint: true } 
   })),
+  isMetadataTableMode: jest.fn(() => true),
   checkAndMigrate: jest.fn(async () => {}),
   initialize: jest.fn(async () => {})
 });
@@ -179,6 +186,19 @@ describe('Rollback Error Handling', () => {
         expect(responseText).not.toContain('toLowerCase');
         // Should have a proper error message structure
         expect(response.body).toHaveProperty('success', false);
+      }
+
+      // Verify history entries use group.name (not undefined) when snapshot.groupName is missing
+      const addHistoryCalls = mockStorageInstance.addHistory.mock.calls;
+      const addHistoryEntryCalls = mockStorageInstance.addHistoryEntry.mock.calls;
+      const allHistoryCalls = [...addHistoryCalls.map(c => c[0]), ...addHistoryEntryCalls.map(c => c[0])];
+      for (const entry of allHistoryCalls) {
+        if (entry && (entry.groupName !== undefined || (entry.details && entry.details.groupName !== undefined))) {
+          const groupName = entry.groupName ?? entry.details?.groupName;
+          expect(groupName).toBeDefined();
+          expect(groupName).not.toBe('undefined');
+          expect(groupName).toBe('My Test Group');
+        }
       }
     });
   });
