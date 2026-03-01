@@ -130,6 +130,11 @@ const HistoryView = () => {
   const formatOperationDescription = (operation) => {
     // Handle both old format (direct properties) and new format (properties in details)
     const getProperty = (prop) => operation[prop] || operation.details?.[prop];
+    // Fallback for groupName - snapshots from metadata don't store it, so old entries may be undefined
+    const getGroupName = () => {
+      const name = getProperty('groupName');
+      return (name != null && name !== '') ? name : 'Unknown group';
+    };
 
     switch (operation.type) {
       case 'create_group':
@@ -142,17 +147,17 @@ const HistoryView = () => {
         const successCount = operation.results?.filter(r => r.success).length || 0;
         const totalCount = operation.results?.length || 0;
         const snapshotName = getProperty('snapshotName') ? ` "${getProperty('snapshotName')}"` : '';
-        return `Created snapshot${snapshotName} for group "${getProperty('groupName')}" (${successCount}/${totalCount} successful)`;
+        return `Created snapshot${snapshotName} for group "${getGroupName()}" (${successCount}/${totalCount} successful)`;
       }
       case 'create_automatic_checkpoint': {
         const successCount = operation.results?.filter(r => r.success).length || 0;
         const totalCount = operation.results?.length || 0;
-        return `Created automatic checkpoint for group "${getProperty('groupName')}" (${successCount}/${totalCount} successful)`;
+        return `Created automatic checkpoint for group "${getGroupName()}" (${successCount}/${totalCount} successful)`;
       }
       case 'restore_snapshot':
-        return `Restored snapshot "${getProperty('snapshotName') || getProperty('displayName')}" for group "${getProperty('groupName')}"`;
+        return `Restored snapshot "${getProperty('snapshotName') || getProperty('displayName')}" for group "${getGroupName()}"`;
       case 'delete_snapshot':
-        return `Deleted snapshot "${getProperty('snapshotName') || getProperty('displayName')}" from group "${getProperty('groupName')}"`;
+        return `Deleted snapshot "${getProperty('snapshotName') || getProperty('displayName')}" from group "${getGroupName()}"`;
       case 'trim_history':
         return `${getProperty('removedCount')} history entries removed by changing max from ${getProperty('previousCount')} to ${getProperty('newMaxEntries')}`;
       case 'migrate_config_to_profiles': {
