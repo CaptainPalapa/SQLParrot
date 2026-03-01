@@ -101,6 +101,22 @@ npm run dev
 
 ---
 
+## 📸 Screenshots
+
+See SQL Parrot in action:
+
+| Dashboard | Dashboard (with Groups) | Profiles | New Profile |
+|:---:|:---:|:---:|:---:|
+| [![Dashboard](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) | [![Dashboard (with Groups)](docs/screenshots/dashboard-groups.png)](docs/screenshots/dashboard-groups.png) | [![Profiles](docs/screenshots/profiles.png)](docs/screenshots/profiles.png) | [![New Profile](docs/screenshots/new-profile-dialog.png)](docs/screenshots/new-profile-dialog.png) |
+| *Initial setup view* | *Manage database groups and snapshots* | *Multi-profile SQL Server connections* | *Add a SQL Server connection profile* |
+
+| Profile (Docker MSSQL) | Settings | History | Theme Browser | About |
+|:---:|:---:|:---:|:---:|:---:|
+| [![Profile Docker MSSQL](docs/screenshots/profile-docker-mssql.png)](docs/screenshots/profile-docker-mssql.png) | [![Settings](docs/screenshots/settings.png)](docs/screenshots/settings.png) | [![History](docs/screenshots/history.png)](docs/screenshots/history.png) | [![Theme Browser](docs/screenshots/theme-browser.png)](docs/screenshots/theme-browser.png) | [![About](docs/screenshots/about.png)](docs/screenshots/about.png) |
+| *Showing a profile to local Docker MSSQL* | *Configure connection and preferences* | *Operation history and audit trail* | *7 accent themes with live preview* | *Version and project info* |
+
+---
+
 ## 🎨 Theme Browser
 
 Access the theme browser by clicking the palette icon (🎨) in the header:
@@ -202,6 +218,7 @@ SQLParrot/
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 ├── docs/                    # Documentation
+│   ├── screenshots/        # App screenshots for README
 │   ├── SNAPSHOT_BEHAVIOR.md # Snapshot technical details
 │   └── TAURI.md            # Desktop app docs
 ├── docker-compose.example.yml

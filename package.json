@@ -18,7 +18,8 @@
     "test:storage": "jest backend/utils/__tests__/metadataStorageSqlite.test.js",
     "test:all": "jest tests/ backend/utils/__tests__/",
     "test:watch": "jest --watch",
-    "bump": "node scripts/bump-version.js"
+    "bump": "node scripts/bump-version.js",
+    "screenshots": "node scripts/capture-screenshots.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.6",
@@ -26,6 +27,7 @@
     "dotenv": "^17.2.3",
     "jest": "^30.2.0",
     "mssql": "^12.2.0",
+    "playwright": "^1.58.2",
     "supertest": "^7.2.2"
   }
 }
