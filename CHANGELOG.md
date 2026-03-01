@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-03-01
+*Bug fixes and documentation*
+
+### Fixed
+- **Group deletion:** Make group deletion resilient when SQL Server cleanup fails (#50). Deletion now succeeds and cleans up local state even if dropping snapshot databases on the server fails.
+- **History:** Fix undefined group name in history entries (#48). Ensures `groupName` is always set for group-related operations so history list and storage stay consistent.
+
+### Added
+- **Documentation:** [AGENTS.md](AGENTS.md) with Cursor Cloud development environment instructions (#49).
+- **Documentation:** README app screenshots (#44).
+
 ## [1.7.0] - 2026-02-17
 *Keep Changes / Discard Changes, Size Feature Removal, Discard UX Improvements*
 
@@ -260,7 +271,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.6.0
 [1.5.2]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.5.2
