@@ -6,6 +6,9 @@
  * Prerequisites:
  * - App must be running at http://localhost:3000 (npm run dev)
  * - npx playwright install chromium (if not already installed)
+ *
+ * Note: profile-docker-mssql.png (Profiles tab with a configured profile) requires
+ * a connected SQL Server and must be captured manually.
  */
 
 const { chromium } = require('playwright');
