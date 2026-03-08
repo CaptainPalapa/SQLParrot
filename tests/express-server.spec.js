@@ -284,9 +284,21 @@ describe('Express Server Configuration', () => {
         .get('/api/health')
         .set('Origin', 'http://localhost:3000');
 
-      // CORS middleware should add appropriate headers
-      // The exact headers depend on cors configuration
+      // CORS middleware (cors package) must add Access-Control-Allow-Origin
+      // so browser-based frontends can call the API from another origin.
       expect(response.headers).toBeDefined();
+      expect(response.headers['access-control-allow-origin']).toBeDefined();
+      // Default app.use(cors()) allows any origin: echo back request origin or *
+      expect(['*', 'http://localhost:3000']).toContain(response.headers['access-control-allow-origin']);
+    });
+
+    test('should include CORS headers on OPTIONS preflight when Origin is set', async () => {
+      const response = await request(app)
+        .options('/api/health')
+        .set('Origin', 'https://app.example.com')
+        .set('Access-Control-Request-Method', 'GET');
+
+      expect(response.headers['access-control-allow-origin']).toBeDefined();
     });
   });
 });

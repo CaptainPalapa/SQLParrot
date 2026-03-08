@@ -269,8 +269,8 @@ pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
     }
 }
 
-/// Rollback to a snapshot
-/// Optional auto_create_checkpoint overrides the setting for this action only
+/// Restore databases to a snapshot's state (UI: "Discard Changes").
+/// Optional auto_create_checkpoint overrides the setting for this action only.
 #[tauri::command]
 pub async fn rollback_snapshot(id: String, auto_create_checkpoint: Option<bool>) -> ApiResponse<RollbackResult> {
     let snapshot_id = id;

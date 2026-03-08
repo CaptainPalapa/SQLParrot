@@ -1235,7 +1235,19 @@ app.put('/api/groups/:id', async (req, res) => {
 
     // Delete snapshots if confirmed and database members changed
     if (hasSnapshots && databasesChanged && deleteSnapshots) {
-      await deleteGroupSnapshots(id);
+      try {
+        await deleteGroupSnapshots(id);
+      } catch (snapshotError) {
+        console.error('Error deleting SQL Server snapshots (continuing with metadata cleanup):', snapshotError.message);
+      }
+      // Remove snapshot metadata from SQLite (same as DELETE group flow)
+      for (const snapshot of groupSnapshots) {
+        try {
+          await metadataStorage.deleteSnapshot(snapshot.id);
+        } catch (metaError) {
+          console.error(`Error deleting snapshot metadata ${snapshot.id}:`, metaError.message);
+        }
+      }
     }
 
     // Update group using SQL metadata storage

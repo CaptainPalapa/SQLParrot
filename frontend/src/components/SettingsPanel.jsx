@@ -304,10 +304,10 @@ const SettingsPanel = ({ onNavigateGroups }) => {
             />
             <div>
               <label htmlFor="autoCreateCheckpoint" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300">
-                Auto-create checkpoint after rollback
+                Auto-create checkpoint after discarding changes
               </label>
               <p className="text-xs text-secondary-500 dark:text-secondary-400 mt-1">
-                Automatically create a new "Automatic" snapshot after successfully rolling back to a previous state. This provides a recovery point at the rolled-back state.
+                Automatically create a new &quot;Automatic&quot; snapshot after <span className="text-red-600 dark:text-red-400 font-medium">discarding changes</span> back to a previous state. This provides a recovery point at that state.
               </p>
             </div>
           </div>

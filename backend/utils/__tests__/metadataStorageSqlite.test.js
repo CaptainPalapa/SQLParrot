@@ -534,6 +534,33 @@ describe('MetadataStorage SQLite Tests', () => {
       expect(activeProfile.password).toBeDefined(); // Active profile should include password for connection
     });
 
+    test('should get settings (better-sqlite3 prepare().get() path)', async () => {
+      const mockSettings = { maxHistoryEntries: 50, passwordHash: null, passwordSkipped: false };
+      const getStmt = {
+        get: jest.fn().mockReturnValue({ data: JSON.stringify(mockSettings) })
+      };
+      mockDb.prepare.mockReturnValueOnce(getStmt);
+
+      const result = await storage.getSettings();
+      expect(result.success).toBe(true);
+      expect(result.settings).toEqual(mockSettings);
+      expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('SELECT data FROM settings'));
+      expect(getStmt.get).toHaveBeenCalled();
+    });
+
+    test('should return default settings when no settings row exists', async () => {
+      const getStmt = {
+        get: jest.fn().mockReturnValue(undefined)
+      };
+      mockDb.prepare.mockReturnValueOnce(getStmt);
+
+      const result = await storage.getSettings();
+      expect(result.success).toBe(true);
+      expect(result.settings).toBeDefined();
+      expect(result.settings.preferences).toBeDefined();
+      expect(result.settings.preferences.maxHistoryEntries).toBe(100);
+    });
+
     test('should return null when no active profile exists', () => {
       // Mock ensureActiveProfile queries (called by getActiveProfile)
       const countActiveStmt = {

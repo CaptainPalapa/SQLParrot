@@ -125,7 +125,7 @@ describe('GroupsManager - Discard Changes Modal', () => {
       expect(screen.getByRole('dialog', { name: /Discard Changes/i })).toBeInTheDocument();
     });
 
-    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i });
+    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i });
     expect(checkbox).toBeChecked();
     expect(screen.getByText(/will be created/)).toBeInTheDocument();
     expect(screen.queryByText(/will NOT be created/)).not.toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('GroupsManager - Discard Changes Modal', () => {
     });
 
     const dialog = screen.getByRole('dialog', { name: /Discard Changes/i });
-    const checkbox = within(dialog).getByRole('checkbox', { name: /Create checkpoint after rollback/i });
+    const checkbox = within(dialog).getByRole('checkbox', { name: /Create checkpoint after discarding changes/i });
     expect(checkbox).not.toBeChecked();
   });
 
@@ -167,10 +167,10 @@ describe('GroupsManager - Discard Changes Modal', () => {
     await userEvent.click(discardButton);
 
     await waitFor(() => {
-      expect(screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i })).toBeInTheDocument();
     });
 
-    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i });
+    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i });
     await userEvent.click(checkbox);
 
     await waitFor(() => {
@@ -190,10 +190,10 @@ describe('GroupsManager - Discard Changes Modal', () => {
     await userEvent.click(discardButton);
 
     await waitFor(() => {
-      expect(screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i })).toBeInTheDocument();
     });
 
-    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i });
+    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i });
     await userEvent.click(checkbox);
 
     await waitFor(() => {
@@ -242,10 +242,10 @@ describe('GroupsManager - Discard Changes Modal', () => {
     await userEvent.click(discardButtons[0]);
 
     await waitFor(() => {
-      expect(screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i })).toBeInTheDocument();
     });
 
-    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after rollback/i });
+    const checkbox = screen.getByRole('checkbox', { name: /Create checkpoint after discarding changes/i });
     await userEvent.click(checkbox);
 
     const dialog = screen.getByRole('dialog', { name: /Discard Changes/i });
