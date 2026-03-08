@@ -213,4 +213,88 @@ describe('Rollback Checkpoint Setting', () => {
     // Verify addSnapshot WAS called (checkpoint creation)
     expect(mockStorageInstance.addSnapshot).toHaveBeenCalled();
   });
+
+  test('should respect request body override: create checkpoint when body.autoCreateCheckpoint is true (setting is false)', async () => {
+    mockSettings.autoCreateCheckpoint = false;
+
+    const groupId = 'group-123';
+    const snapshotId = 'sf_test123';
+
+    mockGroups = [{ id: groupId, name: 'Test Group', databases: ['test_db'] }];
+    mockSnapshots = [{
+      id: snapshotId,
+      groupId: groupId,
+      groupName: 'Test Group',
+      displayName: 'Test Snapshot',
+      createdAt: new Date().toISOString(),
+      databaseSnapshots: [{ database: 'test_db', snapshotName: 'sf_test123_test_db', success: true }]
+    }];
+
+    const sql = require('mssql');
+    const mockRequest = { query: jest.fn() };
+    const mockPool = { request: jest.fn(() => mockRequest), close: jest.fn() };
+    sql.connect = jest.fn().mockResolvedValue(mockPool);
+
+    mockRequest.query
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [{ name: 'sf_test123_test_db' }] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [{ state_desc: 'ONLINE' }] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [{ name: 'file1', physical_name: '/path/file1.mdf' }] })
+      .mockResolvedValueOnce({ recordset: [] });
+
+    const response = await request(app)
+      .post(`/api/snapshots/${snapshotId}/rollback`)
+      .send({ autoCreateCheckpoint: true })
+      .expect(200);
+
+    expect(response.body.data?.checkpointCreated || response.body.checkpointCreated).toBe(true);
+    expect(mockStorageInstance.addSnapshot).toHaveBeenCalled();
+  });
+
+  test('should respect request body override: NOT create checkpoint when body.autoCreateCheckpoint is false (setting is true)', async () => {
+    mockSettings.autoCreateCheckpoint = true;
+
+    const groupId = 'group-123';
+    const snapshotId = 'sf_test123';
+
+    mockGroups = [{ id: groupId, name: 'Test Group', databases: ['test_db'] }];
+    mockSnapshots = [{
+      id: snapshotId,
+      groupId: groupId,
+      groupName: 'Test Group',
+      displayName: 'Test Snapshot',
+      createdAt: new Date().toISOString(),
+      databaseSnapshots: [{ database: 'test_db', snapshotName: 'sf_test123_test_db', success: true }]
+    }];
+
+    const sql = require('mssql');
+    const mockRequest = { query: jest.fn() };
+    const mockPool = { request: jest.fn(() => mockRequest), close: jest.fn() };
+    sql.connect = jest.fn().mockResolvedValue(mockPool);
+
+    mockRequest.query
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [{ name: 'sf_test123_test_db' }] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [{ state_desc: 'ONLINE' }] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] })
+      .mockResolvedValueOnce({ recordset: [] });
+
+    const response = await request(app)
+      .post(`/api/snapshots/${snapshotId}/rollback`)
+      .send({ autoCreateCheckpoint: false })
+      .expect(200);
+
+    expect(response.body.data?.checkpointCreated || response.body.checkpointCreated).toBe(false);
+    expect(mockStorageInstance.addSnapshot).not.toHaveBeenCalled();
+  });
 });
