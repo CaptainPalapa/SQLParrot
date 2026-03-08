@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-03-08
+*Automatic checkpoint control, edit-group fixes, dependency updates*
+
+### Added
+- **Automatic checkpoint control:** Setting to control whether a checkpoint is created when using Discard Changes (#52). Checkbox in Settings; preference is persisted and applied when confirming discard.
+
+### Fixed
+- **Edit group / snapshot deletion:** Fix snapshot deletion and state when editing a group (e.g. profile change). Added tests and corrected settings copy so edit-group modal reflects current preferences.
+
+### Changed
+- **Dependencies:** Updated rollup, @tauri-apps/cli, react-dom, @testing-library/react (supersedes Dependabot PRs 43, 37, 25, 26); time and bytes in src-tauri (#39, #38); minimatch in frontend, backend, and top-level (#45, #46, #47, #51).
+
 ## [1.7.1] - 2026-03-01
 *Bug fixes and documentation*
 
@@ -271,7 +283,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.5.1...v1.6.0
