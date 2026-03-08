@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield, WifiOff, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield, WifiOff, Settings, AlertCircle } from 'lucide-react';
 import { Toast, ConfirmationModal, InputModal } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import DatabaseSelector from './DatabaseSelector';
@@ -28,6 +28,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
   const [verificationResults, setVerificationResults] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [settings, setSettings] = useState({});
+  const [discardModal, setDiscardModal] = useState({ open: false, snapshot: null, createCheckpoint: true });
   const [allProfiles, setAllProfiles] = useState([]); // All profiles for selector
   const [selectedProfileId, setSelectedProfileId] = useState(null); // Selected profile for group edit
 
@@ -707,57 +708,30 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     }
 
     const group = groups.find(g => g.id === snapshot.groupId);
-    const createdDate = new Date(snapshot.createdAt);
-    const timeAgo = formatTimeAgo(createdDate);
-    const groupSnapshotsList = snapshots[snapshot.groupId] || [];
-    const groupSnapshotCount = groupSnapshotsList.length;
-    const hasEarlierSnapshot = groupSnapshotsList.some(s => s.sequence < snapshot.sequence);
+    const initialCreateCheckpoint = settings.preferences?.autoCreateCheckpoint ?? true;
+    setDiscardModal({
+      open: true,
+      snapshot,
+      createCheckpoint: initialCreateCheckpoint
+    });
+  };
 
-    showConfirmation({
-      title: 'Discard Changes',
-      message: (
-        <div>
-          <p className="mb-2">Your database will be restored to <strong>exactly how it was</strong> when this snapshot was created:</p>
-          <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-            {createdDate.toLocaleDateString()} at {createdDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} — {timeAgo}
-          </p>
-          <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">All databases in group "{group?.name || 'Unknown'}". Everything changed after that moment will be lost.</p>
+  const handleDiscardModalConfirm = async () => {
+    const snapshot = discardModal.snapshot;
+    if (!snapshot) return;
+    setDiscardModal(prev => ({ ...prev, open: false }));
+    setOperationLoading(prev => ({ ...prev, rollback: true }));
+    setLockedGroupId(snapshot.groupId);
+    try {
+      const data = await api.post(`/api/snapshots/${snapshot.id}/rollback`, {
+        autoCreateCheckpoint: discardModal.createCheckpoint
+      });
 
-          {groupSnapshotCount > 1 && hasEarlierSnapshot && (
-            <p className="mb-3 text-sm text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-2">
-              <strong>Going back further?</strong> To restore to an <em>earlier</em> point (e.g. before other snapshots were created), cancel and use <strong>Discard Changes</strong> on that earlier snapshot instead. You can only restore to one point; all snapshots are removed afterward.
-            </p>
-          )}
-
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
-            <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-1">⚠️ This is destructive</p>
-            <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
-              <li>All data changes made after this snapshot will be <strong>permanently lost</strong></li>
-              <li>All schema changes (stored procs, indexes, etc.) will be reverted</li>
-              <li>{groupSnapshotCount === 1 ? 'The snapshot' : `All ${groupSnapshotCount} snapshots`} in this group will be removed — you won&apos;t be able to restore to a different snapshot afterward</li>
-            </ul>
-          </div>
-
-          <p className="text-sm text-secondary-600 dark:text-secondary-400">
-            A new "Automatic" checkpoint will be created at the reverted state.
-          </p>
-        </div>
-      ),
-      confirmText: 'Discard Changes',
-      cancelText: 'Cancel',
-      type: 'danger',
-      onConfirm: async () => {
-        setOperationLoading(prev => ({ ...prev, rollback: true }));
-        setLockedGroupId(snapshot.groupId);
-        try {
-          const data = await api.post(`/api/snapshots/${snapshot.id}/rollback`);
-
-          // Handle external snapshots blocking rollback
-          if (data.externalSnapshots) {
-            setOperationLoading(prev => ({ ...prev, rollback: false }));
-            setLockedGroupId(null);
-            showConfirmation({
+      // Handle external snapshots blocking rollback
+      if (data.externalSnapshots) {
+        setOperationLoading(prev => ({ ...prev, rollback: false }));
+        setLockedGroupId(null);
+        showConfirmation({
               title: 'External Snapshots Detected',
               message: (
                 <div>
@@ -793,101 +767,86 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                 // User may have manually removed them, so refresh to show current state
                 await fetchSnapshots(snapshot.groupId, false, true);
               }
-            });
-            // Refresh snapshots immediately (don't wait for modal close)
-            // This ensures UI reflects actual state even if user doesn't close modal
-            await fetchSnapshots(snapshot.groupId, false, true);
-            return;
-          }
-
-          // Handle structured API response
-          if (data.success) {
-            showSuccess(data.message || `Discarded changes — restored to snapshot "${snapshot.displayName}".`);
-            // Refresh all data since rollback can affect multiple groups
-            await loadData();
-          } else {
-            // Show helpful error with actual failure details
-            const errorMsg = data.message || 'Failed to discard changes.';
-
-            // Build detailed error message if failedRollbacks are provided
-            let detailedError = null;
-            if (data.failedRollbacks && Array.isArray(data.failedRollbacks) && data.failedRollbacks.length > 0) {
-              detailedError = (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
-                  <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">❌ Discard Changes Errors:</p>
-                  <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
-                    {data.failedRollbacks.map((failure, idx) => (
-                      <li key={idx}>
-                        <strong>{failure.database}</strong>: {failure.error || 'Unknown error'}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            }
-
-            showConfirmation({
-              title: 'Discard Changes Failed',
-              message: (
-                <div>
-                  <p className="mb-3">{errorMsg}</p>
-                  {detailedError}
-                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-2">💡 Common cause: External snapshots</p>
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                      SQL Server requires ALL snapshots for a database to be removed before restoring.
-                      Click <strong>Verify</strong> to check for orphaned or external snapshots that may be blocking this operation.
-                    </p>
-                  </div>
-                </div>
-              ),
-              confirmText: 'Close',
-              hideCancelButton: true,
-              type: 'warning',
-              onConfirm: async () => {
-                // Always refresh snapshots after discard attempt, even on failure
-                // The backend may have partially succeeded or cleaned up snapshots before failing
-                await fetchSnapshots(snapshot.groupId, false, true);
-              }
-            });
-            // Refresh snapshots immediately (don't wait for modal close)
-            // This ensures UI reflects actual state even if user doesn't close modal
-            await fetchSnapshots(snapshot.groupId, false, true);
-          }
-        } catch (error) {
-          console.error('Error rolling back snapshot:', error);
-          const errorMsg = error.message || 'Failed to discard changes.';
-          showConfirmation({
-            title: 'Discard Changes Failed',
-            message: (
-              <div>
-                <p className="mb-3">{errorMsg}</p>
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-2">💡 Common cause: External snapshots</p>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    SQL Server requires ALL snapshots for a database to be removed before restoring.
-                    Click <strong>Verify</strong> to check for orphaned or external snapshots that may be blocking this operation.
-                  </p>
-                </div>
-              </div>
-            ),
-            confirmText: 'Close',
-            hideCancelButton: true,
-            type: 'warning',
-            onConfirm: async () => {
-              // Always refresh snapshots after rollback attempt, even on error
-              await fetchSnapshots(snapshot.groupId, false, true);
-            }
-          });
-          // Refresh snapshots immediately (don't wait for modal close)
-          // This ensures UI reflects actual state even if user doesn't close modal
-          await fetchSnapshots(snapshot.groupId, false, true);
-        } finally {
-          setOperationLoading(prev => ({ ...prev, rollback: false }));
-          setLockedGroupId(null);
-        }
+        });
+        // Refresh snapshots immediately (don't wait for modal close)
+        await fetchSnapshots(snapshot.groupId, false, true);
+        return;
       }
-    });
+
+      // Handle structured API response
+      if (data.success) {
+        showSuccess(data.message || `Discarded changes — restored to snapshot "${snapshot.displayName}".`);
+        await loadData();
+      } else {
+        const errorMsg = data.message || 'Failed to discard changes.';
+        let detailedError = null;
+        if (data.failedRollbacks && Array.isArray(data.failedRollbacks) && data.failedRollbacks.length > 0) {
+          detailedError = (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
+              <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">❌ Discard Changes Errors:</p>
+              <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+                {data.failedRollbacks.map((failure, idx) => (
+                  <li key={idx}>
+                    <strong>{failure.database}</strong>: {failure.error || 'Unknown error'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        }
+        showConfirmation({
+          title: 'Discard Changes Failed',
+          message: (
+            <div>
+              <p className="mb-3">{errorMsg}</p>
+              {detailedError}
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-2">💡 Common cause: External snapshots</p>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  SQL Server requires ALL snapshots for a database to be removed before restoring.
+                  Click <strong>Verify</strong> to check for orphaned or external snapshots that may be blocking this operation.
+                </p>
+              </div>
+            </div>
+          ),
+          confirmText: 'Close',
+          hideCancelButton: true,
+          type: 'warning',
+          onConfirm: async () => {
+            await fetchSnapshots(snapshot.groupId, false, true);
+          }
+        });
+        await fetchSnapshots(snapshot.groupId, false, true);
+      }
+    } catch (error) {
+      console.error('Error rolling back snapshot:', error);
+      const errorMsg = error.message || 'Failed to discard changes.';
+      showConfirmation({
+        title: 'Discard Changes Failed',
+        message: (
+          <div>
+            <p className="mb-3">{errorMsg}</p>
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200 font-medium mb-2">💡 Common cause: External snapshots</p>
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                SQL Server requires ALL snapshots for a database to be removed before restoring.
+                Click <strong>Verify</strong> to check for orphaned or external snapshots that may be blocking this operation.
+              </p>
+            </div>
+          </div>
+        ),
+        confirmText: 'Close',
+        hideCancelButton: true,
+        type: 'warning',
+        onConfirm: async () => {
+          await fetchSnapshots(snapshot.groupId, false, true);
+        }
+      });
+      await fetchSnapshots(snapshot.groupId, false, true);
+    } finally {
+      setOperationLoading(prev => ({ ...prev, rollback: false }));
+      setLockedGroupId(null);
+    }
   };
 
   const handleCleanupSnapshot = async (snapshot) => {
@@ -1729,6 +1688,82 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
         initialValue={inputModal.initialValue}
         required={inputModal.required}
       />
+
+      {/* Discard Changes Modal */}
+      {discardModal.open && discardModal.snapshot && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discard-modal-title"
+        >
+          <div className="bg-white dark:bg-secondary-800 rounded-lg shadow-xl p-6 w-full max-w-xl mx-4">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+              <h3 id="discard-modal-title" className="text-lg font-semibold text-secondary-900 dark:text-white">
+                Discard Changes
+              </h3>
+            </div>
+
+            <div className="text-secondary-600 dark:text-secondary-400 mb-6">
+              <p className="mb-2">Your database will be restored to <strong>exactly how it was</strong> when this snapshot was created:</p>
+              <p className="font-bold text-lg text-center my-2">&quot;{discardModal.snapshot.displayName}&quot;</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                {new Date(discardModal.snapshot.createdAt).toLocaleDateString()} at {new Date(discardModal.snapshot.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — {formatTimeAgo(new Date(discardModal.snapshot.createdAt))}
+              </p>
+              <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">All databases in group &quot;{groups.find(g => g.id === discardModal.snapshot.groupId)?.name || 'Unknown'}&quot;. Everything changed after that moment will be lost.</p>
+
+              {(snapshots[discardModal.snapshot.groupId]?.length ?? 0) > 1 && snapshots[discardModal.snapshot.groupId]?.some(s => s.sequence < discardModal.snapshot.sequence) && (
+                <p className="mb-3 text-sm text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-2">
+                  <strong>Going back further?</strong> To restore to an <em>earlier</em> point (e.g. before other snapshots were created), cancel and use <strong>Discard Changes</strong> on that earlier snapshot instead. You can only restore to one point; all snapshots are removed afterward.
+                </p>
+              )}
+
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
+                <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-1">⚠️ This is destructive</p>
+                <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+                  <li>All data changes made after this snapshot will be <strong>permanently lost</strong></li>
+                  <li>All schema changes (stored procs, indexes, etc.) will be reverted</li>
+                  <li>{(snapshots[discardModal.snapshot.groupId]?.length ?? 1) === 1 ? 'The snapshot' : `All ${snapshots[discardModal.snapshot.groupId]?.length ?? 0} snapshots`} in this group will be removed — you won&apos;t be able to restore to a different snapshot afterward</li>
+                </ul>
+              </div>
+
+              <div className="flex items-start space-x-3 mt-3">
+                <input
+                  type="checkbox"
+                  id="discardCreateCheckpoint"
+                  checked={discardModal.createCheckpoint}
+                  onChange={(e) => setDiscardModal(prev => ({ ...prev, createCheckpoint: e.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                />
+                <div>
+                  <label htmlFor="discardCreateCheckpoint" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300">
+                    Create checkpoint after rollback
+                  </label>
+                  <p className="text-sm text-secondary-600 dark:text-secondary-400 mt-1">
+                    A new &quot;Automatic&quot; checkpoint {discardModal.createCheckpoint ? 'will be created' : 'will <strong>NOT</strong> be created'} at the reverted state.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setDiscardModal(prev => ({ ...prev, open: false }))}
+                className="btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDiscardModalConfirm}
+                className="px-4 py-2 rounded-lg font-medium transition-colors flex-1 bg-red-600 hover:bg-red-700 text-white"
+              >
+                Discard Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Verification Modal */}
       {showVerificationModal && verificationResults && (

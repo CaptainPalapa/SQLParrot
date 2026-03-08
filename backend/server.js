@@ -2603,10 +2603,12 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
 
     // Step 4: Create a new checkpoint snapshot after restore (if enabled)
     
-    // Check if auto-create checkpoint is enabled
+    // Check if auto-create checkpoint is enabled (request body overrides setting for this action)
     const settingsResult = await metadataStorage.getSettings();
     const settings = settingsResult.success && settingsResult.settings ? settingsResult.settings : {};
-    const autoCreateCheckpoint = settings.autoCreateCheckpoint ?? true;
+    const autoCreateCheckpoint = (typeof req.body?.autoCreateCheckpoint === 'boolean')
+      ? req.body.autoCreateCheckpoint
+      : (settings.autoCreateCheckpoint ?? true);
 
     // Get the group details for creating the checkpoint
     const groups = await metadataStorage.getAllGroups();
