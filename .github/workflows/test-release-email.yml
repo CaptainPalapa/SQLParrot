@@ -1,0 +1,27 @@
+# Manual run only: sends a test email using the same secrets as Build Release.
+# Use to verify SMTP/credentials without pushing a tag. Actions → Test release email → Run workflow.
+name: Test release email
+
+on:
+  workflow_dispatch:
+
+jobs:
+  send-test-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER || 'smtp.gmail.com' }}
+          server_port: ${{ secrets.SMTP_PORT || '465' }}
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "SQL Parrot – release email test (no build)"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM || secrets.MAIL_USERNAME }}
+          body: |
+            This is a test of the release notification email.
+            No tag was pushed and no build was run.
+
+            If you received this, your repository secrets (SMTP, MAIL_*) are set correctly.

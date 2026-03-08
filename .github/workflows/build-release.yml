@@ -234,6 +234,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Optional: runs only when all jobs above succeed. Add repo secrets to enable email:
+  # MAIL_TO, MAIL_USERNAME, MAIL_PASSWORD; for Gmail use app password. Optional: MAIL_FROM, SMTP_SERVER (default smtp.gmail.com), SMTP_PORT (default 465).
+  notify-success:
+    needs: [test, build, build-docker, upload-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send email (release ready)
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER || 'smtp.gmail.com' }}
+          server_port: ${{ secrets.SMTP_PORT || '465' }}
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "SQL Parrot ${{ github.ref_name }} – tested, built, and released"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM || secrets.MAIL_USERNAME }}
+          body: |
+            Build Release completed successfully.
+
+            Tag: ${{ github.ref_name }}
+            Repository: ${{ github.repository }}
+            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Installers and release assets are available on the GitHub release page.
+        continue-on-error: true
+
   notify-failure:
     if: failure()
     needs: [test, build, build-docker, upload-release]
