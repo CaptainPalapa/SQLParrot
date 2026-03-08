@@ -270,8 +270,9 @@ pub async fn delete_snapshot(id: String) -> ApiResponse<()> {
 }
 
 /// Rollback to a snapshot
+/// Optional auto_create_checkpoint overrides the setting for this action only
 #[tauri::command]
-pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
+pub async fn rollback_snapshot(id: String, auto_create_checkpoint: Option<bool>) -> ApiResponse<RollbackResult> {
     let snapshot_id = id;
     let store = match MetadataStore::open() {
         Ok(s) => s,
@@ -446,14 +447,18 @@ pub async fn rollback_snapshot(id: String) -> ApiResponse<RollbackResult> {
     let _ = store.add_history(&history_entry);
 
     // Check if we should auto-create a checkpoint after successful rollback
+    // Request body override takes precedence over setting
     let settings = store.get_settings().unwrap_or_default();
+    let should_create_checkpoint = auto_create_checkpoint
+        .unwrap_or(settings.preferences.auto_create_checkpoint);
     log::info!(
-        "Auto-create check: setting={}, success={}/{}",
+        "Auto-create check: override={:?}, setting={}, success={}/{}",
+        auto_create_checkpoint,
         settings.preferences.auto_create_checkpoint,
         success_count,
         total_count
     );
-    if settings.preferences.auto_create_checkpoint && success_count == total_count {
+    if should_create_checkpoint && success_count == total_count {
         // Create automatic checkpoint
         let new_sequence = match store.get_next_sequence(&group.id) {
             Ok(s) => s,

@@ -1741,7 +1741,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                     Create checkpoint after rollback
                   </label>
                   <p className="text-sm text-secondary-600 dark:text-secondary-400 mt-1">
-                    A new &quot;Automatic&quot; checkpoint {discardModal.createCheckpoint ? 'will be created' : 'will <strong>NOT</strong> be created'} at the reverted state.
+                    A new &quot;Automatic&quot; checkpoint {discardModal.createCheckpoint ? 'will be created' : <>will <strong>NOT</strong> be created</>} at the reverted state.
                   </p>
                 </div>
               </div>
