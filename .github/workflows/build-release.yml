@@ -245,7 +245,7 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER || 'smtp.gmail.com' }}
           server_port: ${{ secrets.SMTP_PORT || '465' }}
-          secure: true
+          # Omit secure: action uses TLS for 465, STARTTLS for 587
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "SQL Parrot ${{ github.ref_name }} – tested, built, and released"
