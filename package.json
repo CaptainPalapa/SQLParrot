@@ -25,7 +25,7 @@
     "@tauri-apps/cli": "^2.10.0",
     "concurrently": "^9.2.1",
     "dotenv": "^17.3.1",
-    "jest": "^30.2.0",
+    "jest": "^30.3.0",
     "mssql": "^12.2.0",
     "playwright": "^1.58.2",
     "supertest": "^7.2.2"
