@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Lock } from 'lucide-react';
 import FormInput from './ui/FormInput';
 import { usePassword } from '../contexts/PasswordContext';

@@ -1,4 +1,4 @@
-import React from 'react';
+import { useId } from 'react';
 import PropTypes from 'prop-types';
 
 const FormInput = ({
@@ -16,7 +16,8 @@ const FormInput = ({
   className = '',
   ...props
 }) => {
-  const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : `input-${Math.random().toString(36).substr(2, 9)}`);
+  const generatedId = useId();
+  const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : generatedId);
 
   return (
     <div className={`space-y-2 ${className}`}>

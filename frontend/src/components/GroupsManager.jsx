@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { Plus, Edit, Trash2, Camera, RotateCcw, Database, Shield, WifiOff, Settings, AlertCircle } from 'lucide-react';
 import { Toast, ConfirmationModal, InputModal } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import DatabaseSelector from './DatabaseSelector';
-import { LoadingButton, LoadingPage, LoadingSpinner } from './ui/Loading';
+import { LoadingButton, LoadingSpinner } from './ui/Loading';
 import ProfileManagementModal from './ProfileManagementModal';
 import TimeAgo from './ui/TimeAgo';
 import { format as formatTimeAgo } from 'timeago.js';
@@ -13,14 +13,13 @@ import { useConfirmationModal, useInputModal } from '../hooks/useModal';
 import { useFormValidation, validators } from '../utils/validation';
 import { api, isTauri } from '../api';
 
-const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
+const GroupsManager = ({ onGroupsChanged }) => {
   const [groups, setGroups] = useState([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [originalGroupData, setOriginalGroupData] = useState(null);
   const [snapshots, setSnapshots] = useState({});
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [selectedDatabases, setSelectedDatabases] = useState([]);
   const [refreshingGroups, setRefreshingGroups] = useState(new Set());
   const [expandedSnapshots, setExpandedSnapshots] = useState(new Set());
@@ -102,16 +101,14 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
             setConnectionStatus('needs_config');
             setActiveProfileName('');
             setActiveProfileId(null);
-            setIsInitialLoading(false);
             setIsLoading(false);
             return;
           }
-        } catch (groupsError) {
+        } catch {
           // Can't check groups, assume needs setup
           setConnectionStatus('needs_config');
           setActiveProfileName('');
           setActiveProfileId(null);
-          setIsInitialLoading(false);
           setIsLoading(false);
           return;
         }
@@ -134,13 +131,12 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
         // Store all profiles for group profile selector
         setAllProfiles(profiles);
       }
-    } catch (e) {
+    } catch {
       // If profiles check fails in Tauri mode, assume no config
       if (isTauriApp) {
         setConnectionStatus('needs_config');
         setActiveProfileName('');
         setActiveProfileId(null);
-        setIsInitialLoading(false);
         setIsLoading(false);
         return;
       }
@@ -187,9 +183,8 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       setConnectionStatus('error');
     } finally {
       setIsLoading(false);
-      setIsInitialLoading(false);
     }
-  }, [checkConnection]);
+  }, [checkConnection, isTauriApp]);
 
   // Manual reconnect handler
   const handleReconnect = useCallback(() => {
@@ -236,7 +231,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
   // Initial load
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Handle ESC key to close modals
   useEffect(() => {
@@ -264,15 +259,6 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isCreatingGroup, editingGroup, groupForm, showVerificationModal]);
 
-  // Refresh snapshots when groups change (new group created)
-  useEffect(() => {
-    if (groups.length > 0 && connectionStatus === 'connected') {
-      groups.forEach(group => {
-        fetchSnapshots(group.id, true);
-      });
-    }
-  }, [groups, connectionStatus]);
-
   // Legacy fetchGroups for operations that need to refresh data
   const fetchGroups = useCallback(async () => {
     setIsLoading(true);
@@ -288,16 +274,6 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       setIsLoading(false);
     }
   }, [showError]);
-
-  const fetchSettings = useCallback(async () => {
-    try {
-      const response = await api.get('/api/settings');
-      // Normalized response has settings in data property
-      setSettings(response.data || response);
-    } catch (error) {
-      console.error('Error fetching settings:', error);
-    }
-  }, []);
 
   const fetchSnapshots = async (groupId, showLoading = false, collapseExpanded = false) => {
     if (showLoading) {
@@ -336,6 +312,18 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       }
     }
   };
+
+  // Refresh snapshots when groups change (new group created).
+  // fetchSnapshots is intentionally omitted from deps: it is recreated each
+  // render, and this effect should run on group/connection changes only.
+  useEffect(() => {
+    if (groups.length > 0 && connectionStatus === 'connected') {
+      groups.forEach(group => {
+        fetchSnapshots(group.id, true);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, connectionStatus]);
 
   const handleCreateGroup = async (e) => {
     e.preventDefault();
@@ -424,7 +412,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
             </ul>
           </div>
           <p className="text-sm text-secondary-600 dark:text-secondary-400 mb-2">
-            Additionally, any databases that don't exist in the new profile will be removed from the group when you save.
+            Additionally, any databases that don&apos;t exist in the new profile will be removed from the group when you save.
           </p>
           <p className="text-sm text-secondary-600 dark:text-secondary-400">
             This action cannot be undone.
@@ -432,7 +420,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
         </div>
       ) : (
         <div>
-          <p className="mb-3">Changing the connection profile may remove databases that don't exist in the new profile.</p>
+          <p className="mb-3">Changing the connection profile may remove databases that don&apos;t exist in the new profile.</p>
           <p className="text-sm text-secondary-600 dark:text-secondary-400">
             Invalid databases will be removed from the group when you save. This action cannot be undone.
           </p>
@@ -462,10 +450,6 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       return;
     }
 
-    // Validate databases exist in the selected profile
-    // Note: DatabaseSelector fetches databases for the active profile, so we validate against current list
-    // If profile changed, invalid databases should already be filtered, but double-check here
-    let validDatabases = selectedDatabases;
     if (selectedDatabases.length === 0) {
       showError('Please select at least one database for the group.');
       return;
@@ -548,7 +532,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       title: 'Delete Group',
       message: hasSnapshots ? (
         <div>
-          <p className="mb-3">Are you sure you want to delete the group "<strong>{group?.name}</strong>"?</p>
+          <p className="mb-3">Are you sure you want to delete the group &ldquo;<strong>{group?.name}</strong>&rdquo;?</p>
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 mb-3">
             <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-2">⚠️ This group has {groupSnapshotList.length} snapshot{groupSnapshotList.length !== 1 ? 's' : ''}</p>
             <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
@@ -625,10 +609,10 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       message: (
         <div>
           <p>Keep your current database state and remove this snapshot?</p>
-          <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
+          <p className="font-bold text-lg text-center my-2">&ldquo;{snapshot.displayName}&rdquo;</p>
           <p className="mb-3">Your <strong>database stays exactly as it is now</strong>. All current data and changes are preserved. The snapshot will be removed so you can no longer roll back to the data how it was when the snapshot was created.</p>
           <p className="text-sm text-secondary-600 dark:text-secondary-400 mb-2">
-            <strong>What this means:</strong> You're accepting the current state. If you later want to undo changes made after this snapshot was created, you won't be able to use this snapshot.
+            <strong>What this means:</strong> You&apos;re accepting the current state. If you later want to undo changes made after this snapshot was created, you won&apos;t be able to use this snapshot.
           </p>
           <p className="text-sm text-secondary-500 dark:text-secondary-500">
             {(snapshots[snapshot.groupId]?.length ?? 0) > 1
@@ -675,7 +659,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
           message: (
             <div>
               <p className="mb-2">Cannot discard changes: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
-              <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots when discarding changes, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
+              <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots when discarding changes, but won&apos;t delete snapshots it didn&apos;t create. You&apos;ll need to remove these manually:</p>
               <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
                 <div className="bg-gray-100 dark:bg-gray-800 rounded p-2 font-mono text-xs text-gray-700 dark:text-gray-300">
                   {checkData.dropCommands.map((cmd, idx) => (
@@ -707,7 +691,6 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       // Continue with rollback confirmation if check fails
     }
 
-    const group = groups.find(g => g.id === snapshot.groupId);
     const initialCreateCheckpoint = settings.preferences?.autoCreateCheckpoint ?? true;
     setDiscardModal({
       open: true,
@@ -736,7 +719,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
               message: (
                 <div>
                   <p className="mb-2">Cannot discard changes: external snapshots exist on the target databases. SQL Server requires all snapshots to be removed before restoring.</p>
-                  <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots when discarding changes, but won't delete snapshots it didn't create. You'll need to remove these manually:</p>
+                  <p className="mb-3 text-sm text-secondary-600 dark:text-secondary-400">SQL Parrot automatically removes its own snapshots when discarding changes, but won&apos;t delete snapshots it didn&apos;t create. You&apos;ll need to remove these manually:</p>
                   <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
                     <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                       Remove these snapshots manually, then retry:
@@ -855,7 +838,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
       message: (
         <div>
           <p>Are you sure you want to cleanup snapshot</p>
-          <p className="font-bold text-lg text-center my-2">"{snapshot.displayName}"</p>
+          <p className="font-bold text-lg text-center my-2">&ldquo;{snapshot.displayName}&rdquo;</p>
           <p>This will remove the valid and invalid snapshot databases and related files from SQL Server. This action cannot be undone.</p>
         </div>
       ),
@@ -1513,7 +1496,7 @@ const GroupsManager = ({ onNavigateSettings, onGroupsChanged }) => {
                   {refreshingGroups.has(group.id) && <LoadingSpinner size="sm" className="inline-block ml-2" />}
                 </h4>
                 <div className="space-y-2">
-                  {(expandedSnapshots.has(group.id) ? snapshots[group.id] : snapshots[group.id].slice(0, 2)).map((snapshot, index) => {
+                  {(expandedSnapshots.has(group.id) ? snapshots[group.id] : snapshots[group.id].slice(0, 2)).map((snapshot) => {
                     const createdDate = new Date(snapshot.createdAt);
 
                     return (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Lock, AlertTriangle } from 'lucide-react';
 import FormInput from './ui/FormInput';
 import { usePassword } from '../contexts/PasswordContext';

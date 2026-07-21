@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import PropTypes from 'prop-types';
 import { ChevronDown, Server, Check, Database } from 'lucide-react';
 import { api } from '../api/client';

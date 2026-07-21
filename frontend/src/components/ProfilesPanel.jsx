@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { Plus, Edit, Trash2, CheckCircle, Server, Loader2, AlertCircle, Database, AlertTriangle } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, Server, Loader2, Database, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client';
 import { useNotification } from '../hooks/useNotification';
 import ProfileManagementModal from './ProfileManagementModal';
-import { Toast, ConfirmationModal } from './ui/Modal';
+import { Toast } from './ui/Modal';
 
 const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
   const [profiles, setProfiles] = useState([]);
@@ -13,10 +13,6 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
   const [editingProfile, setEditingProfile] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, profile: null });
   const { notification, showSuccess, showError, hideNotification } = useNotification();
-
-  useEffect(() => {
-    fetchProfiles();
-  }, []);
 
   // Handle ESC key to close delete confirmation modal
   useEffect(() => {
@@ -30,7 +26,7 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [deleteConfirm.isOpen]);
 
-  const fetchProfiles = async () => {
+  const fetchProfiles = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await api.getProfiles();
@@ -44,7 +40,11 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [showError]);
+
+  useEffect(() => {
+    fetchProfiles();
+  }, [fetchProfiles]);
 
   const handleAddProfile = () => {
     setEditingProfile(null);
@@ -288,7 +288,7 @@ const ProfilesPanel = ({ onProfileChange, onProfilesChanged }) => {
             </div>
 
             <p className="text-secondary-700 dark:text-secondary-300 mb-4">
-              Are you sure you want to delete "<strong>{deleteConfirm.profile.name}</strong>"?
+              Are you sure you want to delete &ldquo;<strong>{deleteConfirm.profile.name}</strong>&rdquo;?
             </p>
 
             {deleteConfirm.profile.groupCount > 0 && (

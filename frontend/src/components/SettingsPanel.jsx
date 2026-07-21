@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Database, Clock, X, RefreshCw, CheckCircle, AlertCircle, Server, Loader2, Lock } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Database, CheckCircle, AlertCircle, Server, Loader2, Lock } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import FormInput from './ui/FormInput';
 import { useNotification } from '../hooks/useNotification';
@@ -7,7 +7,7 @@ import { api, isTauri } from '../api';
 import { usePassword } from '../contexts/PasswordContext';
 import PasswordManagementModal from './PasswordManagementModal';
 
-const SettingsPanel = ({ onNavigateGroups }) => {
+const SettingsPanel = () => {
   const [settings, setSettings] = useState({
     preferences: {
       defaultGroup: '',
@@ -19,12 +19,10 @@ const SettingsPanel = ({ onNavigateGroups }) => {
       intervalMinutes: 15
     }
   });
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [snapshotPath, setSnapshotPath] = useState('');
   const [metadataStatus, setMetadataStatus] = useState(null);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const { passwordStatus } = usePassword();
   const saveTimeoutRef = useRef(null);
@@ -36,13 +34,7 @@ const SettingsPanel = ({ onNavigateGroups }) => {
   // const settingsForm = useFormValidation({}, {});
 
   // Custom hook for notifications
-  const { notification, showSuccess, showError, hideNotification } = useNotification();
-
-  useEffect(() => {
-    fetchSettings();
-    fetchSnapshotPath();
-    fetchMetadataStatus();
-  }, []);
+  const { notification, showError, hideNotification } = useNotification();
 
   // Auto-save settings when they change (debounced)
   useEffect(() => {
@@ -130,7 +122,6 @@ const SettingsPanel = ({ onNavigateGroups }) => {
   }, []);
 
   const fetchSettings = useCallback(async () => {
-    setIsLoading(true);
     try {
       const response = await api.get('/api/settings');
       // Normalized response has settings in data property
@@ -170,8 +161,6 @@ const SettingsPanel = ({ onNavigateGroups }) => {
         connection: {},
         fileApi: { configured: false }
       });
-    } finally {
-      setIsLoading(false);
     }
   }, [showError]);
 
@@ -185,22 +174,11 @@ const SettingsPanel = ({ onNavigateGroups }) => {
     }
   }, []);
 
-  const handleSyncMetadata = async () => {
-    setIsSyncing(true);
-    try {
-      const data = await api.post('/api/metadata/sync');
-      showSuccess(`Sync completed: ${data.data.resolved.length} conflicts resolved`);
-
-      // Refresh metadata status after sync
-      await fetchMetadataStatus();
-    } catch (error) {
-      console.error('Error syncing metadata:', error);
-      showError('Failed to sync metadata. Please try again.');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
+  useEffect(() => {
+    fetchSettings();
+    fetchSnapshotPath();
+    fetchMetadataStatus();
+  }, [fetchSettings, fetchSnapshotPath, fetchMetadataStatus]);
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">

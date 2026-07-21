@@ -1,7 +1,7 @@
 // ABOUTME: Displays relative time that auto-updates (e.g., "5 minutes ago", "yesterday")
 // ABOUTME: Uses a single shared timer for synchronized updates across all instances
 
-import React, { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { format } from 'timeago.js';
 

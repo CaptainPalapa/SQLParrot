@@ -1,4 +1,3 @@
-import React from 'react';
 import { Heart, Code, Database, Palette, Shield, Zap, Github, ExternalLink } from 'lucide-react';
 import { APP_VERSION } from '../constants/version';
 import splashImage from '../assets/sql-parrot-splash.png';
@@ -74,7 +73,7 @@ const AboutPanel = () => {
       {/* Mission Statement */}
       <div className="bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-primary-900 dark:to-secondary-900 rounded-lg p-6 border border-primary-200 dark:border-primary-700">
         <blockquote className="text-lg italic text-secondary-700 dark:text-secondary-300 text-center">
-          "Why should minor, utility tools be ugly? Every developer deserves beautiful, intuitive interfaces for their daily work."
+          &ldquo;Why should minor, utility tools be ugly? Every developer deserves beautiful, intuitive interfaces for their daily work.&rdquo;
         </blockquote>
         <p className="text-center text-sm text-secondary-600 dark:text-secondary-400 mt-2">
           — Will Belden, Creator
@@ -270,7 +269,7 @@ const AboutPanel = () => {
               AI-Assisted Development
             </h3>
             <p className="text-sm text-secondary-600 dark:text-secondary-400">
-              This project showcases <strong>AI-assisted development</strong>. Will's expertise lies in application design, architecture, and defining what tools should accomplish. The implementation leverages AI collaboration to bring those designs to life using modern web technologies.
+              This project showcases <strong>AI-assisted development</strong>. Will&apos;s expertise lies in application design, architecture, and defining what tools should accomplish. The implementation leverages AI collaboration to bring those designs to life using modern web technologies.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
