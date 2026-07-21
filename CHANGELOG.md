@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-21
+*Favicon fix and version sync*
+
+### Fixed
+- **Favicon missing in Docker/web builds:** `frontend/public/` was excluded by a stray `public` rule in `.gitignore` (a Gatsby-era default), so `favicon.ico` was never committed. CI-built images served `index.html` in place of the icon and browsers fell back to a cached favicon from another app on the same host/port. Removed the ignore rule and committed the favicon assets.
+
+### Changed
+- **Smaller favicon:** The 32×32 icon link now points to a 32×32, ~2 KB PNG instead of a 1024×1024, 1.3 MB image.
+- **Version sync:** Aligned `APP_VERSION`, `Cargo.toml`, and `tauri.conf.json` to the released version. These had lagged at 1.7.1 while `package.json` read 1.8.0, so the app displayed an out-of-date version.
+
 ## [1.8.0] - 2026-03-08
 *Automatic checkpoint control, edit-group fixes, dependency updates*
 

@@ -83,7 +83,8 @@ dist
 
 # Gatsby files
 .cache/
-public
+# NOTE: do NOT ignore "public" here — Vite uses frontend/public/ as a static
+# asset source (favicon.ico, app icons). Ignoring it drops those from builds.
 
 # Vuepress build output
 .vuepress/dist
