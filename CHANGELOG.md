@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-21
+*Node 24 runtime upgrade and dependency refresh*
+
+### Changed
+- **Node 24:** Upgraded the runtime from Node 20 (end-of-life 2026-04-30) to Node 24 "Krypton" (Active LTS through April 2028). Updated the Docker base image and all CI workflows. Validated with a full Docker build (native `better-sqlite3` compile from source), the backend and frontend test suites, and a Tauri `cargo check` (#70).
+- **Dependencies:** `better-sqlite3` 12.6.2 → 12.11.1, `mssql` 12.2.0 → 12.7.0, `nodemon` 3.1.11 → 3.1.14, `jest` 30.2.0 → 30.4.2, and the `tauri` crate 2.9.5 → 2.11.5 (#70).
+
+### Security
+- **Frontend build tooling and uuid:** `vite` 7.1.11 → 7.3.6, `vitest` 3.2.4 → 3.2.7, `postcss` 8.5.6 → 8.5.21, and `uuid` 9.0.1 → 11.1.1 for security patches (#69).
+
 ## [1.8.1] - 2026-07-21
 *Favicon fix and version sync*
 
