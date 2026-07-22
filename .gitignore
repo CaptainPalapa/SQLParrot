@@ -169,6 +169,10 @@ data/backups/
 *.ss
 *.snapshot
 
+# Local connection profiles. Holds real hostnames and passwords, and the
+# pre-1.3.0 migration path imports whatever it finds here into SQLite.
+backend/config.json
+
 # SQLite metadata database
 backend/data/
 data/*.db

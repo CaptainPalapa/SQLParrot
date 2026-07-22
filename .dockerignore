@@ -24,13 +24,26 @@ frontend/dist
 
 # Logs
 *.log
+**/*.log
 npm-debug.log*
 
 # Local env files
 .env
+.env.safe
 .env.local
 .env.*.local
+**/.env
+**/.env.local
 docker-compose.yml
+
+# Local runtime state -- backend/data holds the live sqlparrot.db
+data
+backend/data
+
+# Connection profiles. The pre-1.3.0 migration path reads this from the working
+# directory and imports its profiles into SQLite, so a copy baked into the image
+# would seed every fresh container with whoever built it.
+backend/config.json
 
 # OS files
 .DS_Store
