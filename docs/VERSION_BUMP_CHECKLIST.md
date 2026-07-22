@@ -7,8 +7,13 @@
 - [ ] **`package.json`** (root) - Update `"version"` field
 - [ ] **`frontend/src/constants/version.js`** - Update `APP_VERSION` constant
 - [ ] **`src-tauri/Cargo.toml`** - Update `version = "X.Y.Z"` field
+- [ ] **`src-tauri/Cargo.lock`** - Update the `version` in this crate's own `[[package]]` entry
 - [ ] **`src-tauri/tauri.conf.json`** - Update `"version": "X.Y.Z"` field
 - [ ] **`CHANGELOG.md`** - Add new version entry with changes
+
+`npm run bump X.Y.Z` (i.e. `node scripts/bump-version.js X.Y.Z`) handles all of
+the above. It inserts a placeholder CHANGELOG entry, so the remaining manual
+step is replacing that placeholder with the real changes.
 
 ## Verification Steps
 

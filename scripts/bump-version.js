@@ -19,9 +19,24 @@ const FILES = {
   packageJson: 'package.json',
   versionJs: 'frontend/src/constants/version.js',
   cargoToml: 'src-tauri/Cargo.toml',
+  cargoLock: 'src-tauri/Cargo.lock',
   tauriConf: 'src-tauri/tauri.conf.json',
   changelog: 'CHANGELOG.md'
 };
+
+/**
+ * Detects the line ending a file already uses, so edits don't mix CRLF and LF
+ */
+function detectEol(content) {
+  return content.includes('\r\n') ? '\r\n' : '\n';
+}
+
+/**
+ * Escapes a string for safe use inside a regular expression
+ */
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * Validates version format (semver: X.Y.Z, numbers only, no "v" prefix)
@@ -137,6 +152,45 @@ function updateCargoToml(filePath, oldVersion, newVersion) {
 }
 
 /**
+ * Updates the crate's own version in src-tauri/Cargo.lock
+ *
+ * Cargo rewrites this itself on the next build, but leaving it stale means the
+ * committed lockfile disagrees with Cargo.toml.
+ */
+function updateCargoLock(filePath, cargoTomlPath, oldVersion, newVersion) {
+  const tomlContent = readFile(cargoTomlPath);
+  const nameMatch = tomlContent.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
+
+  if (!nameMatch) {
+    console.error(`Error: Could not determine the crate name from ${cargoTomlPath}`);
+    process.exit(1);
+  }
+
+  const crateName = nameMatch[1];
+  const content = readFile(filePath);
+
+  // Match the [[package]] entry for this crate, then the version on the next line
+  const lockRegex = new RegExp(
+    `(name = "${escapeRegex(crateName)}"\\r?\\n\\s*version = ")(\\d+\\.\\d+\\.\\d+)(")`
+  );
+  const match = content.match(lockRegex);
+
+  if (!match) {
+    console.error(`Error: Could not find the "${crateName}" package entry in ${filePath}`);
+    process.exit(1);
+  }
+
+  if (match[2] !== oldVersion) {
+    console.error(`Error: Current version mismatch in Cargo.lock. Expected ${oldVersion}, found ${match[2]}`);
+    process.exit(1);
+  }
+
+  const newContent = content.replace(lockRegex, `$1${newVersion}$3`);
+  writeFile(filePath, newContent);
+  return { old: match[2], new: newVersion };
+}
+
+/**
  * Updates version in src-tauri/tauri.conf.json
  */
 function updateTauriConf(filePath, oldVersion, newVersion) {
@@ -166,22 +220,22 @@ function updateChangelog(filePath, newVersion) {
   const day = String(today.getDate()).padStart(2, '0');
   const dateStr = `${year}-${month}-${day}`;
   
-  // Find the [Unreleased] section and add new version entry after it
-  // Pattern: ## [Unreleased]\n\n## [X.Y.Z] - YYYY-MM-DD
-  // Match: ## [Unreleased] followed by one or more newlines and then ## [version]
-  const unreleasedRegex = /(## \[Unreleased\]\n+)(## \[)/;
+  // Find the [Unreleased] section and add the new version entry after it.
+  // The newline class must tolerate CRLF: this file is checked out with CRLF
+  // endings on Windows, where a bare \n never matches.
+  const unreleasedRegex = /(## \[Unreleased\](?:\r?\n)+)(## \[)/;
   const match = content.match(unreleasedRegex);
-  
+
   if (!match) {
     console.error(`Error: Could not find [Unreleased] section in ${filePath}`);
-    console.error(`Expected pattern: ## [Unreleased]\\n\\n## [version]`);
+    console.error(`Expected pattern: ## [Unreleased] followed by ## [version]`);
     process.exit(1);
   }
-  
-  // Insert new version entry between [Unreleased] and next version
-  // Replace: ## [Unreleased]\n\n## [existingVersion]
-  // With: ## [Unreleased]\n\n## [newVersion] - date\n*Placeholder*\n\n## [existingVersion]
-  const newEntry = `## [${newVersion}] - ${dateStr}\n*Placeholder entry - add changes here*\n\n`;
+
+  // Insert the new entry between [Unreleased] and the previous release, using
+  // whichever line ending the file already uses.
+  const eol = detectEol(content);
+  const newEntry = `## [${newVersion}] - ${dateStr}${eol}*Placeholder entry - add changes here*${eol}${eol}`;
   const newContent = content.replace(unreleasedRegex, `$1${newEntry}$2`);
   writeFile(filePath, newContent);
   
@@ -252,7 +306,16 @@ function main() {
     file: FILES.cargoToml,
     ...updateCargoToml(cargoTomlPath, oldVersion, newVersion)
   });
-  
+
+  // Update src-tauri/Cargo.lock (only the crate's own entry; the name is read
+  // from Cargo.toml, whose version has already been bumped above)
+  const cargoLockPath = path.join(projectRoot, FILES.cargoLock);
+  console.log(`Updating ${FILES.cargoLock}...`);
+  results.push({
+    file: FILES.cargoLock,
+    ...updateCargoLock(cargoLockPath, cargoTomlPath, oldVersion, newVersion)
+  });
+
   // Update src-tauri/tauri.conf.json
   const tauriConfPath = path.join(projectRoot, FILES.tauriConf);
   console.log(`Updating ${FILES.tauriConf}...`);
