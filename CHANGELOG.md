@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-22
+*Enforced linting, CI repairs, and a backend crash fix*
+
+### Fixed
+- **Snapshot listing crash:** the JSON-file fallback in `GET /api/groups/:id/snapshots` referenced an undefined `data` variable and threw a `ReferenceError` whenever that path was taken. Surfaced by the newly-enabled backend linting (#79).
+- **Frontend lint failed after a coverage run:** the frontend ESLint config ignored only `dist`, so it linted Istanbul's generated report files under `frontend/coverage/` (#83).
+- **Pre-commit hook rejected valid commits:** a lint-staged pattern without a slash matches a file's basename in any directory, so files such as `frontend/eslint.config.js` were also routed to the root config that ignores them, and the resulting "file ignored" warning failed the hook (#83).
+
+### Added
+- **Linting is now enforced.** ESLint 9 flat configs for the frontend, the backend, and the repo-root Node code (tests and scripts), a pre-commit hook via husky and lint-staged that lints only staged files, and a CI lint step covering all three (#78, #79, #80).
+- **Codecov configuration:** project coverage gates against regression, while patch coverage reports without blocking (#82).
+- **Rust build cache** for the Tauri release job, which previously recompiled the entire dependency tree on every release (#84).
+
+### Changed
+- **CI repairs:** removed a shell-injection pattern in the Dependabot helper that made it fail on every Dependabot pull request, and replaced an `npm ci` fallback that silently installed unlocked dependency versions when the lockfile was out of date (#81).
+- **Removed the Slack notification jobs**, which could never fire; email release notifications are unaffected (#84).
+
 ## [1.9.0] - 2026-07-21
 *Node 24 runtime upgrade and dependency refresh*
 
@@ -303,7 +320,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History tracking
 - Theme system with 7 accent colors
 
-[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.9.0...v1.9.1
 [1.8.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/CaptainPalapa/SQLParrot/compare/v1.6.0...v1.7.0
