@@ -20,7 +20,14 @@
     "test:watch": "jest --watch",
     "bump": "node scripts/bump-version.js",
     "screenshots": "node scripts/capture-screenshots.js",
-    "lint": "eslint . --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "frontend/**/*.{js,jsx}": "eslint --config frontend/eslint.config.js --report-unused-disable-directives --max-warnings 0",
+    "backend/**/*.js": "eslint --config backend/eslint.config.js --report-unused-disable-directives --max-warnings 0",
+    "{tests,scripts}/**/*.js": "eslint --config eslint.config.js --report-unused-disable-directives --max-warnings 0",
+    "*.js": "eslint --config eslint.config.js --report-unused-disable-directives --max-warnings 0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -29,7 +36,9 @@
     "dotenv": "^17.3.1",
     "eslint": "^9.39.5",
     "globals": "^17.7.0",
+    "husky": "^9.1.7",
     "jest": "^30.4.2",
+    "lint-staged": "^17.1.0",
     "mssql": "^12.7.0",
     "playwright": "^1.58.2",
     "supertest": "^7.2.2"
