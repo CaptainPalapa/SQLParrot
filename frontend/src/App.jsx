@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Database, Settings, History, Palette, Info, LogOut, Server } from 'lucide-react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { PasswordProvider, usePassword } from './contexts/PasswordContext';
@@ -156,9 +156,9 @@ function AppContent() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {activeTab === 'groups' && <GroupsManager key={`groups-${profileRefreshKey}`} onNavigateSettings={() => setActiveTab('profiles')} onGroupsChanged={handleGroupsChanged} />}
+          {activeTab === 'groups' && <GroupsManager key={`groups-${profileRefreshKey}`} onGroupsChanged={handleGroupsChanged} />}
           {activeTab === 'profiles' && <ProfilesPanel key={`profiles-${profileRefreshKey}`} onProfileChange={handleProfileChange} onProfilesChanged={handleProfilesChanged} />}
-          {activeTab === 'settings' && <SettingsPanel onNavigateGroups={() => setActiveTab('groups')} />}
+          {activeTab === 'settings' && <SettingsPanel />}
           {activeTab === 'history' && <HistoryView />}
           {activeTab === 'about' && <AboutPanel />}
         </main>

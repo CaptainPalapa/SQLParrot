@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
 
 const PasswordContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const usePassword = () => {
   const context = useContext(PasswordContext);
   if (!context) {
@@ -16,12 +17,7 @@ export const PasswordProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check password status on mount
-  useEffect(() => {
-    checkPasswordStatus();
-  }, []);
-
-  const checkPasswordStatus = async () => {
+  const checkPasswordStatus = useCallback(async () => {
     try {
       setIsLoading(true);
       const response = await api.get('/api/auth/password-status');
@@ -67,7 +63,12 @@ export const PasswordProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  // Check password status on mount
+  useEffect(() => {
+    checkPasswordStatus();
+  }, [checkPasswordStatus]);
 
   const checkPassword = async (password) => {
     try {

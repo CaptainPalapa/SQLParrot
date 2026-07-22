@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Clock, Database, Camera, Trash2, RotateCcw, ChevronLeft, ChevronRight, AlertTriangle, Scissors } from 'lucide-react';
 import { Toast } from './ui/Modal';
 import { useNotification } from '../hooks/useNotification';
@@ -16,10 +16,6 @@ const HistoryView = () => {
 
   // Custom hook for notifications
   const { notification, showError, showSuccess, hideNotification } = useNotification();
-
-  useEffect(() => {
-    fetchHistory();
-  }, []);
 
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
@@ -51,6 +47,10 @@ const HistoryView = () => {
       setIsLoading(false);
     }
   }, [showError]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const clearHistory = useCallback(async () => {
     setIsClearing(true);

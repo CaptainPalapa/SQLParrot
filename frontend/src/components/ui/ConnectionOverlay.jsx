@@ -1,7 +1,6 @@
 // ABOUTME: Displays a blurred overlay when SQL Server connection is lost or reconnecting
 // ABOUTME: Provides visual feedback and reconnect button for connection state changes
 
-import React from 'react';
 import PropTypes from 'prop-types';
 import { RefreshCw, WifiOff, Settings } from 'lucide-react';
 import { LoadingSpinner } from './Loading';

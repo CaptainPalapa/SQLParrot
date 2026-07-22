@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Search, Check, X, AlertCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useNotification } from '../hooks/useNotification';
 import { api } from '../api';
@@ -253,7 +253,6 @@ const DatabaseSelector = ({ selectedDatabases = [], onSelectionChange, className
   };
 
   // Calculate summary stats
-  const totalDatabases = databases.length;
   const availableDatabases = filteredDatabases.filter(db => !databasesInUse.has(db.name));
   const visibleSelected = filteredDatabases.filter(db => selected.has(db.name)).length;
   const totalSelected = selected.size;

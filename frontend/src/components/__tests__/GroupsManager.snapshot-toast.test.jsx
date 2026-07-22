@@ -18,7 +18,6 @@ describe('GroupsManager - Snapshot Creation Toast Message Bug', () => {
 
   it('should PASS: displays correct snapshot name in toast when accessing snapshot.displayName correctly', async () => {
     const groupId = 'test-group-1';
-    const snapshotName = 'My Test Snapshot';
     const displayName = '2026-05-01 13:00';
 
     // Simulate the actual backend API response format

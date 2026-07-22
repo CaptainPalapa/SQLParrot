@@ -346,7 +346,7 @@ export async function apiCall(endpoint, options = {}) {
       let errorData;
       try {
         errorData = await response.json();
-      } catch (e) {
+      } catch {
         errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
       }
       return {
