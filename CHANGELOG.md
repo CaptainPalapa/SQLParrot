@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-22
+*Docker image reduced from 1.58GB to 369MB*
+
+### Changed
+- **Multi-stage Docker build.** The image previously built and ran the app in a single stage, so everything needed to build it stayed in it: the 313MB `python3`/`make`/`g++` toolchain, `jest`, `playwright`, `eslint`, `vite`, and two copies of the Tauri CLI. Only the Express server, its production dependencies, and `frontend/dist` now reach the runtime stage. On disk 1.58GB → 369MB; `docker compose pull` drops from roughly 326MB to 79MB (#87).
+- **The container runs `node server.js` directly** rather than through `npm run start:docker`. The working directory is unchanged, so the SQLite database still lands in `/app/backend/data`, and dropping the npm wrapper lets `SIGTERM` reach node for a clean shutdown (#87).
+
+### Fixed
+- **Fresh containers no longer start with a phantom connection profile.** `backend/config.json` was committed and copied into the image, and the pre-1.3.0 migration path imports whatever `config.json` it finds in the working directory into SQLite on startup — so every new container seeded itself with a "Default" profile from the machine that built the image. The file is no longer tracked or copied into the build context (#87).
+- **Build context exclusions:** `backend/data` (the live SQLite database), `.env.safe`, and nested log files such as `backend/backend.log` were not matched by the previous `.dockerignore` patterns and could be baked into locally-built images (#87).
+
+### Security
+- **`better-sqlite3` ABI mismatches now fail the build.** The native module is compiled in one stage and copied into another, so all stages resolve a single `NODE_IMAGE` ARG to prevent drift, the build forces a source compile rather than a glibc-linked prebuilt binary that cannot load on musl, and the runtime stage loads the module and opens an in-memory database as a build-time check (#87).
+
 ## [1.9.1] - 2026-07-22
 *Enforced linting, CI repairs, and a backend crash fix*
 
