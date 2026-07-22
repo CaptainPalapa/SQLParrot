@@ -53,7 +53,7 @@ const createMockStorage = () => ({
     };
     return { success: true };
   }),
-  deleteSnapshot: jest.fn((id) => ({ success: true })),
+  deleteSnapshot: jest.fn((_id) => ({ success: true })),
   addSnapshot: jest.fn(() => ({ success: true })),
   addHistory: jest.fn(() => ({ success: true })),
   addHistoryEntry: jest.fn(async () => ({ success: true })),

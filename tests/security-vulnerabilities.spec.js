@@ -259,8 +259,8 @@ constructor:
     polluted: true
 `;
       
-      const parsed = yaml.load(maliciousYaml);
-      
+      yaml.load(maliciousYaml);
+
       // Verify Object.prototype was not polluted
       expect(Object.prototype.polluted).toBeUndefined();
     });
@@ -366,7 +366,7 @@ __proto__:
       try {
         const globPackage = require('glob/package.json');
         const version = globPackage.version;
-        const [major, minor, patch] = version.split('.').map(Number);
+        const [major, minor] = version.split('.').map(Number);
         
         // Should be 10.5.0+ or 11.1.0+
         if (major === 10) {
