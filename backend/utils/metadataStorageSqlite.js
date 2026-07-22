@@ -1860,7 +1860,14 @@ class MetadataStorage {
   async getPasswordStatus() {
     try {
       const settingsResult = await this.getSettings();
-      const settings = settingsResult.success ? settingsResult.settings : {};
+      // Report the failure rather than falling back to an empty object. Treating
+      // unreadable settings as "no password configured" would tell the caller
+      // protection is off when it may well be on.
+      if (!settingsResult.success) {
+        return { success: false, error: settingsResult.error || 'Failed to read settings' };
+      }
+
+      const settings = settingsResult.settings || {};
       const passwordHash = settings.passwordHash || null;
       const passwordSkipped = settings.passwordSkipped || false;
 
