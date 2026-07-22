@@ -250,10 +250,10 @@ const originalImplementations = {
       passwordSkipped: false
     };
   },
-  setPasswordHash: async function(hash) { return { success: true }; },
+  setPasswordHash: async function(_hash) { return { success: true }; },
   removePasswordHash: async function() { return { success: true }; },
   skipPasswordProtection: async function() { return { success: true }; },
-  checkPassword: async function(password) { return { success: true, authenticated: false }; },
+  checkPassword: async function(_password) { return { success: true, authenticated: false }; },
   getGroups: function() { return { success: true, groups: [] }; },
   getSnapshots: function() { return { success: true, snapshots: [] }; },
   getHistory: function() { return { success: true, history: [] }; },
@@ -307,9 +307,6 @@ jest.mock('../backend/utils/metadataStorageSqlite', () => {
 // The mock will be used when server.js requires metadataStorageSqlite
 const app = require('../backend/server');
 const { cleanupTimers } = require('../backend/server');
-
-const sql = require('mssql');
-const MetadataStorage = require('../backend/utils/metadataStorageSqlite');
 
 // Helper to get storage instance (mocked singleton)
 function getStorage() {
@@ -953,8 +950,8 @@ describe('Profile Management API Tests', () => {
     test('should maintain at least one active profile through multiple operations', async () => {
       // Create three profiles
       const profile1 = createTestProfile('TEST_Profile1');
-      const profile2 = createTestProfile('TEST_Profile2');
-      const profile3 = createTestProfile('TEST_Profile3');
+      const _profile2 = createTestProfile('TEST_Profile2');
+      const _profile3 = createTestProfile('TEST_Profile3');
 
       // Set profile1 as active
       await request(app).post(`/api/profiles/${profile1.id}/activate`);
@@ -995,8 +992,8 @@ describe('Profile Management API Tests', () => {
     test('should auto-activate profile after deleting active profile in sequence', async () => {
       // Create three profiles
       const profile1 = createTestProfile('TEST_Delete1');
-      const profile2 = createTestProfile('TEST_Delete2');
-      const profile3 = createTestProfile('TEST_Delete3');
+      const _profile2 = createTestProfile('TEST_Delete2');
+      const _profile3 = createTestProfile('TEST_Delete3');
 
       // Set profile1 as active
       await request(app).post(`/api/profiles/${profile1.id}/activate`);

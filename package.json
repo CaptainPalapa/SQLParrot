@@ -19,12 +19,16 @@
     "test:all": "jest tests/ backend/utils/__tests__/",
     "test:watch": "jest --watch",
     "bump": "node scripts/bump-version.js",
-    "screenshots": "node scripts/capture-screenshots.js"
+    "screenshots": "node scripts/capture-screenshots.js",
+    "lint": "eslint . --report-unused-disable-directives --max-warnings 0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tauri-apps/cli": "^2.10.0",
     "concurrently": "^9.2.1",
     "dotenv": "^17.3.1",
+    "eslint": "^9.39.5",
+    "globals": "^17.7.0",
     "jest": "^30.4.2",
     "mssql": "^12.7.0",
     "playwright": "^1.58.2",

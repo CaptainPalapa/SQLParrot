@@ -1580,7 +1580,7 @@ class MetadataStorage {
    * @param {Object} pool Unused (for compatibility)
    * @param {number} snapshotCount Current snapshot count
    */
-  async updateStats(pool, snapshotCount) {
+  async updateStats(_pool, _snapshotCount) {
     // Stats table removed - this method kept for compatibility but does nothing
     // Snapshot count can be calculated from snapshots table if needed
   }

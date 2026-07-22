@@ -28,7 +28,7 @@ const createMockStorage = () => ({
   getAllSnapshots: jest.fn(async () => mockSnapshots),
   getAllGroups: jest.fn(async () => mockGroups),
   getGroup: jest.fn((id) => mockGroups.find(g => g.id === id) || null),
-  deleteSnapshot: jest.fn((id) => ({ success: true })),
+  deleteSnapshot: jest.fn((_id) => ({ success: true })),
   addSnapshot: jest.fn(() => ({ success: true })),
   addHistory: jest.fn(async () => ({ success: true })),
   addHistoryEntry: jest.fn(async () => ({ success: true })),
