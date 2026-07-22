@@ -25,10 +25,13 @@ jobs:
 
       - name: Detect major version update
         id: detect
+        # Pull request text is passed through the environment, never interpolated
+        # into the script body. Dependabot descriptions contain backticks (e.g.
+        # `@dependabot rebase`), which the shell would otherwise execute.
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BRANCH_NAME: ${{ github.head_ref }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
-          
           echo "PR Title: $PR_TITLE"
           
           # Extract package name and versions from PR title
@@ -67,7 +70,6 @@ jobs:
           fi
           
           # Determine package directory from PR title or branch name
-          BRANCH_NAME="${{ github.head_ref }}"
           if echo "$PR_TITLE" | grep -qiE "/backend|backend/" || echo "$BRANCH_NAME" | grep -qiE "backend"; then
             echo "package_dir=backend" >> $GITHUB_OUTPUT
             echo "test_npm=true" >> $GITHUB_OUTPUT
