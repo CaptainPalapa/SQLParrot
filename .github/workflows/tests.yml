@@ -78,6 +78,13 @@ jobs:
         fi
       timeout-minutes: 5
 
+    - name: Lint (ESLint)
+      run: |
+        npm run lint
+        ( cd frontend && npm run lint )
+        ( cd backend && npm run lint )
+      timeout-minutes: 5
+
     - name: Create data directories for tests
       run: |
         mkdir -p data
