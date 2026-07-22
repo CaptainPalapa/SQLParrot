@@ -1,0 +1,27 @@
+# Codecov configuration.
+#
+# Without this file Codecov applies its defaults, where the "patch" status uses
+# target: auto — meaning the lines changed in a pull request must be covered at
+# least as well as the project's overall coverage. On a codebase with a lot of
+# older untested code that fails routine refactors, dead-code removal, and bug
+# fixes in areas that never had tests, which is noise rather than signal.
+#
+# So the two statuses are given different jobs:
+#   project — the gate. Overall coverage must not meaningfully drop.
+#   patch   — information only. Reports how much of the diff is covered, but
+#             never fails the build.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto      # compare against the base commit's coverage
+        threshold: 1%     # tolerate a small dip; block a real regression
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
