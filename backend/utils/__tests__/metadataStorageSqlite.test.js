@@ -473,7 +473,6 @@ describe('MetadataStorage SQLite Tests', () => {
     });
 
     test('should set active profile', () => {
-      const profile1Id = 'test-id-1';
       const profile2Id = 'test-id-2';
 
       // Mock setActiveProfile - deactivate all, then activate profile2

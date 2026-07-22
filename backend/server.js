@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs').promises;
 const sql = require('mssql');
 const bcrypt = require('bcryptjs');
 
@@ -178,19 +177,6 @@ async function initializeMetadataStorage() {
     isInitialized = false;
     throw error;
   }
-}
-
-// Check if backend is ready to serve requests
-function isBackendReady() {
-  return isInitialized;
-}
-
-// Get current initialization status
-function getInitializationStatus() {
-  return {
-    initialized: isInitialized,
-    error: initializationError
-  };
 }
 
 // Helper functions - REMOVED: No longer using JSON files
@@ -1219,7 +1205,6 @@ app.put('/api/groups/:id', async (req, res) => {
     const groupSnapshots = snapshotsData.snapshots.filter(s => s.groupId === id);
     const hasSnapshots = groupSnapshots.length > 0;
 
-    const nameChanged = originalGroup.name !== name;
     const databasesChanged = JSON.stringify(originalGroup.databases.sort()) !== JSON.stringify(databases.sort());
 
     // Only require snapshot deletion when database members change, not when just renaming
@@ -1517,6 +1502,7 @@ app.put('/api/settings', async (req, res) => {
           if (newMaxHistoryEntries < oldMaxHistoryEntries) {
             const trimResult = await metadataStorage.trimHistoryEntries(newMaxHistoryEntries);
             if (trimResult.success && trimResult.trimmed > 0) {
+              // History was trimmed successfully; no further action needed here.
             }
           }
 
@@ -1888,7 +1874,8 @@ app.get('/api/metadata/test', async (req, res) => {
         SELECT HAS_PERMS_BY_NAME('master', 'DATABASE', 'CREATE DATABASE') as can_create_db
       `);
       canCreateDatabase = permResult.recordset[0].can_create_db === 1;
-    } catch (permError) {
+    } catch {
+      // Best-effort permission probe; leave canCreateDatabase as-is on failure.
     }
 
     // Check if sqlparrot database exists
@@ -1898,7 +1885,8 @@ app.get('/api/metadata/test', async (req, res) => {
         SELECT name FROM sys.databases WHERE name = 'sqlparrot'
       `);
       sqlparrotExists = dbCheck.recordset.length > 0;
-    } catch (dbError) {
+    } catch {
+      // Best-effort existence check; leave sqlparrotExists false on failure.
     }
 
     await pool.close();
@@ -2596,7 +2584,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
             console.error(`Failed to cleanup remaining group+source snapshot database ${remainingSnapshot.name}: ${error.message}`);
           }
         }
-      } else {
       }
     } catch (error) {
       console.error(`Error checking for remaining group+source snapshots: ${error.message}`);
@@ -2610,7 +2597,7 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
     const groupSnapshots = allSnapshots.filter(s => s.groupId === snapshot.groupId);
 
     for (const groupSnapshot of groupSnapshots) {
-      const deleteResult = await metadataStorage.deleteSnapshot(groupSnapshot.id);
+      await metadataStorage.deleteSnapshot(groupSnapshot.id);
     }
 
     // Step 4: Create a new checkpoint snapshot after restore (if enabled)
@@ -2662,7 +2649,6 @@ app.post('/api/snapshots/:snapshotId/rollback', async (req, res) => {
     }
 
     // Create checkpoint snapshot using the same logic as regular snapshot creation
-    const sequence = 1; // Reset sequence numbering
     const checkpointDisplayName = `Automatic - ${new Date().toLocaleString()}`;
     // Use group.name instead of snapshot.groupName (which may be undefined)
     const checkpointId = generateSnapshotId(group.name, checkpointDisplayName);
@@ -2863,7 +2849,7 @@ app.get('/api/groups/:id/snapshots', async (req, res) => {
     // Fall back to JSON file if not found in database
     if (!group) {
       const groups = await metadataStorage.getAllGroups();
-      group = data.groups.find(g => g.id === id);
+      group = groups.find(g => g.id === id);
     }
 
     if (!group) {
@@ -3073,7 +3059,9 @@ app.post('/api/groups/:id/snapshots', async (req, res) => {
       try {
         const result = await metadataStorage.addSnapshot(newSnapshot);
         if (result.success && result.mode === 'sql') {
+          // Snapshot stored in SQL metadata; nothing further to do here.
         } else if (result.fallback) {
+          // Fell back to JSON storage; handled by the shared code path below.
         }
       } catch (error) {
         console.error('❌ Failed to add snapshot to metadata database:', error.message);
