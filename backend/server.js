@@ -123,8 +123,18 @@ async function requirePasswordAuth(req, res, next) {
     // Check password status
     const passwordStatus = await metadataStorage.getPasswordStatus();
 
+    // Deny when the status cannot be determined. A password may well be
+    // configured, and letting requests through on an unreadable database would
+    // drop the gate exactly when the app is least healthy.
+    if (!passwordStatus.success) {
+      return res.status(503).json(createErrorResponse(
+        'Authentication unavailable - metadata storage could not be read',
+        503
+      ));
+    }
+
     // If password not set or skipped, allow access
-    if (!passwordStatus.success || passwordStatus.status === 'not-set' || passwordStatus.status === 'skipped') {
+    if (passwordStatus.status === 'not-set' || passwordStatus.status === 'skipped') {
       return next();
     }
 
