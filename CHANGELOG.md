@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-07-23
+*UI password gate fails closed; tests around the destructive operations*
+
+### Security
+- **The UI password gate now fails closed when the metadata database cannot be read.** `requirePasswordAuth` runs ahead of every API route and asks SQLite whether a password is configured; when that lookup failed it treated the answer as "no password set" and let the request through, so an unreadable database silently switched protection off. `getPasswordStatus` reached the same outcome more quietly by falling back to an empty settings object. Both now report the failure and the middleware answers 503, so a broken database denies API access rather than opening it. Fresh installs are unaffected — a new database reports no password and the gate stays open as before (#89).
+
+### Added
+- **Tests for the UI authentication surface**, which previously had none: the six `/api/auth` endpoints, the middleware that gates every API route, bcrypt hashing, and the session lifecycle (#89).
+- **Tests for the operations that issue `DROP DATABASE`** — the bulk cleanup, group deletion, and the verify/cleanup endpoints — asserting which snapshots are dropped and, above all, which are not, so a regression here is caught before it deletes data (#90).
+- **Storage behaviour tests against a real in-memory SQLite database**, covering history trimming at its boundaries and per-group snapshot sequence numbering (#89).
+
+### Notes
+- These raise backend coverage from 31% to 52% of statements. No change to the shipped runtime behaviour beyond the fail-closed fix above.
+
 ## [1.10.0] - 2026-07-22
 *Docker image reduced from 1.58GB to 369MB*
 
