@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-09-07
+*Verify no longer deletes anything on its own*
+
 ### Fixed
 - **Verify no longer deletes snapshot metadata as a side effect of checking it.** `verifySnapshotConsistency` silently removed any metadata entry it couldn't match to a database on SQL Server, and ran automatically on every server startup. A container restart racing SQL Server's own recovery could permanently erase a perfectly good snapshot's tracking record before the database had a chance to come back online. Verify now only reports what it finds; the existing "Clean Stale Metadata" button in the Verify dialog is the only thing that actually removes an entry, and only when clicked (#106).
 - **Verify no longer reports the same orphaned or stale snapshot more than once.** The consistency check is server-wide, but the UI ran it once per group and merged every response together without deduplicating, so a single orphaned snapshot on the server showed up as one duplicate row per group. Dropping the "second" row then failed with "doesn't exist," because the first, identical row had already removed it. Verify now runs the check exactly once per click (#106).
