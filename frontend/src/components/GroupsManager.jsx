@@ -875,63 +875,40 @@ const GroupsManager = ({ onGroupsChanged }) => {
     setVerificationResults(null);
 
     try {
-      // Verify all groups - collect results from each
-      let allOrphaned = [];
-      let allStale = [];
-      let allVerified = true;
+      // Consistency check is server-wide (all groups' snapshots vs. SQL Server),
+      // not scoped to a single group - call it once. Looping per group here
+      // previously caused the same orphaned/stale snapshot to be reported once
+      // per group, showing duplicate rows in the dialog.
+      const result = await api.post('/api/snapshots/verify', {});
 
-      for (const group of groups) {
-        const response = await api.post('/api/snapshots/verify', { groupId: group.id });
-        console.log('Verify response for group', group.id, ':', JSON.stringify(response));
-        // Backend returns { success, verified, issues, orphanedInSQL, missingInSQL, inaccessibleSnapshots }
-        // The response is already the parsed JSON, fields are at top level
-        const result = response;
-        console.log('Verify result:', JSON.stringify(result));
-        console.log('Verify result fields:', {
-          verified: result.verified,
-          issues: result.issues,
-          orphanedInSQL: result.orphanedInSQL,
-          missingInSQL: result.missingInSQL
-        });
-
-        if (!result.verified) {
-          allVerified = false;
-        }
-        // Backend returns orphanedInSQL and missingInSQL
-        // Also check for Rust field names: orphanedSnapshots -> orphanedInSQL, staleMetadata -> missingInSQL
-        if (result.orphanedInSQL?.length > 0) {
-          allOrphaned.push(...result.orphanedInSQL);
-        } else if (result.orphanedSnapshots?.length > 0) {
-          // Fallback for Rust/Tauri field names
-          allOrphaned.push(...result.orphanedSnapshots);
-        }
-        if (result.missingInSQL?.length > 0) {
-          allStale.push(...result.missingInSQL);
-        } else if (result.staleMetadata?.length > 0) {
-          // Fallback for Rust/Tauri field names
-          allStale.push(...result.staleMetadata);
-        }
-      }
-      console.log('Verify totals:', { allOrphaned, allStale, allVerified });
+      // Backend returns orphanedInSQL and missingInSQL
+      // Also check for Rust field names: orphanedSnapshots -> orphanedInSQL, staleMetadata -> missingInSQL
+      const orphanedInSQL = result.orphanedInSQL?.length > 0 ? result.orphanedInSQL : (result.orphanedSnapshots || []);
+      const missingInSQL = result.missingInSQL?.length > 0 ? result.missingInSQL : (result.staleMetadata || []);
+      const unhealthyDatabases = result.unhealthyDatabases || [];
 
       // Build issues array for display
       const issues = [];
-      if (allOrphaned.length > 0) {
-        issues.push(`${allOrphaned.length} external snapshot${allOrphaned.length === 1 ? '' : 's'} found on SQL Server`);
+      if (unhealthyDatabases.length > 0) {
+        issues.push(`${unhealthyDatabases.length} database${unhealthyDatabases.length === 1 ? '' : 's'} not online (likely an interrupted Discard Changes)`);
       }
-      if (allStale.length > 0) {
-        issues.push(`${allStale.length} stale metadata entr${allStale.length === 1 ? 'y' : 'ies'} (snapshots no longer on server)`);
+      if (orphanedInSQL.length > 0) {
+        issues.push(`${orphanedInSQL.length} external snapshot${orphanedInSQL.length === 1 ? '' : 's'} found on SQL Server`);
+      }
+      if (missingInSQL.length > 0) {
+        issues.push(`${missingInSQL.length} stale metadata entr${missingInSQL.length === 1 ? 'y' : 'ies'} (snapshots no longer on server)`);
       }
 
       const verifyData = {
-        verified: allVerified,
+        verified: result.verified,
         issues,
-        orphanedInSQL: allOrphaned,
-        missingInSQL: allStale,
-        inaccessibleSnapshots: allStale // Same as stale for cleanup purposes
+        orphanedInSQL,
+        missingInSQL,
+        unhealthyDatabases,
+        inaccessibleSnapshots: missingInSQL // Same as stale for cleanup purposes
       };
 
-      if (allVerified) {
+      if (result.verified) {
         showSuccess('All snapshots are consistent with our data.');
         setVerificationResults({
           type: 'consistency',
@@ -1771,6 +1748,23 @@ const GroupsManager = ({ onGroupsChanged }) => {
             </h3>
 
             <div className="space-y-4">
+              {/* Unhealthy Databases - most urgent, shown first */}
+              {verificationResults.data?.unhealthyDatabases && verificationResults.data.unhealthyDatabases.length > 0 && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                  <h4 className="font-medium text-red-800 dark:text-red-200 mb-2">
+                    ⚠️ Databases Not Online ({verificationResults.data.unhealthyDatabases.length})
+                  </h4>
+                  <p className="text-sm text-red-700 dark:text-red-300 mb-2">
+                    These databases aren&apos;t usable right now. This usually means a Discard Changes (restore from snapshot) was interrupted partway through - for example by a reboot or a dropped connection.
+                  </p>
+                  <ul className="text-sm text-red-700 dark:text-red-300 list-disc list-inside space-y-1">
+                    {verificationResults.data.unhealthyDatabases.map((db, idx) => (
+                      <li key={idx}><strong>{db.database}</strong>: {db.state}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Issues Summary */}
               {verificationResults.data?.issues && verificationResults.data.issues.length > 0 && (
                 <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
@@ -1788,7 +1782,8 @@ const GroupsManager = ({ onGroupsChanged }) => {
               {/* Show message if no issues but modal is open (shouldn't happen, but handle gracefully) */}
               {(!verificationResults.data?.issues || verificationResults.data.issues.length === 0) &&
                (!verificationResults.data?.orphanedInSQL || verificationResults.data.orphanedInSQL.length === 0) &&
-               (!verificationResults.data?.missingInSQL || verificationResults.data.missingInSQL.length === 0) && (
+               (!verificationResults.data?.missingInSQL || verificationResults.data.missingInSQL.length === 0) &&
+               (!verificationResults.data?.unhealthyDatabases || verificationResults.data.unhealthyDatabases.length === 0) && (
                 <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                   <p className="text-sm text-green-700 dark:text-green-300">
                     No issues detected. All snapshots are consistent.

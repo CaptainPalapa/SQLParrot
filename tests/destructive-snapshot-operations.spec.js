@@ -59,6 +59,7 @@ const mockStorageInstance = {
     trustCertificate: true
   })),
   getGroups: jest.fn(async () => ({ success: true, groups: mockGroups })),
+  getAllGroups: jest.fn(async () => mockGroups),
   getAllSnapshots: jest.fn(async () => mockSnapshots),
   getSnapshotsForGroup: jest.fn(async (groupId) =>
     mockSnapshots.filter(s => s.groupId === groupId)
@@ -285,14 +286,19 @@ describe('Destructive snapshot operations', () => {
       expect(mockStorageInstance.deleteSnapshot).not.toHaveBeenCalled();
     });
 
-    it('auto-removes metadata for snapshots the server no longer has', async () => {
+    it('reports, but does not remove, metadata for snapshots the server no longer has', async () => {
       respondTo(/FROM sys\.databases/i, { recordset: [] });
       mockSnapshots = [snapshotRecord('snap-gone', 'group-a', ['vanished_snap'])];
 
       const res = await request(app).post('/api/snapshots/verify').send({});
 
-      expect(mockStorageInstance.deleteSnapshot).toHaveBeenCalledWith('snap-gone');
+      // Verifying is read-only. A snapshot can look momentarily "missing" if
+      // SQL Server hasn't finished recovering it yet (e.g. right after a
+      // container/host restart), so verification must never delete on its
+      // own - only the explicit "Clean Stale Metadata" action does that.
+      expect(mockStorageInstance.deleteSnapshot).not.toHaveBeenCalled();
       expect(res.body.verified).toBe(false);
+      expect(res.body.missingInSQL).toEqual(['vanished_snap']);
     });
 
     it('never issues a DROP while verifying', async () => {
@@ -340,20 +346,19 @@ describe('Destructive snapshot operations', () => {
   });
 
   describe('POST /api/snapshots/cleanup-metadata', () => {
-    it('reports zero cleaned even when the verification it runs removed entries', async () => {
+    it('removes the stale metadata entry and reports it', async () => {
       respondTo(/FROM sys\.databases/i, { recordset: [] });
       mockSnapshots = [snapshotRecord('snap-gone', 'group-a', ['vanished_snap'])];
 
       const res = await request(app).post('/api/snapshots/cleanup-metadata').send({});
 
-      // verifySnapshotConsistency auto-removes stale entries itself and then
-      // returns missingInSQL as an empty array, so this endpoint's own cleanup
-      // branch never runs and its count stays at zero. The work happened, but
-      // the number reported back does not reflect it.
+      // verifySnapshotConsistency no longer deletes anything itself, so this
+      // endpoint's own cleanup branch is what does the work now - and its
+      // reported count matches what actually happened.
       expect(mockStorageInstance.deleteSnapshot).toHaveBeenCalledWith('snap-gone');
       expect(res.status).toBe(200);
-      expect(res.body.cleaned).toBe(0);
-      expect(res.body.staleSnapshots).toEqual([]);
+      expect(res.body.cleaned).toBe(1);
+      expect(res.body.staleSnapshots).toEqual(['vanished_snap']);
     });
 
     it('never issues a DROP', async () => {

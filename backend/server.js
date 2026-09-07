@@ -414,7 +414,6 @@ async function verifySnapshotConsistency() {
 
     const issues = [];
     let needsCleanup = false;
-    let autoCleanedCount = 0;
 
     // Check 1: Find snapshots in SQL Server that are not in our SQL metadata
     const sqlSnapshotNames = sqlResult.recordset.map(row => row.name);
@@ -434,53 +433,57 @@ async function verifySnapshotConsistency() {
       needsCleanup = true;
     }
 
-    // Check 2: Find snapshots in SQL metadata that don't exist in SQL Server - AUTO CLEANUP
+    // Check 2: Find snapshots in SQL metadata that don't exist in SQL Server.
+    // Reporting only - deletion happens only when the user explicitly runs
+    // "Clean Stale Metadata" (cleanupStaleSqlMetadata), never as a side effect
+    // of checking consistency. A snapshot can look momentarily "missing" here
+    // if SQL Server hasn't finished recovering it yet (e.g. right after a
+    // container/host restart), so verification must never delete on its own.
     const missingInSQL = metadataSnapshotNames.filter(name => !sqlSnapshotNames.includes(name));
     if (missingInSQL.length > 0) {
-
-      // Get all snapshots from metadata to find the snapshot IDs
-      const snapshotIdMap = new Map();
-      snapshotsData.snapshots.forEach(snapshot => {
-        snapshot.databaseSnapshots.forEach(dbSnapshot => {
-          if (dbSnapshot.success && dbSnapshot.snapshotName) {
-            snapshotIdMap.set(dbSnapshot.snapshotName, snapshot.id);
-          }
-        });
-      });
-
-      // Auto-clean stale metadata entries
-      for (const snapshotName of missingInSQL) {
-        try {
-          const snapshotId = snapshotIdMap.get(snapshotName);
-          if (snapshotId) {
-            const deleteResult = await metadataStorage.deleteSnapshot(snapshotId);
-            if (deleteResult.success) {
-              autoCleanedCount++;
-            }
-          }
-        } catch (error) {
-          console.error(`❌ Failed to auto-remove stale snapshot entry ${snapshotName}:`, error.message);
-        }
-      }
-
-      if (autoCleanedCount > 0) {
-        issues.push(`Auto-cleaned ${autoCleanedCount} stale metadata entries that don't exist in SQL Server`);
-        await addToHistory({
-          type: 'auto_cleanup_stale_metadata',
-          deletedCount: autoCleanedCount,
-          message: `Auto-cleaned ${autoCleanedCount} stale snapshot entries from metadata`
-        });
-      }
+      issues.push(`Found ${missingInSQL.length} snapshot(s) in metadata that no longer exist in SQL Server: ${missingInSQL.join(', ')}`);
+      needsCleanup = true;
     }
 
     // Check 3: Verify snapshot accessibility (files exist) - REMOVED
     // We should NOT be checking file accessibility - if SQL Server says they exist in sys.databases, that's enough
     const inaccessibleSnapshots = [];
 
+    // Check 4: Verify the actual source databases (not just snapshot bookkeeping)
+    // are healthy. A restore-from-snapshot interrupted mid-flight (e.g. a host
+    // reboot during Discard Changes) can leave the real database stuck in a
+    // non-ONLINE state (RESTORING, SUSPECT, etc.) even though every snapshot
+    // record looks consistent - that's a bigger problem than a stale snapshot
+    // and needs to show up here rather than only in the SQL Server error log.
+    const groups = await metadataStorage.getAllGroups();
+    const trackedDatabases = [...new Set(groups.flatMap(g => g.databases || []))];
+    const unhealthyDatabases = [];
+
+    if (trackedDatabases.length > 0) {
+      const dbStateResult = await pool.request().query(`
+        SELECT name, state_desc
+        FROM sys.databases
+        WHERE source_database_id IS NULL
+      `);
+      const dbStates = new Map(dbStateResult.recordset.map(row => [row.name, row.state_desc]));
+
+      for (const dbName of trackedDatabases) {
+        const state = dbStates.get(dbName);
+        if (state && state !== 'ONLINE') {
+          unhealthyDatabases.push({ database: dbName, state });
+        }
+      }
+
+      if (unhealthyDatabases.length > 0) {
+        issues.push(`Found ${unhealthyDatabases.length} database(s) not ONLINE: ${unhealthyDatabases.map(d => `${d.database} (${d.state})`).join(', ')} - likely an interrupted Discard Changes`);
+        needsCleanup = true;
+      }
+    }
+
     await pool.close();
 
-    if (needsCleanup || autoCleanedCount > 0) {
-      return { verified: false, issues, orphanedInSQL, missingInSQL: [], inaccessibleSnapshots };
+    if (needsCleanup) {
+      return { verified: false, issues, orphanedInSQL, missingInSQL, inaccessibleSnapshots, unhealthyDatabases };
     } else {
       return { verified: true, issues: [] };
     }
@@ -1970,6 +1973,7 @@ app.post('/api/snapshots/verify', async (req, res) => {
       orphanedInSQL: verification.orphanedInSQL || [],
       missingInSQL: verification.missingInSQL || [],
       inaccessibleSnapshots: verification.inaccessibleSnapshots || [],
+      unhealthyDatabases: verification.unhealthyDatabases || [],
       message: verification.verified ?
         'All snapshots are consistent' :
         `Found ${verification.issues.length} consistency issues`
