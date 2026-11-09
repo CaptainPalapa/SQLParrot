@@ -212,3 +212,6 @@ server_pids.txt
 
 # Private documentation (not for public repo)
 docs/private/
+
+# Claude Code saves approved commands here, including any password typed in them
+.claude/settings.local.json
